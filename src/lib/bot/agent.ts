@@ -43,6 +43,7 @@ Flujo que DEBES seguir en orden:
 9. Usa 'confirmar_y_enviar_pedido' para finalizar.
 
 REGLAS IMPORTANTES:
+- NUNCA uses etiquetas XML o <function> para llamar herramientas. Usa SIEMPRE el formato nativo JSON de llamadas a herramientas.
 - NUNCA inventes precios ni IDs de productos. Siempre usa 'consultar_menu' primero.
 - Si el cliente pide algo que no existe, ofrece alternativas similares.
 - Si el billete es menor al total, pide uno más grande.
@@ -257,16 +258,26 @@ export async function processMessage(chatId: number, text: string, username: str
 
     const msg = response.choices[0].message;
 
-    // Fallback: Groq/Llama3 a veces filtra la sintaxis interna en formato texto en lugar de usar tool_calls
+    // Fallback ultra-agresivo para Groq/Llama3
     if (msg.content && msg.content.includes('<function=')) {
-      const toolMatch = msg.content.match(/<function=([a-zA-Z0-9_]+)[^\{]*(\{.*?\})[^<]*<\/function>/is);
-      if (toolMatch) {
+      // Extraemos el nombre de la función
+      const nameMatch = msg.content.match(/<function=([a-zA-Z0-9_]+)/);
+      // Extraemos el primer bloque JSON que encontremos
+      const argsMatch = msg.content.match(/(\{.*?\})/s);
+      
+      if (nameMatch) {
+        const funcName = nameMatch[1];
+        const funcArgs = argsMatch ? argsMatch[1] : '{}';
+
         msg.tool_calls = [{
           id: 'call_' + Math.random().toString(36).substring(7),
           type: 'function',
-          function: { name: toolMatch[1], arguments: toolMatch[2] }
+          function: { name: funcName, arguments: funcArgs }
         }] as any;
+        
+        // Limpiamos la basura del mensaje
         msg.content = msg.content.replace(/<function=.*?<\/function>/is, '').trim();
+        msg.content = msg.content.replace(/<function=[^\>]*\>/is, '').trim();
       }
     }
 

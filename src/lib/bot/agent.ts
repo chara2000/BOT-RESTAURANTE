@@ -16,7 +16,8 @@ export type BotState =
   | 'checkout_cash_amount'
   | 'checkout_address'
   | 'tracking_order'
-  | 'contacting_manager';
+  | 'contacting_manager'
+  | 'awaiting_payment_receipt';
 
 export interface BotSession {
   chatId: number;
@@ -24,10 +25,11 @@ export interface BotSession {
   cart: OrderItem[];
   selectedProduct?: Product;
   pendingItem?: { product: Product; quantity: number };
-  paymentMethod?: 'cash' | 'transfer';
-  paymentStatus?: 'pending' | 'paid';
+  paymentMethod?: 'cash' | 'transfer' | 'ondelivery';
+  paymentStatus?: 'pending' | 'paid' | 'pending_verification';
   changeAmount?: number;
   customerName?: string;
+  paymentReceiptId?: string;
 }
 
 export interface BotResponse {
@@ -198,7 +200,8 @@ function paymentOptionsScreen(session: BotSession): BotResponse {
     reply_markup: {
       inline_keyboard: [
         [{ text: '💵 Efectivo', callback_data: 'pay_cash' }],
-        [{ text: '📱 Nequi / Daviplata / Transferencia', callback_data: 'pay_digital' }],
+        [{ text: '📱 Nequi / Daviplata / Bancolombia', callback_data: 'pay_digital' }],
+        [{ text: '💳 Pago Contra Entrega', callback_data: 'pay_ondelivery' }],
         [{ text: '↩️ Volver al carrito', callback_data: 'cart' }],
       ],
     },
@@ -250,13 +253,51 @@ function handleCashAmount(session: BotSession, text: string): BotResponse {
 }
 
 function digitalPaymentScreen(session: BotSession): BotResponse {
-  const payId = Math.random().toString(36).slice(2, 10).toUpperCase();
   session.paymentMethod = 'transfer';
-  session.paymentStatus = 'paid';
+  session.paymentStatus = 'pending_verification';
+  session.state = 'awaiting_payment_receipt';
+
+  return {
+    text: `📱 *Pago Digital*\n\n🏦 *Nequi / Daviplata:* 300 123 4567\n💳 *Bancolombia (Ahorros):* 123-456789-00\n\n📸 Realiza la transferencia y **envíame una foto del comprobante** por aquí mismo para continuar.\n\n_(O toca el botón para cancelar)_`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+      ],
+    },
+  };
+}
+
+function handlePaymentReceipt(session: BotSession, isPhoto: boolean, photoId?: string): BotResponse {
+  if (!isPhoto) {
+    return {
+      text: '⚠️ *No detectamos una imagen.*\nPor favor, asegúrate de enviar una **foto** o **captura de pantalla** del comprobante para poder validar tu pago.',
+      reply_markup: {
+        inline_keyboard: [[{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }]],
+      },
+    };
+  }
+
+  session.paymentReceiptId = photoId;
   session.state = 'checkout_address';
 
   return {
-    text: `📱 *Pago Digital*\n\n🔗 Enlace de pago:\nhttps://pay.breve.link/${payId}\n\n✅ Realiza el pago y luego indica tu dirección de entrega:\n\nO toca el botón si prefieres recoger:`,
+    text: `✅ *¡Comprobante recibido!*\n\n📍 ¿A dónde enviamos tu pedido?\n\nEscribe tu dirección o toca el botón si vas a recoger:`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
+        [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+      ],
+    },
+  };
+}
+
+function onDeliveryScreen(session: BotSession): BotResponse {
+  session.paymentMethod = 'ondelivery';
+  session.paymentStatus = 'pending';
+  session.state = 'checkout_address';
+
+  return {
+    text: `💳 *Pago Contra Entrega*\n\nPodrás pagar en efectivo o con datáfono cuando recibas tu pedido.\n\n📍 ¿A dónde enviamos tu pedido?\n\nEscribe tu dirección o toca el botón si vas a recoger:`,
     reply_markup: {
       inline_keyboard: [
         [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
@@ -276,6 +317,10 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   let notes = `[ID: ${shortId}] [Cliente: ${session.customerName}]`;
   if (session.paymentMethod === 'cash' && session.changeAmount !== undefined) {
     notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
+  } else if (session.paymentMethod === 'transfer') {
+    notes += ` | [TRANSFERENCIA] Pendiente de validación`;
+  } else if (session.paymentMethod === 'ondelivery') {
+    notes += ` | [PAGO CONTRA ENTREGA] Llevar datáfono/cambio`;
   }
 
   // 1. Crear la orden
@@ -327,6 +372,7 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   session.paymentMethod = undefined;
   session.paymentStatus = undefined;
   session.changeAmount = undefined;
+  session.paymentReceiptId = undefined;
 
   return {
     text: `🎉 *¡Pedido Confirmado!*\n\n📋 Código de seguimiento: *${shortId}*\n📍 Dirección: ${address}\n💰 Total: *$${total.toLocaleString('es-CO')}*\n\n¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
@@ -425,7 +471,8 @@ async function handleContactManager(session: BotSession, text: string): Promise<
 export async function processMessage(
   chatId: number,
   text: string,
-  username: string
+  username: string,
+  extra?: { isPhoto: boolean; photoId?: string }
 ): Promise<BotResponse> {
   if (text.trim() === '/start') {
     delete globalSessions[chatId];
@@ -447,6 +494,10 @@ export async function processMessage(
 
   if (session.state === 'contacting_manager') {
     return handleContactManager(session, text.trim());
+  }
+
+  if (session.state === 'awaiting_payment_receipt') {
+    return handlePaymentReceipt(session, extra?.isPhoto || false, extra?.photoId);
   }
 
   if (session.state === 'tracking_order') {
@@ -477,6 +528,7 @@ export async function processCallback(
   if (callbackData === 'pay') return paymentOptionsScreen(session);
   if (callbackData === 'pay_cash') return cashAmountScreen(session);
   if (callbackData === 'pay_digital') return digitalPaymentScreen(session);
+  if (callbackData === 'pay_ondelivery') return onDeliveryScreen(session);
   if (callbackData === 'recoger') return confirmOrderScreen(session, 'Para Recoger en el local');
   if (callbackData === 'clear_cart') {
     session.cart = [];

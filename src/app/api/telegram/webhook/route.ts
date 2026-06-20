@@ -55,18 +55,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // ── Manejo de mensajes de texto ────────────────────────────────────────
+  // ── Manejo de mensajes de texto e imágenes ─────────────────────────────
   if (body.message) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const msg = body.message as any;
     const chatId: number = msg.chat?.id;
-    const text: string = msg.text || '';
+    const text: string = msg.text || msg.caption || '';
     const username: string = msg.from?.username || msg.from?.first_name || 'Cliente';
+    const isPhoto: boolean = !!msg.photo;
+    const photoId: string | undefined = msg.photo ? msg.photo[msg.photo.length - 1].file_id : undefined;
 
-    if (!text || !chatId) return NextResponse.json({ ok: true });
+    if (!text && !isPhoto) return NextResponse.json({ ok: true });
 
     try {
-      const response = await processMessage(chatId, text, username);
+      const response = await processMessage(chatId, text, username, { isPhoto, photoId });
       await sendReply(chatId, response.text, response.reply_markup);
     } catch (err) {
       console.error('processMessage error:', err);

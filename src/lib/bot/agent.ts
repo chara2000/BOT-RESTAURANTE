@@ -108,11 +108,10 @@ function welcomeScreen(): BotResponse {
 
 async function menuScreen(categoryId?: string): Promise<BotResponse> {
   if (!categoryId) {
-    const { data, error } = await supabase.from('products').select('category').eq('is_available', true);
-    if (error || !data || data.length === 0) return { text: '⚠️ No hay productos disponibles en este momento. Intenta más tarde.' };
+    const { data, error } = await supabase.from('categories').select('id, name').eq('is_active', true).order('sort_order', { ascending: true });
+    if (error || !data || data.length === 0) return { text: '⚠️ No hay menú disponible en este momento. Intenta más tarde.' };
     
-    const categories = [...new Set(data.map(d => d.category))];
-    const buttons = categories.map(c => [{ text: `📁 ${c}`, callback_data: `cat:${c}` }]);
+    const buttons = data.map(c => [{ text: `📁 ${c.name}`, callback_data: `cat:${c.id}` }]);
     buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
 
     return {
@@ -120,8 +119,8 @@ async function menuScreen(categoryId?: string): Promise<BotResponse> {
       reply_markup: { inline_keyboard: buttons },
     };
   } else {
-    const { data, error } = await supabase.from('products').select('id, name, price').eq('is_available', true).eq('category', categoryId);
-    if (error || !data || data.length === 0) return { text: '⚠️ Categoría vacía.' };
+    const { data, error } = await supabase.from('products').select('id, name, price').eq('is_available', true).eq('category_id', categoryId);
+    if (error || !data || data.length === 0) return { text: '⚠️ Categoría vacía o sin productos disponibles.' };
 
     const products = data as { id: string; name: string; price: number }[];
     const buttons = products.map(p => [
@@ -131,7 +130,7 @@ async function menuScreen(categoryId?: string): Promise<BotResponse> {
     buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
 
     return {
-      text: `📁 *Categoría: ${categoryId}*\n\nToca un producto para agregarlo a tu pedido:`,
+      text: `🍔 *Elige tu producto*\n\nToca un producto para agregarlo a tu pedido:`,
       reply_markup: { inline_keyboard: buttons },
     };
   }

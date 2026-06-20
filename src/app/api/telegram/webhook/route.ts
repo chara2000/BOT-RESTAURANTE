@@ -1,55 +1,70 @@
-import { NextResponse } from 'next/server';
-import { processMessage } from '@/lib/bot/agent';
+import { NextRequest, NextResponse } from 'next/server';
 import { Telegraf } from 'telegraf';
+import { processMessage, processCallback } from '@/lib/bot/agent';
 
-export const maxDuration = 60; // Permitir hasta 60 segundos en Vercel
-export const dynamic = 'force-dynamic';
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!);
 
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || 'dummy');
-
-async function sendTyping(chatId: number) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const url = 'https://api.telegram.org/bot' + token + '/sendChatAction';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function sendReply(chatId: number, text: string, reply_markup?: any) {
   try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, action: 'typing' }),
+    await bot.telegram.sendMessage(chatId, text, {
+      parse_mode: 'Markdown',
+      ...(reply_markup ? { reply_markup } : {}),
     });
-  } catch (_) {}
+  } catch {
+    // Fallback: Markdown inválido → texto plano
+    await bot.telegram.sendMessage(chatId, text, {
+      ...(reply_markup ? { reply_markup } : {}),
+    });
+  }
 }
 
-export async function POST(req: Request) {
-  let body: any = {};
+export async function POST(req: NextRequest) {
   try {
-    body = await req.json();
+    const body = await req.json();
 
-    if (body.message && body.message.text) {
-      const chatId: number = body.message.chat.id;
-      const text: string = body.message.text;
-      const username: string = body.message.from?.first_name || 'Cliente';
+    // ── Manejo de botones inline (callback_query) ──────────────────────────
+    if (body.callback_query) {
+      const { id, from, data, message } = body.callback_query as {
+        id: string;
+        from: { username?: string; first_name?: string };
+        data: string;
+        message: { chat: { id: number } };
+      };
 
-      await sendTyping(chatId);
+      const chatId = message.chat.id;
+      const username = from.username || from.first_name || 'Cliente';
 
-      const replyText = await processMessage(chatId, text, username);
+      // Responder inmediatamente para quitar el spinner del botón
+      await bot.telegram.answerCbQuery(id).catch(() => {});
 
-      try {
-        await bot.telegram.sendMessage(chatId, replyText, { parse_mode: 'Markdown' });
-      } catch (e) {
-        // Fallback: Si el LLM generó Markdown inválido (ej. asteriscos sin cerrar), enviamos en texto plano
-        await bot.telegram.sendMessage(chatId, replyText);
-      }
+      const response = await processCallback(chatId, data, username);
+      await sendReply(chatId, response.text, response.reply_markup);
+
+      return NextResponse.json({ success: true });
+    }
+
+    // ── Manejo de mensajes de texto ────────────────────────────────────────
+    if (body.message) {
+      const { chat, text, from } = body.message as {
+        chat: { id: number };
+        text?: string;
+        from?: { username?: string; first_name?: string };
+      };
+
+      if (!text) return NextResponse.json({ success: true });
+
+      const chatId = chat.id;
+      const username = from?.username || from?.first_name || 'Cliente';
+
+      const response = await processMessage(chatId, text, username);
+      await sendReply(chatId, response.text, response.reply_markup);
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error('Webhook Error:', err);
-    // Intentar enviar el error directo al usuario de Telegram para depuración
-    try {
-      if (body?.message?.chat?.id) {
-        await bot.telegram.sendMessage(body.message.chat.id, '❌ *Error Interno del Bot:*\n`' + String(err) + '`', { parse_mode: 'Markdown' });
-      }
-    } catch (_) {}
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    // Siempre devolver 200 a Telegram para que no reintente
+    return NextResponse.json({ ok: true }, { status: 200 });
   }
 }

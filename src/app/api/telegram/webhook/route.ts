@@ -12,59 +12,68 @@ async function sendReply(chatId: number, text: string, reply_markup?: any) {
       ...(reply_markup ? { reply_markup } : {}),
     });
   } catch {
-    // Fallback: Markdown inválido → texto plano
-    await bot.telegram.sendMessage(chatId, text, {
-      ...(reply_markup ? { reply_markup } : {}),
-    });
+    // Fallback: si Markdown falla, enviar texto plano
+    try {
+      await bot.telegram.sendMessage(chatId, text, {
+        ...(reply_markup ? { reply_markup } : {}),
+      });
+    } catch (e2) {
+      console.error('sendReply fallback failed:', e2);
+    }
   }
 }
 
 export async function POST(req: NextRequest) {
+  // Siempre responder 200 a Telegram (si tardamos más de 3s cancela y reintenta)
+  let body: Record<string, unknown>;
   try {
-    const body = await req.json();
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ ok: true });
+  }
 
-    // ── Manejo de botones inline (callback_query) ──────────────────────────
-    if (body.callback_query) {
-      const { id, from, data, message } = body.callback_query as {
-        id: string;
-        from: { username?: string; first_name?: string };
-        data: string;
-        message: { chat: { id: number } };
-      };
+  // ── Manejo de botones inline (callback_query) ──────────────────────────
+  if (body.callback_query) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cq = body.callback_query as any;
+    const chatId: number = cq.message?.chat?.id;
+    const username: string = cq.from?.username || cq.from?.first_name || 'Cliente';
+    const data: string = cq.data || '';
+    const cbId: string = cq.id;
 
-      const chatId = message.chat.id;
-      const username = from.username || from.first_name || 'Cliente';
+    // Quitar spinner del botón inmediatamente
+    await bot.telegram.answerCbQuery(cbId).catch(() => {});
 
-      // Responder inmediatamente para quitar el spinner del botón
-      await bot.telegram.answerCbQuery(id).catch(() => {});
-
+    try {
       const response = await processCallback(chatId, data, username);
       await sendReply(chatId, response.text, response.reply_markup);
-
-      return NextResponse.json({ success: true });
+    } catch (err) {
+      console.error('processCallback error:', err);
+      await bot.telegram.sendMessage(chatId, '⚠️ Ocurrió un error. Escribe /start para reiniciar.').catch(() => {});
     }
 
-    // ── Manejo de mensajes de texto ────────────────────────────────────────
-    if (body.message) {
-      const { chat, text, from } = body.message as {
-        chat: { id: number };
-        text?: string;
-        from?: { username?: string; first_name?: string };
-      };
+    return NextResponse.json({ ok: true });
+  }
 
-      if (!text) return NextResponse.json({ success: true });
+  // ── Manejo de mensajes de texto ────────────────────────────────────────
+  if (body.message) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const msg = body.message as any;
+    const chatId: number = msg.chat?.id;
+    const text: string = msg.text || '';
+    const username: string = msg.from?.username || msg.from?.first_name || 'Cliente';
 
-      const chatId = chat.id;
-      const username = from?.username || from?.first_name || 'Cliente';
+    if (!text || !chatId) return NextResponse.json({ ok: true });
 
+    try {
       const response = await processMessage(chatId, text, username);
       await sendReply(chatId, response.text, response.reply_markup);
+    } catch (err) {
+      console.error('processMessage error:', err);
+      await bot.telegram.sendMessage(chatId, '⚠️ Ocurrió un error. Escribe /start para reiniciar.').catch(() => {});
     }
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    // Siempre devolver 200 a Telegram para que no reintente
-    return NextResponse.json({ ok: true }, { status: 200 });
   }
+
+  return NextResponse.json({ ok: true });
 }
+

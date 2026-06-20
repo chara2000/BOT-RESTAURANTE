@@ -236,6 +236,11 @@ async function runTool(name: string, args: Record<string, unknown>, session: Bot
 }
 
 export async function processMessage(chatId: number, text: string, username: string): Promise<string> {
+  // Si el usuario escribe /start, borramos la sesión para reiniciar el bot (y que tome el nuevo SYSTEM_PROMPT)
+  if (text.trim() === '/start') {
+    delete globalSessions[chatId];
+  }
+
   const session = getSession(chatId);
   session.customerName = username;
   session.messages.push({ role: 'user', content: text });

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { Telegraf } from 'telegraf';
 import type { OrderItem, Product } from '@/types';
 
 const supabase = createClient(
@@ -14,7 +15,8 @@ export type BotState =
   | 'selecting_item_note'
   | 'checkout_cash_amount'
   | 'checkout_address'
-  | 'tracking_order';
+  | 'tracking_order'
+  | 'contacting_manager';
 
 export interface BotSession {
   chatId: number;
@@ -72,6 +74,7 @@ function welcomeScreen(): BotResponse {
         [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
         [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
         [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
+        [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
       ],
     },
   };
@@ -384,6 +387,39 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
   };
 }
 
+function contactManagerScreen(session: BotSession): BotResponse {
+  session.state = 'contacting_manager';
+  return {
+    text: '🙋 *Contactar al Encargado*\n\nEscribe a continuación tu duda, queja o sugerencia. Se la enviaremos directamente al administrador y nos pondremos en contacto contigo si es necesario.\n\n_(O toca el botón para cancelar)_',
+    reply_markup: {
+      inline_keyboard: [[{ text: '↩️ Cancelar', callback_data: 'menu' }]]
+    }
+  };
+}
+
+async function handleContactManager(session: BotSession, text: string): Promise<BotResponse> {
+  session.state = 'idle';
+  
+  const adminId = process.env.ADMIN_CHAT_ID;
+  if (adminId) {
+    try {
+      const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!);
+      await bot.telegram.sendMessage(adminId, `📩 *Nuevo mensaje de cliente*\n\n👤 *Cliente:* ${session.customerName} (ID: ${session.chatId})\n💬 *Mensaje:* ${text}`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error('Failed to send to admin', e);
+    }
+  } else {
+    console.warn('Mensaje recibido para encargado, pero ADMIN_CHAT_ID no está configurado en las variables de entorno:', text);
+  }
+
+  return {
+    text: '✅ *¡Mensaje enviado!*\n\nEl encargado ha recibido tu mensaje. Muchas gracias por escribirnos.',
+    reply_markup: {
+      inline_keyboard: [[{ text: '🏠 Volver al menú', callback_data: 'menu' }]]
+    }
+  };
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function processMessage(
@@ -407,6 +443,10 @@ export async function processMessage(
 
   if (session.state === 'selecting_item_note') {
     return addToCartAndConfirm(session, text.trim());
+  }
+
+  if (session.state === 'contacting_manager') {
+    return handleContactManager(session, text.trim());
   }
 
   if (session.state === 'tracking_order') {
@@ -444,6 +484,7 @@ export async function processCallback(
     return { text: '🗑️ Carrito vaciado.', reply_markup: { inline_keyboard: [[{ text: '🍽️ Ver Menú', callback_data: 'menu' }]] } };
   }
   if (callbackData === 'track_prompt') return promptTrackOrderScreen(session);
+  if (callbackData === 'contact_manager') return contactManagerScreen(session);
   if (callbackData.startsWith('track:')) return handleTrackOrder(session, callbackData.replace('track:', ''));
   if (callbackData === 'skip_note') return addToCartAndConfirm(session);
   

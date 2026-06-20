@@ -254,8 +254,15 @@ export async function processMessage(chatId: number, text: string, username: str
 
     // Execute all tool calls
     for (const call of msg.tool_calls as Array<{ id: string; function: { name: string; arguments: string } }>) {
-      const args = JSON.parse(call.function.arguments) as Record<string, unknown>;
-      const result = await runTool(call.function.name, args, session);
+      let args: Record<string, unknown> = {};
+      let result = '';
+      try {
+        args = JSON.parse(call.function.arguments || '{}');
+        result = await runTool(call.function.name, args, session);
+      } catch (e) {
+        result = 'Error interno: Generaste un JSON inválido en tus argumentos. Reintenta llamando a la herramienta con un JSON válido.';
+      }
+
       session.messages.push({
         role: 'tool',
         content: result,

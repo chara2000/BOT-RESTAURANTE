@@ -256,6 +256,20 @@ export async function processMessage(chatId: number, text: string, username: str
     }
 
     const msg = response.choices[0].message;
+
+    // Fallback: Groq/Llama3 a veces filtra la sintaxis interna en formato texto en lugar de usar tool_calls
+    if (msg.content && msg.content.includes('<function=')) {
+      const toolMatch = msg.content.match(/<function=([a-zA-Z0-9_]+)[^\{]*(\{.*?\})[^<]*<\/function>/is);
+      if (toolMatch) {
+        msg.tool_calls = [{
+          id: 'call_' + Math.random().toString(36).substring(7),
+          type: 'function',
+          function: { name: toolMatch[1], arguments: toolMatch[2] }
+        }] as any;
+        msg.content = msg.content.replace(/<function=.*?<\/function>/is, '').trim();
+      }
+    }
+
     session.messages.push(msg as BotSession['messages'][number]);
 
     // If no tool calls, the agent has a final response for the user

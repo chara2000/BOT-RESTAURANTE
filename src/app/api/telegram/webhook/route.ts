@@ -33,7 +33,12 @@ export async function POST(req: Request) {
 
       const replyText = await processMessage(chatId, text, username);
 
-      await bot.telegram.sendMessage(chatId, replyText, { parse_mode: 'Markdown' });
+      try {
+        await bot.telegram.sendMessage(chatId, replyText, { parse_mode: 'Markdown' });
+      } catch (e) {
+        // Fallback: Si el LLM generó Markdown inválido (ej. asteriscos sin cerrar), enviamos en texto plano
+        await bot.telegram.sendMessage(chatId, replyText);
+      }
     }
 
     return NextResponse.json({ success: true });

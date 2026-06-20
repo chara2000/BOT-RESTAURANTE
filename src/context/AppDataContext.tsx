@@ -1,0 +1,420 @@
+'use client';
+
+import {
+  createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
+} from 'react';
+import { createClient } from '@/lib/supabase/client';
+import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
+import {
+  cashService,
+  deliveryService,
+  inventoryService,
+  isSupabaseConfigured,
+  loadDashboardData,
+  ordersService,
+  productsService,
+  settingsService,
+} from '@/services/api';
+
+function logSupabaseError(err: unknown) {
+  if (err && typeof err === 'object' && 'message' in err) {
+    console.error('[Supabase]', (err as { message: string }).message, err);
+  } else {
+    console.error('[Supabase]', err);
+  }
+}
+import type {
+  CashSession, Customer, DashboardStats, DeliveryAssignment,
+  InventoryItem, Order, OrderStatus, Product, StockMovement, TenantSettings,
+} from '@/types';
+import {
+  initialCashSession, initialCustomers, initialInventory,
+  initialOrders, initialProducts, initialSettings, initialStockMovements,
+} from '@/services/seedData';
+
+interface AppDataContextValue {
+  orders: Order[];
+  products: Product[];
+  customers: Customer[];
+  inventory: InventoryItem[];
+  stockMovements: StockMovement[];
+  cashSession: CashSession;
+  settings: TenantSettings;
+  deliveries: DeliveryAssignment[];
+  updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
+  addOrder: (order: Order) => void;
+  updateProduct: (product: Product) => Promise<Product | void>;
+  addProduct: (product: Product) => Promise<Product | void>;
+  deleteProduct: (id: string) => Promise<void>;
+  updateInventory: (item: InventoryItem) => Promise<void>;
+  addCashTransaction: (type: 'income' | 'expense', amount: number, description: string) => Promise<void>;
+  openCashRegister: (balance: number, openedBy: string) => Promise<void>;
+  closeCashRegister: (actualCash: number) => Promise<void>;
+  updateSettings: (settings: Partial<TenantSettings>) => Promise<void>;
+  assignRider: (orderId: string, riderName: string) => Promise<void>;
+  updateRiderPosition: (orderId: string, lat: number, lng: number) => Promise<void>;
+  stats: DashboardStats;
+  lowStockCount: number;
+  activeOrdersCount: number;
+  isLoading: boolean;
+}
+
+const AppDataContext = createContext<AppDataContextValue | null>(null);
+
+function computeStats(orders: Order[], customers: Customer[], products: Product[]): DashboardStats {
+  const today = new Date().toISOString().slice(0, 10);
+  const delivered = orders.filter((o) => o.status === 'delivered');
+  const todayOrders = delivered.filter((o) => o.created_at.startsWith(today));
+  const weekAgo = Date.now() - 7 * 86400000;
+  const monthAgo = Date.now() - 30 * 86400000;
+
+  const weekOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= weekAgo);
+  const monthOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= monthAgo);
+
+  const sum = (list: Order[]) => list.reduce((a, o) => a + o.total, 0);
+  const active = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status));
+
+  const productSales = new Map<string, { name: string; sold: number; revenue: number }>();
+  delivered.forEach((o) =>
+    o.items.forEach((i) => {
+      const cur = productSales.get(i.product.id) ?? { name: i.product.name, sold: 0, revenue: 0 };
+      cur.sold += i.quantity;
+      cur.revenue += i.unit_price * i.quantity;
+      productSales.set(i.product.id, cur);
+    })
+  );
+
+  return {
+    salesToday: sum(todayOrders),
+    salesWeek: sum(weekOrders),
+    salesMonth: sum(monthOrders),
+    activeOrders: active.length,
+    deliveredOrders: delivered.length,
+    avgTicket: delivered.length ? sum(delivered) / delivered.length : 0,
+    newCustomers: customers.filter((c) => c.segment === 'new').length,
+    returningCustomers: customers.filter((c) => ['frequent', 'vip'].includes(c.segment)).length,
+    topProducts: [...productSales.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
+    salesByHour: [
+      { hour: '10h', amount: 45000 }, { hour: '12h', amount: 128000 },
+      { hour: '14h', amount: 185000 }, { hour: '16h', amount: 92000 },
+      { hour: '18h', amount: 210000 }, { hour: '20h', amount: 165000 },
+      { hour: '22h', amount: 78000 },
+    ],
+    salesByDay: [
+      { day: 'Lun', amount: 420000 }, { day: 'Mar', amount: 580000 },
+      { day: 'Mié', amount: 490000 }, { day: 'Jue', amount: 720000 },
+      { day: 'Vie', amount: 890000 }, { day: 'Sáb', amount: 1100000 },
+      { day: 'Dom', amount: 650000 },
+    ],
+  };
+}
+
+export function AppDataProvider({ children }: { children: ReactNode }) {
+  const useSupabase = isSupabaseConfigured();
+  const [orders, setOrders] = useState<Order[]>(useSupabase ? [] : initialOrders);
+  const [products, setProducts] = useState<Product[]>(useSupabase ? [] : initialProducts);
+  const [customers, setCustomers] = useState<Customer[]>(useSupabase ? [] : initialCustomers);
+  const [dataSource, setDataSource] = useState<'mock' | 'supabase'>(useSupabase ? 'supabase' : 'mock');
+  const [inventory, setInventory] = useState<InventoryItem[]>(useSupabase ? [] : initialInventory);
+  const [stockMovements] = useState<StockMovement[]>(initialStockMovements);
+  const [cashSession, setCashSession] = useState<CashSession>(initialCashSession);
+  const [settings, setSettings] = useState<TenantSettings>(initialSettings);
+  const [deliveries, setDeliveries] = useState<DeliveryAssignment[]>(
+    useSupabase ? [] : initialOrders
+      .filter((o) => o.type === 'delivery')
+      .map((o, i) => ({
+        order_id: o.id,
+        order: o,
+        rider_name: i === 0 ? 'Carlos M.' : undefined,
+        status: i === 0 ? 'assigned' as const : 'searching' as const,
+        latitude: 6.2088 + i * 0.01,
+        longitude: -75.5678 + i * 0.01,
+      }))
+  );
+  const [isLoading, setIsLoading] = useState(useSupabase);
+
+  const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] =>
+    orderList
+      .filter((o) => o.type === 'delivery')
+      .map((o, i) => ({
+        order_id: o.id,
+        order: o,
+        status: o.status === 'delivered' ? 'delivered' as const : i === 0 ? 'assigned' as const : 'searching' as const,
+        latitude: 6.2088 + i * 0.01,
+        longitude: -75.5678 + i * 0.01,
+      })), []);
+
+  const syncFromSupabase = useCallback(async () => {
+    try {
+      const data = await loadDashboardData();
+      if (!data) return;
+      setOrders(data.orders);
+      setProducts(data.products);
+      setCustomers(data.customers);
+      setInventory(data.inventory);
+      setDeliveries(data.deliveries?.length ? data.deliveries : buildDeliveries(data.orders));
+      if (data.cashSession) {
+        setCashSession(data.cashSession);
+      } else {
+        setCashSession({
+          id: '',
+          opened_by: '',
+          opening_balance: 0,
+          status: 'closed',
+          opened_at: new Date().toISOString(),
+          transactions: [],
+        });
+      }
+      if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+      setDataSource('supabase');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [buildDeliveries]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let active = true;
+
+    syncFromSupabase().catch(logSupabaseError);
+
+    const supabase = createClient();
+    if (!supabase) return () => { active = false; };
+
+    const channel = supabase
+      .channel('chefflow-dashboard')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
+        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
+        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
+        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [syncFromSupabase]);
+
+  const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.order_id === orderId
+          ? { ...d, order: { ...d.order, status }, status: status === 'delivered' ? 'delivered' : d.status }
+          : d
+      )
+    );
+    if (dataSource === 'supabase') {
+      try {
+        await ordersService.updateStatus(orderId, status);
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
+
+  const addOrder = useCallback((order: Order) => {
+    setOrders((prev) => [order, ...prev]);
+    if (order.type === 'delivery') {
+      setDeliveries((prev) => [
+        ...prev,
+        {
+          order_id: order.id,
+          order,
+          status: 'searching',
+          latitude: 6.2088,
+          longitude: -75.5678,
+        },
+      ]);
+    }
+  }, []);
+
+  const updateProduct = useCallback(async (product: Product) => {
+    setProducts((prev) => prev.map((p) => (p.id === product.id ? product : p)));
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await productsService.update(product);
+        setProducts((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+        return saved;
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
+
+  const addProduct = useCallback(async (product: Product) => {
+    setProducts((prev) => [...prev, product]);
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await productsService.create(product);
+        setProducts((prev) => prev.map((p) => (p.id === product.id ? saved : p)));
+        return saved;
+      } catch (err) {
+        logSupabaseError(err);
+        setProducts((prev) => prev.filter((p) => p.id !== product.id));
+        throw err;
+      }
+    }
+  }, [dataSource]);
+
+  const deleteProduct = useCallback(async (id: string) => {
+    const previous = products;
+    setProducts((prev) => prev.filter((p) => p.id !== id));
+    if (dataSource === 'supabase') {
+      try {
+        await productsService.remove(id);
+      } catch (err) {
+        logSupabaseError(err);
+        setProducts(previous);
+        throw err;
+      }
+    }
+  }, [dataSource, products]);
+
+  const updateInventory = useCallback(async (item: InventoryItem) => {
+    setInventory((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await inventoryService.update(item);
+        setInventory((prev) => prev.map((i) => (i.id === saved.id ? saved : i)));
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
+
+  const addCashTransaction = useCallback(async (type: 'income' | 'expense', amount: number, description: string) => {
+    if (dataSource === 'supabase') {
+      const saved = await cashService.addTransaction(cashSession.id, type, amount, description);
+      setCashSession((prev) => ({ ...prev, transactions: [saved, ...prev.transactions] }));
+      return;
+    }
+    setCashSession((prev) => ({
+      ...prev,
+      transactions: [{ id: `t${Date.now()}`, type, amount, description, created_at: new Date().toISOString() }, ...prev.transactions],
+    }));
+  }, [cashSession.id, dataSource]);
+
+  const openCashRegister = useCallback(async (balance: number, openedBy: string) => {
+    if (dataSource === 'supabase') {
+      const saved = await cashService.open(balance, openedBy);
+      setCashSession(saved);
+      return;
+    }
+    setCashSession({
+      id: `CS-${Date.now()}`,
+      opened_by: openedBy,
+      opening_balance: balance,
+      status: 'open',
+      opened_at: new Date().toISOString(),
+      transactions: [],
+    });
+  }, [dataSource]);
+
+  const closeCashRegister = useCallback(async (actualCash: number) => {
+    if (dataSource === 'supabase') {
+      const closed = await cashService.close(cashSession, actualCash);
+      setCashSession((prev) => ({ ...prev, ...closed }));
+      return;
+    }
+    setCashSession((prev) => {
+      const income = prev.transactions.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+      const expense = prev.transactions.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
+      const expected = prev.opening_balance + income - expense;
+      return {
+        ...prev,
+        status: 'closed',
+        closing_balance: expected,
+        actual_cash: actualCash,
+        difference: actualCash - expected,
+        closed_at: new Date().toISOString(),
+      };
+    });
+  }, [cashSession, dataSource]);
+
+  const updateSettings = useCallback(async (partial: Partial<TenantSettings>) => {
+    setSettings((prev) => ({ ...prev, ...partial }));
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await settingsService.update(partial);
+        setSettings((prev) => ({ ...prev, ...saved }));
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
+
+  const assignRider = useCallback(async (orderId: string, riderName: string) => {
+    setDeliveries((prev) =>
+      prev.map((d) => (d.order_id === orderId ? { ...d, rider_name: riderName, status: 'assigned' } : d))
+    );
+    if (dataSource === 'supabase') {
+      try {
+        await deliveryService.update(orderId, { rider_name: riderName, status: 'assigned' });
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
+
+  const updateRiderPosition = useCallback(async (orderId: string, lat: number, lng: number) => {
+    setDeliveries((prev) =>
+      prev.map((d) => (d.order_id === orderId ? { ...d, latitude: lat, longitude: lng } : d))
+    );
+    if (dataSource === 'supabase') {
+      try {
+        await deliveryService.update(orderId, { latitude: lat, longitude: lng });
+      } catch (err) {
+        logSupabaseError(err);
+      }
+    }
+  }, [dataSource]);
+
+  const stats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
+  const lowStockCount = inventory.filter((i) => i.stock <= i.min_stock).length;
+  const activeOrdersCount = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length;
+
+  const value = useMemo(
+    () => ({
+      orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, updateInventory,
+      addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
+      assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
+    }),
+    [
+      orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, updateInventory,
+      addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
+      assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
+    ]
+  );
+
+  return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
+}
+
+export function useAppData() {
+  const ctx = useContext(AppDataContext);
+  if (!ctx) throw new Error('useAppData must be used within AppDataProvider');
+  return ctx;
+}

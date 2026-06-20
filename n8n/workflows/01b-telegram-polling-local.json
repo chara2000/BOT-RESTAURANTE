@@ -1,0 +1,284 @@
+{
+  "id": "a1111111-1111-4111-8111-111111111106",
+  "name": "ChefFlow 01b - Telegram Polling Local (sin HTTPS)",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "seconds", "secondsInterval": 15 }] } },
+      "id": "b1000001-0001-4001-8001-000000000001",
+      "name": "Cada 15 seg",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nreturn [{ json: { offset: staticData.lastOffset || 0 } }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000002",
+      "name": "Poll Offset",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/getUpdates?offset={{ $json.offset }}&timeout=0&allowed_updates=[\"message\"]"
+      },
+      "id": "b1000001-0001-4001-8001-000000000003",
+      "name": "Telegram getUpdates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const staticData = $getWorkflowStaticData('global');\nconst updates = $input.first().json.result || [];\nif (!updates.length) return [];\nstaticData.lastOffset = updates[updates.length - 1].update_id + 1;\nreturn updates.filter(u => u.message?.text).map(u => ({ json: { message: u.message } }));"
+      },
+      "id": "b1000001-0001-4001-8001-000000000004",
+      "name": "Telegram Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/products?tenant_id=eq.a0000000-0000-4000-8000-000000000001&is_available=eq.true&select=id,name,price,description",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        }
+      },
+      "id": "b1000001-0001-4001-8001-000000000005",
+      "name": "Cargar Menu Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const telegram = $('Telegram Entrada').first().json;\nconst menu = $('Cargar Menu Supabase').all().map(i => i.json);\nconst chatId = String(telegram.message.chat.id);\nconst userName = telegram.message.from?.first_name ?? 'Cliente';\nconst userText = telegram.message.text ?? '';\nconst menuText = menu.map(p => `- ${p.name}: $${Number(p.price).toLocaleString('es-CO')} (id:${p.id})`).join('\\n');\nconst systemPrompt = `Eres ChefFlow, asistente de pedidos. Responde en español.\\nMENÚ:\\n${menuText}\\n\\nCliente: ${userName} (telegram:${chatId})\\n\\nToma pedido, pide dirección y pago. Si pedido COMPLETO agrega ORDER_JSON:{\"items\":[{\"product_id\":\"uuid\",\"quantity\":1}],\"address\":\"...\",\"payment_method\":\"nequi\",\"customer_name\":\"${userName}\",\"telegram_chat_id\":\"${chatId}\"}`;\nreturn [{ json: { systemPrompt, userText, chatId, userName, menu } }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000006",
+      "name": "Preparar Contexto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.GEMINI_MODEL || 'gemini-2.0-flash' }}:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Content-Type", "value": "application/json" }] },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"systemInstruction\": { \"parts\": [{ \"text\": {{ JSON.stringify($json.systemPrompt) }} }] },\n  \"contents\": [{ \"role\": \"user\", \"parts\": [{ \"text\": {{ JSON.stringify($json.userText) }} }] }],\n  \"generationConfig\": { \"temperature\": 0.7, \"maxOutputTokens\": 2048 }\n}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000007",
+      "name": "Google Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst text = raw.candidates?.[0]?.content?.parts?.[0]?.text ?? 'Lo siento, no pude procesar tu mensaje.';\nconst ctx = $('Preparar Contexto').first().json;\nlet orderData = null;\nconst match = text.match(/ORDER_JSON:(\\{[\\s\\S]*?\\})/);\nif (match) { try { orderData = JSON.parse(match[1]); } catch (e) {} }\nconst reply = text.replace(/ORDER_JSON:\\{[\\s\\S]*?\\}/, '').trim();\nreturn [{ json: { reply, orderData, chatId: ctx.chatId, userName: ctx.userName, menu: ctx.menu } }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000008",
+      "name": "Parsear Respuesta Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [{ "leftValue": "={{ $json.orderData }}", "rightValue": "", "operator": { "type": "object", "operation": "exists", "singleValue": true } }]
+        }
+      },
+      "id": "b1000001-0001-4001-8001-000000000009",
+      "name": "Pedido Completo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const { orderData, menu, reply } = $input.first().json;\nconst TENANT = 'a0000000-0000-4000-8000-000000000001';\nconst BRANCH = 'b0000000-0000-4000-8000-000000000001';\nlet subtotal = 0;\nconst items = (orderData.items || []).map(item => {\n  const product = menu.find(p => p.id === item.product_id);\n  const unitPrice = product ? Number(product.price) : 0;\n  subtotal += unitPrice * item.quantity;\n  return { product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, total_price: unitPrice * item.quantity };\n});\nconst deliveryFee = 5000;\nconst total = subtotal + deliveryFee;\nreturn [{ json: {\n  customer: { tenant_id: TENANT, name: orderData.customer_name, telegram_chat_id: orderData.telegram_chat_id },\n  order: { tenant_id: TENANT, branch_id: BRANCH, type: 'delivery', status: 'pending', payment_method: orderData.payment_method || 'cash', subtotal, delivery_fee: deliveryFee, tips: 0, total, delivery_address: orderData.address, notes: orderData.notes || '' },\n  items, reply, chatId: orderData.telegram_chat_id\n} }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000012",
+      "name": "Calcular Pedido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1920, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/customers?on_conflict=telegram_chat_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates,return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.customer) }}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000013",
+      "name": "Upsert Cliente",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2140, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const customer = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst calc = $('Calcular Pedido').first().json;\nreturn [{ json: { ...calc, customer_id: customer.id } }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000014",
+      "name": "Merge Cliente ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2360, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/orders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$json.order, customer_id: $json.customer_id }) }}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000015",
+      "name": "Crear Pedido Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2580, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const order = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst calc = $('Merge Cliente ID').first().json;\nconst orderItems = calc.items.map(i => ({ order_id: order.id, ...i }));\nreturn [{ json: { orderItems, chatId: calc.chatId, reply: calc.reply + `\\n\\n✅ Pedido registrado. Total: $${Number(order.total).toLocaleString('es-CO')}` } }];"
+      },
+      "id": "b1000001-0001-4001-8001-000000000016",
+      "name": "Preparar Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2800, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/order_items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.orderItems) }}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000017",
+      "name": "Crear Items Pedido",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3020, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"chat_id\": {{ JSON.stringify($('Preparar Items').item.json.chatId) }}, \"text\": {{ JSON.stringify($('Preparar Items').item.json.reply) }}}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000018",
+      "name": "Telegram Confirmar",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3240, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"chat_id\": {{ JSON.stringify($json.chatId) }}, \"text\": {{ JSON.stringify($json.reply) }}}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000010",
+      "name": "Telegram Responder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/chat_messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tenant_id\": \"a0000000-0000-4000-8000-000000000001\",\n  \"channel\": \"telegram\",\n  \"direction\": \"inbound\",\n  \"content\": {{ JSON.stringify($('Telegram Entrada').item.json.message.text) }}\n}"
+      },
+      "id": "b1000001-0001-4001-8001-000000000011",
+      "name": "Log Mensaje BD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 500]
+    }
+  ],
+  "connections": {
+    "Cada 15 seg": { "main": [[{ "node": "Poll Offset", "type": "main", "index": 0 }]] },
+    "Poll Offset": { "main": [[{ "node": "Telegram getUpdates", "type": "main", "index": 0 }]] },
+    "Telegram getUpdates": { "main": [[{ "node": "Telegram Entrada", "type": "main", "index": 0 }]] },
+    "Telegram Entrada": { "main": [[{ "node": "Cargar Menu Supabase", "type": "main", "index": 0 }]] },
+    "Cargar Menu Supabase": { "main": [[{ "node": "Preparar Contexto", "type": "main", "index": 0 }, { "node": "Log Mensaje BD", "type": "main", "index": 0 }]] },
+    "Preparar Contexto": { "main": [[{ "node": "Google Gemini", "type": "main", "index": 0 }]] },
+    "Google Gemini": { "main": [[{ "node": "Parsear Respuesta Gemini", "type": "main", "index": 0 }]] },
+    "Parsear Respuesta Gemini": { "main": [[{ "node": "Pedido Completo?", "type": "main", "index": 0 }]] },
+    "Pedido Completo?": {
+      "main": [
+        [{ "node": "Calcular Pedido", "type": "main", "index": 0 }],
+        [{ "node": "Telegram Responder", "type": "main", "index": 0 }]
+      ]
+    },
+    "Calcular Pedido": { "main": [[{ "node": "Upsert Cliente", "type": "main", "index": 0 }]] },
+    "Upsert Cliente": { "main": [[{ "node": "Merge Cliente ID", "type": "main", "index": 0 }]] },
+    "Merge Cliente ID": { "main": [[{ "node": "Crear Pedido Supabase", "type": "main", "index": 0 }]] },
+    "Crear Pedido Supabase": { "main": [[{ "node": "Preparar Items", "type": "main", "index": 0 }]] },
+    "Preparar Items": { "main": [[{ "node": "Crear Items Pedido", "type": "main", "index": 0 }]] },
+    "Crear Items Pedido": { "main": [[{ "node": "Telegram Confirmar", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": true,
+  "tags": [{ "name": "ChefFlow" }, { "name": "Telegram" }, { "name": "Local" }]
+}

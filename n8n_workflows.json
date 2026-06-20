@@ -1,0 +1,73 @@
+{
+  "name": "ChefFlow IA - Telegram Bot Gemini (Google AI Studio)",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "credentials": {
+        "telegramApi": { "id": "telegram-creds-id", "name": "ChefFlow Bot API" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"systemInstruction\": {\n    \"parts\": [{\"text\": \"Eres el asistente de pedidos de ChefFlow restaurante. Respondes en español. Consultas el menú, tomas pedidos, pides dirección y método de pago (Nequi, Daviplata, Wompi, Efectivo). Cuando el pedido esté completo, incluye JSON: {\\\"items\\\": [{\\\"product_id\\\": \\\"uuid\\\", \\\"quantity\\\": 2}], \\\"address\\\": \\\"...\\\", \\\"payment_method\\\": \\\"nequi\\\", \\\"total\\\": 82000}\"}]\n  },\n  \"contents\": [{\n    \"role\": \"user\",\n    \"parts\": [{\"text\": \"{{ $json.message.text }}\"}]\n  }],\n  \"generationConfig\": { \"temperature\": 0.7, \"maxOutputTokens\": 2048 }\n}"
+      },
+      "id": "gemini-node",
+      "name": "Google Gemini (AI Studio)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';\nreturn [{ json: { reply: text, raw: $input.first().json } }];"
+      },
+      "id": "parse-gemini",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.reply }}",
+        "additionalFields": {}
+      },
+      "id": "telegram-reply",
+      "name": "Telegram Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1000, 300],
+      "credentials": {
+        "telegramApi": { "id": "telegram-creds-id", "name": "ChefFlow Bot API" }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [[{ "node": "Google Gemini (AI Studio)", "type": "main", "index": 0 }]]
+    },
+    "Google Gemini (AI Studio)": {
+      "main": [[{ "node": "Parse Gemini Response", "type": "main", "index": 0 }]]
+    },
+    "Parse Gemini Response": {
+      "main": [[{ "node": "Telegram Reply", "type": "main", "index": 0 }]]
+    }
+  }
+}

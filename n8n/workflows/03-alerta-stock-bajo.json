@@ -1,0 +1,96 @@
+{
+  "id": "a1111111-1111-4111-8111-111111111103",
+  "name": "ChefFlow 03 - Alerta Stock Bajo",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 2 }] }
+      },
+      "id": "c3000001-0001-4001-8001-000000000001",
+      "name": "Cada 2 Horas",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/inventory?tenant_id=eq.a0000000-0000-4000-8000-000000000001&select=id,name,stock,min_stock,unit",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" }
+          ]
+        }
+      },
+      "id": "c3000001-0001-4001-8001-000000000002",
+      "name": "Consultar Inventario",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst lowStock = items.filter(i => Number(i.stock) <= Number(i.min_stock));\nif (lowStock.length === 0) return [];\nconst alert = lowStock.map(i => `⚠️ ${i.name}: ${i.stock} ${i.unit} (mín: ${i.min_stock})`).join('\\n');\nreturn [{ json: { alert, count: lowStock.length, items: lowStock } }];"
+      },
+      "id": "c3000001-0001-4001-8001-000000000003",
+      "name": "Filtrar Stock Bajo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [560, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/audit_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tenant_id\": \"a0000000-0000-4000-8000-000000000001\",\n  \"action\": \"low_stock_alert\",\n  \"entity_type\": \"inventory\",\n  \"new_data\": {{ JSON.stringify($json) }}\n}"
+      },
+      "id": "c3000001-0001-4001-8001-000000000004",
+      "name": "Registrar Alerta BD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/chat_messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"tenant_id\": \"a0000000-0000-4000-8000-000000000001\",\n  \"channel\": \"system\",\n  \"direction\": \"outbound\",\n  \"content\": {{ JSON.stringify('ALERTA INVENTARIO (' + $json.count + ' items):\\n' + $('Filtrar Stock Bajo').item.json.alert) }}\n}"
+      },
+      "id": "c3000001-0001-4001-8001-000000000005",
+      "name": "Guardar Alerta Mensajes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Cada 2 Horas": { "main": [[{ "node": "Consultar Inventario", "type": "main", "index": 0 }]] },
+    "Consultar Inventario": { "main": [[{ "node": "Filtrar Stock Bajo", "type": "main", "index": 0 }]] },
+    "Filtrar Stock Bajo": { "main": [[{ "node": "Registrar Alerta BD", "type": "main", "index": 0 }]] },
+    "Registrar Alerta BD": { "main": [[{ "node": "Guardar Alerta Mensajes", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "ChefFlow" }, { "name": "Inventario" }]
+}

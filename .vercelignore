@@ -1,0 +1,4 @@
+.env.local
+scripts/
+*.ps1
+*.mjs

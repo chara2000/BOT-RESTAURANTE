@@ -1,0 +1,32 @@
+services:
+  n8n:
+    profiles: ["local-n8n"]
+    image: n8nio/n8n:latest
+    container_name: chefflow-n8n
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      - "5678:5678"
+    environment:
+      # N8N_HOST, N8N_PROTOCOL, WEBHOOK_URL vienen de .env.docker
+      # Telegram requiere WEBHOOK_URL con HTTPS (ngrok) o usar workflow 01b polling
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=America/Bogota
+      - TZ=America/Bogota
+      - N8N_SECURE_COOKIE=false
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/import/workflows:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  n8n_data:
+    name: chefflow-n8n-data

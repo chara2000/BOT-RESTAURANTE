@@ -1,0 +1,51 @@
+{
+  "name": "my-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev --turbopack",
+    "dev:clean": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/restart-dev.ps1",
+    "test:telegram": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-telegram-bot.ps1",
+    "fix:n8n": "node scripts/fix-n8n-inline-config.mjs",
+    "fix:bot": "node scripts/fix-n8n-bot-conversation.mjs",
+    "upgrade:bot": "node scripts/upgrade-n8n-bot-experience.mjs && node scripts/finish-bot-v2.mjs",
+    "deploy:bot": "node scripts/deploy-bot-crm.mjs",
+    "build": "next build",
+    "build:webpack": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@hello-pangea/dnd": "^18.0.1",
+    "@hookform/resolvers": "^5.4.0",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.108.2",
+    "@tanstack/react-query": "^5.101.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.4.0",
+    "framer-motion": "^12.40.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^1.21.0",
+    "next": "16.2.9",
+    "openai": "^6.44.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-hook-form": "^7.79.0",
+    "recharts": "^3.8.1",
+    "tailwind-merge": "^3.6.0",
+    "telegraf": "^4.16.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

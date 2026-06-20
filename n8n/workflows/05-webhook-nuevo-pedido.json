@@ -1,0 +1,117 @@
+{
+  "id": "a1111111-1111-4111-8111-111111111105",
+  "name": "ChefFlow 05 - Webhook Nuevo Pedido Panel",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chefflow-new-order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "e5000001-0001-4001-8001-000000000001",
+      "name": "Webhook Nuevo Pedido",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "chefflow-new-order"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/orders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "Prefer", "value": "return=representation" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ tenant_id: 'a0000000-0000-4000-8000-000000000001', branch_id: 'b0000000-0000-4000-8000-000000000001', ...$json.body.order, status: 'pending' }) }}"
+      },
+      "id": "e5000001-0001-4001-8001-000000000002",
+      "name": "Insertar Pedido BD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const order = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst body = $('Webhook Nuevo Pedido').first().json.body;\nconst items = (body.items || []).map(i => ({ order_id: order.id, product_id: i.product_id, quantity: i.quantity, unit_price: i.unit_price, total_price: i.unit_price * i.quantity }));\nreturn [{ json: { order, items } }];"
+      },
+      "id": "e5000001-0001-4001-8001-000000000003",
+      "name": "Preparar Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/order_items",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.items) }}"
+      },
+      "id": "e5000001-0001-4001-8001-000000000004",
+      "name": "Insertar Items BD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/delivery_details",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ order_id: $('Preparar Items').item.json.order.id, status: 'searching', latitude: 6.2088, longitude: -75.5678 }) }}"
+      },
+      "id": "e5000001-0001-4001-8001-000000000005",
+      "name": "Crear Delivery BD",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, order: $('Preparar Items').item.json.order }) }}"
+      },
+      "id": "e5000001-0001-4001-8001-000000000006",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1500, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Nuevo Pedido": { "main": [[{ "node": "Insertar Pedido BD", "type": "main", "index": 0 }]] },
+    "Insertar Pedido BD": { "main": [[{ "node": "Preparar Items", "type": "main", "index": 0 }]] },
+    "Preparar Items": { "main": [[{ "node": "Insertar Items BD", "type": "main", "index": 0 }]] },
+    "Insertar Items BD": { "main": [[{ "node": "Crear Delivery BD", "type": "main", "index": 0 }]] },
+    "Crear Delivery BD": { "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "ChefFlow" }, { "name": "Pedidos" }]
+}

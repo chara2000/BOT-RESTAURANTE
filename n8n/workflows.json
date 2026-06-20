@@ -1,0 +1,35 @@
+{
+  "workflows": [
+    {
+      "name": "ChefFlow - Telegram Bot Gemini Pedidos",
+      "description": "Telegram → Google Gemini (AI Studio) → Supabase",
+      "nodes": [
+        { "name": "Telegram Trigger", "type": "n8n-nodes-base.telegramTrigger", "position": [250, 300] },
+        { "name": "Get Menu Supabase", "type": "n8n-nodes-base.supabase", "operation": "getAll", "table": "products", "position": [500, 200] },
+        { "name": "Gemini AI Studio", "type": "n8n-nodes-base.httpRequest", "method": "POST", "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{$env.GEMINI_API_KEY}}", "position": [750, 300] },
+        { "name": "Parse Order JSON", "type": "n8n-nodes-base.code", "position": [1000, 300] },
+        { "name": "Create Order", "type": "n8n-nodes-base.supabase", "operation": "insert", "table": "orders", "position": [1250, 300] },
+        { "name": "Telegram Reply", "type": "n8n-nodes-base.telegram", "operation": "sendMessage", "position": [1500, 300] }
+      ],
+      "connections": "Telegram → Menu + Gemini → Parse → Supabase → Reply"
+    },
+    {
+      "name": "ChefFlow - Order Status Update",
+      "description": "Webhook Supabase → notifica cliente Telegram",
+      "nodes": [
+        { "name": "Supabase Webhook", "type": "n8n-nodes-base.webhook", "position": [250, 300] },
+        { "name": "Send Telegram", "type": "n8n-nodes-base.telegram", "position": [750, 300] }
+      ]
+    },
+    {
+      "name": "ChefFlow - Daily Sales Report Gemini",
+      "description": "Reporte diario con Gemini",
+      "nodes": [
+        { "name": "Daily Trigger", "type": "n8n-nodes-base.scheduleTrigger", "cron": "0 22 * * *", "position": [250, 300] },
+        { "name": "Aggregate Sales", "type": "n8n-nodes-base.supabase", "position": [500, 300] },
+        { "name": "Gemini Report", "type": "n8n-nodes-base.httpRequest", "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{$env.GEMINI_API_KEY}}", "position": [750, 300] },
+        { "name": "Send Admin", "type": "n8n-nodes-base.telegram", "position": [1000, 300] }
+      ]
+    }
+  ]
+}

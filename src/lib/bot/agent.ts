@@ -231,14 +231,29 @@ export async function processMessage(chatId: number, text: string, username: str
 
   // Agentic loop (max 3 rounds to prevent infinite loops and improve speed)
   for (let round = 0; round < 3; round++) {
-    const response = await openai.chat.completions.create({
-      // Usando Llama 3.3 70B en Groq (Respuesta casi instantánea, totalmente gratis)
-      model: 'llama-3.3-70b-versatile',
-      messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
-      tools: TOOLS,
-      tool_choice: 'auto',
-      max_tokens: 350,
-    });
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        // Usando Llama 3.3 70B en Groq (Respuesta casi instantánea, totalmente gratis)
+        model: 'llama-3.3-70b-versatile',
+        messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
+        tools: TOOLS,
+        tool_choice: 'auto',
+        max_tokens: 350,
+        parallel_tool_calls: false, // Solución al error 400 de Groq
+      });
+    } catch (apiError: any) {
+      if (apiError.status === 400) {
+        // Groq se confundió con las herramientas. Lo forzamos a responder sin herramientas.
+        response = await openai.chat.completions.create({
+          model: 'llama-3.3-70b-versatile',
+          messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
+          max_tokens: 250,
+        });
+      } else {
+        throw apiError;
+      }
+    }
 
     const msg = response.choices[0].message;
     session.messages.push(msg as BotSession['messages'][number]);

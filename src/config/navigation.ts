@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingBag, Utensils, Package, Users,
-  Truck, Bot, BarChart3, Settings, Wallet, MessageSquare,
+  Truck, Bot, BarChart3, Settings, Wallet, MessageSquare, Receipt
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -18,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Menú', href: '/menu', icon: Utensils },
   { label: 'Inventario', href: '/inventario', icon: Package, alert: true },
   { label: 'Caja POS', href: '/caja', icon: Wallet },
+  { label: 'Registro Pagos', href: '/pagos', icon: Receipt },
   { label: 'Clientes', href: '/clientes', icon: Users },
   { label: 'Domicilios', href: '/domicilios', icon: Truck },
   { label: 'Mensajes', href: '/mensajes', icon: MessageSquare, badge: 5 },

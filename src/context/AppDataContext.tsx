@@ -181,12 +181,44 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     if (!supabase) return () => { active = false; };
 
+function playNotificationSound() {
+  if (typeof window === 'undefined') return;
+  try {
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+    oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // High pitch jump
+    
+    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.5);
+  } catch (err) {
+    console.warn('Audio beep failed', err);
+  }
+}
+
     const channel = supabase
       .channel('chefflow-dashboard')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
-        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
+        (payload) => { 
+          if (active) {
+            syncFromSupabase().catch(logSupabaseError); 
+            if (payload.eventType === 'INSERT') {
+              playNotificationSound();
+            }
+          } 
+        }
       )
       .on(
         'postgres_changes',

@@ -67,8 +67,37 @@ export async function POST(req: NextRequest) {
 
     if (!text && !isPhoto) return NextResponse.json({ ok: true });
 
+    let uploadedPhotoUrl: string | undefined;
+
+    if (isPhoto && photoId) {
+      try {
+        const fileLink = await bot.telegram.getFileLink(photoId);
+        const imgRes = await fetch(fileLink.toString());
+        const arrayBuffer = await imgRes.arrayBuffer();
+        
+        // Supabase client solo para storage aquí
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
+        const filePath = `${chatId}/${photoId}.jpg`;
+        const { error: uploadErr } = await supabase.storage.from('receipts').upload(filePath, arrayBuffer, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+
+        if (!uploadErr) {
+          uploadedPhotoUrl = supabase.storage.from('receipts').getPublicUrl(filePath).data.publicUrl;
+        }
+      } catch (err) {
+        console.error('Error uploading photo:', err);
+      }
+    }
+
     try {
-      const response = await processMessage(chatId, text, username, { isPhoto, photoId });
+      const response = await processMessage(chatId, text, username, { isPhoto, photoId: uploadedPhotoUrl });
       await sendReply(chatId, response.text, response.reply_markup);
     } catch (err) {
       console.error('processMessage error:', err);

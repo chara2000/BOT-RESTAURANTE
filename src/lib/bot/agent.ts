@@ -37,18 +37,42 @@ export interface BotResponse {
   reply_markup?: object;
 }
 
-// ─── Session Store ────────────────────────────────────────────────────────────
+// ─── Session Store (Supabase) ─────────────────────────────────────────────────
 
-const globalSessions = (
-  (globalThis as Record<string, unknown>).botSessions as Record<number, BotSession>
-) || {};
-(globalThis as Record<string, unknown>).botSessions = globalSessions;
+const TENANT_ID = 'a0000000-0000-4000-8000-000000000001';
 
-function getSession(chatId: number, username: string): BotSession {
-  if (!globalSessions[chatId]) {
-    globalSessions[chatId] = { chatId, state: 'idle', cart: [], customerName: username };
+async function getSession(chatId: number, username: string): Promise<BotSession> {
+  const { data } = await supabase
+    .from('chat_messages')
+    .select('metadata')
+    .eq('content', 'SESSION_STATE')
+    .eq('metadata->>chatId', chatId.toString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (data && data.metadata) {
+    return data.metadata as BotSession;
   }
-  return globalSessions[chatId];
+  return { chatId, state: 'idle', cart: [], customerName: username };
+}
+
+async function saveSession(session: BotSession): Promise<void> {
+  // Eliminar sesiones viejas para no saturar la tabla
+  await supabase
+    .from('chat_messages')
+    .delete()
+    .eq('content', 'SESSION_STATE')
+    .eq('metadata->>chatId', session.chatId.toString());
+
+  // Insertar sesión actual
+  await supabase.from('chat_messages').insert([{
+    tenant_id: TENANT_ID,
+    channel: 'system',
+    direction: 'outbound',
+    content: 'SESSION_STATE',
+    metadata: session
+  }]);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -82,26 +106,35 @@ function welcomeScreen(): BotResponse {
   };
 }
 
-async function menuScreen(): Promise<BotResponse> {
-  const { data, error } = await supabase
-    .from('products')
-    .select('id, name, price')
-    .eq('is_available', true);
+async function menuScreen(categoryId?: string): Promise<BotResponse> {
+  if (!categoryId) {
+    const { data, error } = await supabase.from('products').select('category').eq('is_available', true);
+    if (error || !data || data.length === 0) return { text: '⚠️ No hay productos disponibles en este momento. Intenta más tarde.' };
+    
+    const categories = [...new Set(data.map(d => d.category))];
+    const buttons = categories.map(c => [{ text: `📁 ${c}`, callback_data: `cat:${c}` }]);
+    buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
 
-  if (error || !data || data.length === 0) {
-    return { text: '⚠️ No hay productos disponibles en este momento. Intenta más tarde.' };
+    return {
+      text: '🍽️ *Nuestro Menú*\n\nSelecciona una categoría:',
+      reply_markup: { inline_keyboard: buttons },
+    };
+  } else {
+    const { data, error } = await supabase.from('products').select('id, name, price').eq('is_available', true).eq('category', categoryId);
+    if (error || !data || data.length === 0) return { text: '⚠️ Categoría vacía.' };
+
+    const products = data as { id: string; name: string; price: number }[];
+    const buttons = products.map(p => [
+      { text: `${p.name}  •  $${p.price.toLocaleString('es-CO')}`, callback_data: `product:${p.id}` },
+    ]);
+    buttons.push([{ text: '↩️ Volver a Categorías', callback_data: 'menu' }]);
+    buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
+
+    return {
+      text: `📁 *Categoría: ${categoryId}*\n\nToca un producto para agregarlo a tu pedido:`,
+      reply_markup: { inline_keyboard: buttons },
+    };
   }
-
-  const products = data as { id: string; name: string; price: number }[];
-  const buttons = products.map(p => [
-    { text: `${p.name}  •  $${p.price.toLocaleString('es-CO')}`, callback_data: `product:${p.id}` },
-  ]);
-  buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
-
-  return {
-    text: '🍽️ *Nuestro Menú*\n\nToca un producto para agregarlo a tu pedido:',
-    reply_markup: { inline_keyboard: buttons },
-  };
 }
 
 async function productScreen(session: BotSession, productId: string): Promise<BotResponse> {
@@ -180,15 +213,15 @@ function cartScreen(session: BotSession): BotResponse {
   }
 
   const total = cartTotal(session.cart);
+  
+  const buttons = session.cart.map(i => [{ text: `❌ Quitar ${i.product.name}`, callback_data: `rm:${i.id}` }]);
+  buttons.push([{ text: '➕ Seguir comprando', callback_data: 'menu' }]);
+  buttons.push([{ text: '💳 Proceder al Pago', callback_data: 'pay' }]);
+  buttons.push([{ text: '🗑️ Vaciar todo el carrito', callback_data: 'clear_cart' }]);
+
   return {
     text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n💰 *TOTAL: $${total.toLocaleString('es-CO')}*`,
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: '➕ Seguir comprando', callback_data: 'menu' }],
-        [{ text: '💳 Proceder al Pago', callback_data: 'pay' }],
-        [{ text: '🗑️ Vaciar carrito', callback_data: 'clear_cart' }],
-      ],
-    },
+    reply_markup: { inline_keyboard: buttons },
   };
 }
 
@@ -307,9 +340,38 @@ function onDeliveryScreen(session: BotSession): BotResponse {
   };
 }
 
+async function getOrCreateCustomer(session: BotSession): Promise<string> {
+  const telegramId = session.chatId.toString();
+  
+  const { data: existing } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('tenant_id', TENANT_ID)
+    .eq('telegram_chat_id', telegramId)
+    .limit(1)
+    .single();
+
+  if (existing) return existing.id;
+
+  const newId = crypto.randomUUID();
+  await supabase.from('customers').insert([{
+    id: newId,
+    tenant_id: TENANT_ID,
+    name: session.customerName || 'Cliente Telegram',
+    telegram_chat_id: telegramId,
+    phone: 'Por registrar',
+    segment: 'new',
+    total_spent: 0,
+    order_count: 0
+  }]);
+
+  return newId;
+}
+
 async function confirmOrderScreen(session: BotSession, address: string): Promise<BotResponse> {
   if (session.cart.length === 0) return welcomeScreen();
 
+  const customerId = await getOrCreateCustomer(session);
   const total = cartTotal(session.cart);
   const orderId = crypto.randomUUID();
   const shortId = 'T-' + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -319,6 +381,7 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
     notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
   } else if (session.paymentMethod === 'transfer') {
     notes += ` | [TRANSFERENCIA] Pendiente de validación`;
+    if (session.paymentReceiptId) notes += ` | [COMPROBANTE: ${session.paymentReceiptId}]`;
   } else if (session.paymentMethod === 'ondelivery') {
     notes += ` | [PAGO CONTRA ENTREGA] Llevar datáfono/cambio`;
   }
@@ -327,9 +390,9 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   const { error: orderError } = await supabase.from('orders').insert([
     {
       id: orderId,
-      tenant_id: 'a0000000-0000-4000-8000-000000000001',
+      tenant_id: TENANT_ID,
       branch_id: 'b0000000-0000-4000-8000-000000000001',
-      customer_id: 'd1000000-0000-4000-8000-000000000001',
+      customer_id: customerId,
       type: /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery',
       status: 'pending',
       payment_method: session.paymentMethod || 'cash',
@@ -475,11 +538,22 @@ export async function processMessage(
   extra?: { isPhoto: boolean; photoId?: string }
 ): Promise<BotResponse> {
   if (text.trim() === '/start') {
-    delete globalSessions[chatId];
+    const freshSession: BotSession = { chatId, state: 'idle', cart: [], customerName: username };
+    await saveSession(freshSession);
     return welcomeScreen();
   }
 
-  const session = getSession(chatId, username);
+  const session = await getSession(chatId, username);
+  const response = await handleProcessMessage(session, text, extra);
+  await saveSession(session);
+  return response;
+}
+
+async function handleProcessMessage(
+  session: BotSession,
+  text: string,
+  extra?: { isPhoto: boolean; photoId?: string }
+): Promise<BotResponse> {
 
   // Handle free-text states
   if (session.state === 'selecting_quantity') {
@@ -521,7 +595,16 @@ export async function processCallback(
   callbackData: string,
   username: string
 ): Promise<BotResponse> {
-  const session = getSession(chatId, username);
+  const session = await getSession(chatId, username);
+  const response = await handleProcessCallback(session, callbackData);
+  await saveSession(session);
+  return response;
+}
+
+async function handleProcessCallback(
+  session: BotSession,
+  callbackData: string
+): Promise<BotResponse> {
 
   if (callbackData === 'menu') return menuScreen();
   if (callbackData === 'cart') return cartScreen(session);
@@ -534,6 +617,14 @@ export async function processCallback(
     session.cart = [];
     session.state = 'idle';
     return { text: '🗑️ Carrito vaciado.', reply_markup: { inline_keyboard: [[{ text: '🍽️ Ver Menú', callback_data: 'menu' }]] } };
+  }
+  if (callbackData.startsWith('rm:')) {
+    const rmId = callbackData.replace('rm:', '');
+    session.cart = session.cart.filter(i => i.id !== rmId);
+    return cartScreen(session);
+  }
+  if (callbackData.startsWith('cat:')) {
+    return menuScreen(callbackData.replace('cat:', ''));
   }
   if (callbackData === 'track_prompt') return promptTrackOrderScreen(session);
   if (callbackData === 'contact_manager') return contactManagerScreen(session);

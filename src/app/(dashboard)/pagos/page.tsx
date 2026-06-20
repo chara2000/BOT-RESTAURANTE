@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
-import { CheckCircle, XCircle, Eye, Image as ImageIcon } from 'lucide-react';
+import { CheckCircle, XCircle, Image as ImageIcon } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { Order } from '@/types';
-import { supabase } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 
 export default function PagosPage() {
   const { orders } = useAppData();
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
+  const supabase = createClient();
 
   // Filtrar solo las órdenes por transferencia pendientes
   const pendingOrders = orders.filter(
@@ -32,6 +33,7 @@ export default function PagosPage() {
     const updatedNotes = (order?.notes || '') + newNotesAdd;
 
     try {
+      if (!supabase) throw new Error('Supabase client is not configured');
       await supabase
         .from('orders')
         .update({ payment_status: newStatus, notes: updatedNotes })

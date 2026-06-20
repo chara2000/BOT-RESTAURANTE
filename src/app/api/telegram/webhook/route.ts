@@ -20,8 +20,9 @@ async function sendTyping(chatId: number) {
 }
 
 export async function POST(req: Request) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
 
     if (body.message && body.message.text) {
       const chatId: number = body.message.chat.id;
@@ -38,6 +39,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Webhook Error:', err);
+    // Intentar enviar el error directo al usuario de Telegram para depuración
+    try {
+      if (body?.message?.chat?.id) {
+        await bot.telegram.sendMessage(body.message.chat.id, '❌ *Error Interno del Bot:*\n`' + String(err) + '`', { parse_mode: 'Markdown' });
+      }
+    } catch (_) {}
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

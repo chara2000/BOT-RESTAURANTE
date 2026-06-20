@@ -171,6 +171,7 @@ function paymentOptionsScreen(session: BotSession): BotResponse {
       inline_keyboard: [
         [{ text: '💵 Efectivo', callback_data: 'pay_cash' }],
         [{ text: '📱 Nequi / Daviplata / Transferencia', callback_data: 'pay_digital' }],
+        [{ text: '↩️ Volver al carrito', callback_data: 'cart' }],
       ],
     },
   };
@@ -181,6 +182,9 @@ function cashAmountScreen(session: BotSession): BotResponse {
   const total = cartTotal(session.cart);
   return {
     text: `💵 *Pago en Efectivo*\n\nTotal: *$${total.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar\n_(ej: 50000)_`,
+    reply_markup: {
+      inline_keyboard: [[{ text: '↩️ Cancelar y volver al menú', callback_data: 'menu' }]],
+    },
   };
 }
 
@@ -189,11 +193,15 @@ function handleCashAmount(session: BotSession, text: string): BotResponse {
   const total = cartTotal(session.cart);
 
   if (isNaN(amount) || amount <= 0) {
-    return { text: '⚠️ Por favor ingresa un valor numérico válido (ej: 50000).' };
+    return { 
+      text: '⚠️ Por favor ingresa un valor numérico válido (ej: 50000).',
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Cancelar', callback_data: 'menu' }]] }
+    };
   }
   if (amount < total) {
     return {
       text: `⚠️ El billete de *$${amount.toLocaleString('es-CO')}* no alcanza.\nEl total es *$${total.toLocaleString('es-CO')}*.\n\nIngresa un billete más grande:`,
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Cancelar', callback_data: 'menu' }]] }
     };
   }
 
@@ -205,7 +213,10 @@ function handleCashAmount(session: BotSession, text: string): BotResponse {
   return {
     text: `✅ ¡Listo! Le devolveremos *$${session.changeAmount.toLocaleString('es-CO')}* de cambio.\n\n📍 ¿A dónde enviamos tu pedido?\n\nEscribe tu dirección o toca el botón si vas a recoger:`,
     reply_markup: {
-      inline_keyboard: [[{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }]],
+      inline_keyboard: [
+        [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
+        [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+      ],
     },
   };
 }
@@ -219,7 +230,10 @@ function digitalPaymentScreen(session: BotSession): BotResponse {
   return {
     text: `📱 *Pago Digital*\n\n🔗 Enlace de pago:\nhttps://pay.breve.link/${payId}\n\n✅ Realiza el pago y luego indica tu dirección de entrega:\n\nO toca el botón si prefieres recoger:`,
     reply_markup: {
-      inline_keyboard: [[{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }]],
+      inline_keyboard: [
+        [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
+        [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+      ],
     },
   };
 }

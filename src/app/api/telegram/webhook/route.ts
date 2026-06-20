@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { processMessage } from '@/lib/bot/agent';
 import { Telegraf } from 'telegraf';
 
+export const maxDuration = 60; // Permitir hasta 60 segundos en Vercel
+export const dynamic = 'force-dynamic';
+
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN || 'dummy');
 
 async function sendTyping(chatId: number) {

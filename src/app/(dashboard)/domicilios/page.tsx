@@ -64,7 +64,9 @@ export default function DomiciliosPage() {
                   )}
 
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-black tracking-wider uppercase" style={{ color: 'var(--orange)' }}>#{d.order.id}</span>
+                    <span className="text-xs font-black tracking-wider uppercase" style={{ color: 'var(--orange)' }}>
+                      {d.order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${d.order.id.slice(0, 6).toUpperCase()}`}
+                    </span>
                     <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-[0_0_12px_rgba(14,165,233,0.25)] bg-sky-500/10 text-sky-500 border-sky-500/30">
                       {ORDER_STATUS_LABELS[d.order.status]}
                     </span>

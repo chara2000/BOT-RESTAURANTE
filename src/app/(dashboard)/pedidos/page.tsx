@@ -31,8 +31,9 @@ function getOrderTypeLabel(type: string) {
 }
 
 function OrderCard({ order }: { order: Order }) {
-  // Convert UUID to a readable short Order Number (e.g. #A4F9)
-  const orderNumber = `#${order.id}`;
+  // Convert UUID to a readable short Order Number (e.g. T-1234)
+  const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
+  const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
 
   return (
     <div className="card p-4 space-y-3 cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-[var(--orange-soft)] group">

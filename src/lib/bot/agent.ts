@@ -11,14 +11,17 @@ const supabase = createClient(
 export type BotState =
   | 'idle'
   | 'selecting_quantity'
+  | 'selecting_item_note'
   | 'checkout_cash_amount'
-  | 'checkout_address';
+  | 'checkout_address'
+  | 'tracking_order';
 
 export interface BotSession {
   chatId: number;
   state: BotState;
   cart: OrderItem[];
   selectedProduct?: Product;
+  pendingItem?: { product: Product; quantity: number };
   paymentMethod?: 'cash' | 'transfer';
   paymentStatus?: 'pending' | 'paid';
   changeAmount?: number;
@@ -52,7 +55,10 @@ function cartTotal(cart: OrderItem[]) {
 
 function cartSummaryText(cart: OrderItem[]) {
   return cart
-    .map((i, idx) => `${idx + 1}. *${i.product.name}* x${i.quantity} — $${(i.unit_price * i.quantity).toLocaleString('es-CO')}`)
+    .map((i, idx) => {
+      const noteStr = i.notes ? `\n   📝 _Nota: ${i.notes}_` : '';
+      return `${idx + 1}. *${i.product.name}* x${i.quantity} — $${(i.unit_price * i.quantity).toLocaleString('es-CO')}${noteStr}`;
+    })
     .join('\n');
 }
 
@@ -65,6 +71,7 @@ function welcomeScreen(): BotResponse {
       inline_keyboard: [
         [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
         [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
+        [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
       ],
     },
   };
@@ -112,26 +119,44 @@ async function productScreen(session: BotSession, productId: string): Promise<Bo
   };
 }
 
-async function addToCartAndConfirm(session: BotSession, qty: number): Promise<BotResponse> {
+function askItemNoteScreen(session: BotSession, qty: number): BotResponse {
   if (!session.selectedProduct) return welcomeScreen();
-  const product = session.selectedProduct;
+  session.pendingItem = { product: session.selectedProduct, quantity: qty };
+  session.state = 'selecting_item_note';
 
-  const existing = session.cart.find(i => i.product.id === product.id);
-  if (existing) existing.quantity += qty;
+  return {
+    text: `Has elegido *${qty}x ${session.selectedProduct.name}*.\n\n📝 ¿Deseas agregar una instrucción especial? (Ej: *sin cebolla*, *extra salsa*).\n\nEscribe tu nota ahora, o toca el botón para omitir:`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '⏭️ Omitir y agregar al carrito', callback_data: 'skip_note' }],
+        [{ text: '↩️ Cancelar', callback_data: 'menu' }]
+      ],
+    },
+  };
+}
+
+async function addToCartAndConfirm(session: BotSession, note?: string): Promise<BotResponse> {
+  if (!session.pendingItem) return welcomeScreen();
+  const { product, quantity } = session.pendingItem;
+
+  const existing = session.cart.find(i => i.product.id === product.id && i.notes === note);
+  if (existing) existing.quantity += quantity;
   else
     session.cart.push({
       id: Math.random().toString(36).slice(2),
       product,
-      quantity: qty,
+      quantity,
       unit_price: product.price,
+      notes: note,
     });
 
   session.state = 'idle';
   session.selectedProduct = undefined;
+  session.pendingItem = undefined;
   const total = cartTotal(session.cart);
 
   return {
-    text: `✅ ¡Agregado!\n*${qty}x ${product.name}*\n\n🛒 Total del carrito: *$${total.toLocaleString('es-CO')}*`,
+    text: `✅ ¡Agregado!\n*${quantity}x ${product.name}*\n\n🛒 Total del carrito: *$${total.toLocaleString('es-CO')}*`,
     reply_markup: {
       inline_keyboard: [
         [{ text: '➕ Agregar más', callback_data: 'menu' }],
@@ -243,7 +268,9 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
 
   const total = cartTotal(session.cart);
   const orderId = crypto.randomUUID();
-  let notes = `[Cliente: ${session.customerName}]`;
+  const shortId = 'T-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+  
+  let notes = `[ID: ${shortId}] [Cliente: ${session.customerName}]`;
   if (session.paymentMethod === 'cash' && session.changeAmount !== undefined) {
     notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
   }
@@ -281,6 +308,7 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
       quantity: item.quantity,
       unit_price: item.unit_price,
       total_price: item.quantity * item.unit_price,
+      notes: item.notes || null,
     }));
     
     const { error: itemsError } = await supabase.from('order_items').insert(itemsData);
@@ -298,9 +326,60 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   session.changeAmount = undefined;
 
   return {
-    text: `🎉 *¡Pedido Confirmado!*\n\n📋 ID: *${orderId}*\n📍 Dirección: ${address}\n💰 Total: *$${total.toLocaleString('es-CO')}*\n\n¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
+    text: `🎉 *¡Pedido Confirmado!*\n\n📋 Código de seguimiento: *${shortId}*\n📍 Dirección: ${address}\n💰 Total: *$${total.toLocaleString('es-CO')}*\n\n¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
     reply_markup: {
-      inline_keyboard: [[{ text: '🏠 Hacer otro pedido', callback_data: 'menu' }]],
+      inline_keyboard: [
+        [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
+        [{ text: '🏠 Hacer otro pedido', callback_data: 'menu' }]
+      ],
+    },
+  };
+}
+
+function promptTrackOrderScreen(session: BotSession): BotResponse {
+  session.state = 'tracking_order';
+  return {
+    text: '📦 *Rastrear Pedido*\n\n✏️ Por favor, escribe el código de seguimiento de tu pedido (Ej: *T-A1B2*):',
+    reply_markup: {
+      inline_keyboard: [[{ text: '↩️ Volver al menú', callback_data: 'menu' }]],
+    },
+  };
+}
+
+async function handleTrackOrder(session: BotSession, code: string): Promise<BotResponse> {
+  session.state = 'idle';
+  const cleanCode = code.trim().toUpperCase();
+  
+  const { data, error } = await supabase
+    .from('orders')
+    .select('status, created_at')
+    .ilike('notes', `%[ID: ${cleanCode}]%`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error || !data || data.length === 0) {
+    return {
+      text: `❌ No encontramos ningún pedido con el código *${cleanCode}*.\nPor favor verifica e intenta de nuevo.`,
+      reply_markup: { inline_keyboard: [[{ text: '📦 Intentar de nuevo', callback_data: 'track_prompt' }], [{ text: '🏠 Menú principal', callback_data: 'menu' }]] }
+    };
+  }
+
+  const statusMap: Record<string, string> = {
+    'pending': '⏳ Pendiente (Esperando confirmación)',
+    'confirmed': '✅ Confirmado (En cola)',
+    'preparing': '🍳 En preparación (Cocinando)',
+    'ready': '🛍️ Listo para entregar',
+    'shipping': '🛵 En camino (Repartidor asignado)',
+    'delivered': '🎉 Entregado',
+    'cancelled': '❌ Cancelado'
+  };
+
+  const statusText = statusMap[data[0].status] || data[0].status;
+
+  return {
+    text: `📦 *Estado de tu pedido (${cleanCode})*\n\nEstado actual:\n👉 *${statusText}*`,
+    reply_markup: {
+      inline_keyboard: [[{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }], [{ text: '🏠 Menú principal', callback_data: 'menu' }]],
     },
   };
 }
@@ -322,8 +401,16 @@ export async function processMessage(
   // Handle free-text states
   if (session.state === 'selecting_quantity') {
     const qty = parseInt(text.trim());
-    if (!isNaN(qty) && qty >= 1 && qty <= 20) return addToCartAndConfirm(session, qty);
+    if (!isNaN(qty) && qty >= 1 && qty <= 20) return askItemNoteScreen(session, qty);
     return { text: '⚠️ Ingresa un número entre 1 y 20.' };
+  }
+
+  if (session.state === 'selecting_item_note') {
+    return addToCartAndConfirm(session, text.trim());
+  }
+
+  if (session.state === 'tracking_order') {
+    return handleTrackOrder(session, text.trim());
   }
 
   if (session.state === 'checkout_cash_amount') {
@@ -356,11 +443,15 @@ export async function processCallback(
     session.state = 'idle';
     return { text: '🗑️ Carrito vaciado.', reply_markup: { inline_keyboard: [[{ text: '🍽️ Ver Menú', callback_data: 'menu' }]] } };
   }
+  if (callbackData === 'track_prompt') return promptTrackOrderScreen(session);
+  if (callbackData.startsWith('track:')) return handleTrackOrder(session, callbackData.replace('track:', ''));
+  if (callbackData === 'skip_note') return addToCartAndConfirm(session);
+  
   if (callbackData.startsWith('product:')) {
     return productScreen(session, callbackData.replace('product:', ''));
   }
   if (callbackData.startsWith('qty:')) {
-    return addToCartAndConfirm(session, parseInt(callbackData.replace('qty:', '')));
+    return askItemNoteScreen(session, parseInt(callbackData.replace('qty:', '')));
   }
 
   return welcomeScreen();

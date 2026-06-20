@@ -277,7 +277,7 @@ export async function processMessage(chatId: number, text: string, username: str
       // Extraemos el nombre de la función
       const nameMatch = msg.content.match(/<function=([a-zA-Z0-9_]+)/);
       // Extraemos el primer bloque JSON que encontremos
-      const argsMatch = msg.content.match(/(\{.*?\})/s);
+      const argsMatch = msg.content.match(/(\{[\s\S]*?\})/);
       
       if (nameMatch) {
         const funcName = nameMatch[1];

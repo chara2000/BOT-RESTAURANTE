@@ -190,21 +190,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     function playNotificationSound() {
       if (typeof window === 'undefined') return;
       try {
-        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-        oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.5);
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioCtxClass) return;
+        const ctx = new AudioCtxClass();
+
+        // Play 3 ding tones in sequence: high → low → high
+        const tones = [1046, 784, 1046]; // C6, G5, C6
+        tones.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+
+          const startAt = ctx.currentTime + i * 0.22;
+          gain.gain.setValueAtTime(0, startAt);
+          gain.gain.linearRampToValueAtTime(0.8, startAt + 0.02); // fast attack
+          gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.4); // decay
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(startAt);
+          osc.stop(startAt + 0.4);
+        });
       } catch (err) {
-        console.warn('Audio beep failed', err);
+        console.warn('Audio bell failed', err);
       }
     }
 

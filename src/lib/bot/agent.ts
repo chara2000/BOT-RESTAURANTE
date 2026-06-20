@@ -434,6 +434,9 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
     }
   }
 
+  // Save cart snapshot BEFORE clearing session
+  const cartSnapshot = [...session.cart];
+
   // Reset session
   session.cart = [];
   session.state = 'idle';
@@ -443,7 +446,19 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   session.paymentReceiptId = undefined;
 
   return {
-    text: `🎉 *¡Pedido Confirmado!*\n\n📋 Código de seguimiento: *${shortId}*\n📍 Dirección: ${address}\n💰 Total: *$${total.toLocaleString('es-CO')}*\n\n¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
+    text: [
+      `🎉 *¡Pedido Confirmado!*`,
+      ``,
+      `📋 Código: *${shortId}*`,
+      `📍 Dirección: ${address}`,
+      ``,
+      `🛒 *Resumen de tu pedido:*`,
+      cartSummaryText(cartSnapshot),
+      ``,
+      `💰 *TOTAL: $${total.toLocaleString('es-CO')}*`,
+      ``,
+      `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
+    ].join('\n'),
     reply_markup: {
       inline_keyboard: [
         [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],

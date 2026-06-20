@@ -252,6 +252,9 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   const { error: orderError } = await supabase.from('orders').insert([
     {
       id: orderId,
+      tenant_id: 'a0000000-0000-4000-8000-000000000001',
+      branch_id: 'b0000000-0000-4000-8000-000000000001',
+      customer_id: 'd1000000-0000-4000-8000-000000000001',
       type: /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery',
       status: 'pending',
       payment_method: session.paymentMethod || 'cash',

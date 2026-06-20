@@ -2,14 +2,10 @@ import { OpenAI } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import type { OrderItem, Product } from '@/types';
 
-// OpenRouter: compatible 100% con la API de OpenAI
+// Groq: 100% compatible con la API de OpenAI pero infinitamente más rápido
 const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || 'sk-placeholder',
-  defaultHeaders: {
-    'HTTP-Referer': 'https://chefflow.app',
-    'X-Title': 'ChefFlow Bot',
-  },
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: process.env.GROQ_API_KEY || 'sk-placeholder',
 });
 
 const supabase = createClient(
@@ -236,8 +232,8 @@ export async function processMessage(chatId: number, text: string, username: str
   // Agentic loop (max 3 rounds to prevent infinite loops and improve speed)
   for (let round = 0; round < 3; round++) {
     const response = await openai.chat.completions.create({
-      // Usando el auto-enrutador gratuito de OpenRouter para asegurar que nunca falle (elige el mejor modelo libre disponible)
-      model: 'openrouter/free',
+      // Usando Llama 3.3 70B en Groq (Respuesta casi instantánea, totalmente gratis)
+      model: 'llama-3.3-70b-versatile',
       messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
       tools: TOOLS,
       tool_choice: 'auto',

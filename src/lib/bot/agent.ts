@@ -290,8 +290,8 @@ export async function processMessage(chatId: number, text: string, username: str
         }] as any;
         
         // Limpiamos la basura del mensaje
-        msg.content = msg.content.replace(/<function=.*?<\/function>/is, '').trim();
-        msg.content = msg.content.replace(/<function=[^\>]*\>/is, '').trim();
+        msg.content = msg.content.replace(/<function=[\s\S]*?<\/function>/i, '').trim();
+        msg.content = msg.content.replace(/<function=[^>]*>/i, '').trim();
       }
     }
 

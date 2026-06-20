@@ -2,10 +2,10 @@ import { OpenAI } from 'openai';
 import { createClient } from '@supabase/supabase-js';
 import type { OrderItem, Product } from '@/types';
 
-// Groq: 100% compatible con la API de OpenAI pero infinitamente más rápido
+// Google Gemini 2.0 Flash — compatible con la API de OpenAI, 1500 req/día gratis sin límite de tokens
 const openai = new OpenAI({
-  baseURL: 'https://api.groq.com/openai/v1',
-  apiKey: process.env.GROQ_API_KEY || 'sk-placeholder',
+  baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  apiKey: process.env.GEMINI_API_KEY || 'sk-placeholder',
 });
 
 const supabase = createClient(
@@ -250,21 +250,20 @@ export async function processMessage(chatId: number, text: string, username: str
     let response;
     try {
       response = await openai.chat.completions.create({
-        // Usando Llama 3.3 70B en Groq (Respuesta casi instantánea, totalmente gratis)
-        model: 'llama-3.3-70b-versatile',
+        // Google Gemini 2.0 Flash — rápido, inteligente y 1500 req/día gratis
+        model: 'gemini-2.0-flash',
         messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
         tools: TOOLS,
         tool_choice: 'auto',
-        max_tokens: 350,
-        parallel_tool_calls: false, // Solución al error 400 de Groq
+        max_tokens: 500,
       });
     } catch (apiError: any) {
-      if (apiError.status === 400) {
-        // Groq se confundió con las herramientas. Lo forzamos a responder sin herramientas.
+      if (apiError.status === 400 || apiError.status === 429) {
+        // Fallback sin herramientas si Gemini falla temporalmente
         response = await openai.chat.completions.create({
-          model: 'llama-3.3-70b-versatile',
+          model: 'gemini-2.0-flash',
           messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
-          max_tokens: 250,
+          max_tokens: 300,
         });
       } else {
         throw apiError;

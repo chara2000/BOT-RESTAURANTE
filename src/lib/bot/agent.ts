@@ -236,12 +236,12 @@ export async function processMessage(chatId: number, text: string, username: str
   // Agentic loop (max 3 rounds to prevent infinite loops and improve speed)
   for (let round = 0; round < 3; round++) {
     const response = await openai.chat.completions.create({
-      // Usando Qwen 2.5 (Super rápido y gratis)
-      model: 'qwen/qwen-2.5-72b-instruct:free',
+      // Usando Gemini 2.0 Flash Lite (Super rápido, excelente para tools y 100% gratis siempre)
+      model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
       messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
       tools: TOOLS,
       tool_choice: 'auto',
-      max_tokens: 250, // Límite corto para respuestas más rápidas
+      max_tokens: 350,
     });
 
     const msg = response.choices[0].message;

@@ -228,7 +228,7 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   if (session.cart.length === 0) return welcomeScreen();
 
   const total = cartTotal(session.cart);
-  const orderId = 'T-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+  const orderId = crypto.randomUUID();
   let notes = `[Cliente: ${session.customerName}]`;
   if (session.paymentMethod === 'cash' && session.changeAmount !== undefined) {
     notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;

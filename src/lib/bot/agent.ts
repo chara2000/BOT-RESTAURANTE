@@ -146,13 +146,13 @@ async function runTool(name: string, args: Record<string, unknown>, session: Bot
 
   switch (name) {
     case 'consultar_menu': {
-      const { data, error } = await supabase.from('products').select('id, name, category, price, description').eq('is_available', true);
+      const { data, error } = await supabase.from('products').select('id, name, price, description').eq('is_available', true);
       if (error) return 'Error al consultar el menú: ' + error.message;
-      let items = data as { id: string; name: string; category: string; price: number; description: string }[];
+      let items = data as { id: string; name: string; price: number; description: string }[];
       const query = (args.query as string || '').toLowerCase();
-      if (query) items = items.filter(i => i.name.toLowerCase().includes(query) || i.category.toLowerCase().includes(query));
+      if (query) items = items.filter(i => i.name.toLowerCase().includes(query) || (i.description && i.description.toLowerCase().includes(query)));
       if (items.length === 0) return 'No se encontraron productos con esa búsqueda.';
-      return JSON.stringify(items.map(i => ({ id: i.id, name: i.name, price: i.price, category: i.category, description: i.description })));
+      return JSON.stringify(items.map(i => ({ id: i.id, name: i.name, price: i.price, description: i.description })));
     }
 
     case 'agregar_al_carrito': {

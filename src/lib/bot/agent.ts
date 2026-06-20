@@ -229,33 +229,48 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
 
   const total = cartTotal(session.cart);
   const orderId = 'T-' + Math.random().toString(36).slice(2, 8).toUpperCase();
-  let notes = '';
+  let notes = `[Cliente: ${session.customerName}]`;
   if (session.paymentMethod === 'cash' && session.changeAmount !== undefined) {
-    notes = `[EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
+    notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
   }
 
-  const { error } = await supabase.from('orders').insert([
+  // 1. Crear la orden
+  const { error: orderError } = await supabase.from('orders').insert([
     {
       id: orderId,
       type: /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery',
       status: 'pending',
       payment_method: session.paymentMethod || 'cash',
-      payment_status: session.paymentStatus || 'pending',
       subtotal: total,
       total,
       delivery_fee: 0,
       tips: 0,
       delivery_address: address,
       notes: notes.trim(),
-      items: session.cart,
-      customer: { name: session.customerName },
       created_at: new Date().toISOString(),
     },
   ]);
 
-  if (error) {
-    console.error('Error Supabase:', error);
-    return { text: `❌ Error al guardar el pedido: ${error.message}` };
+  if (orderError) {
+    console.error('Error Supabase Order:', orderError);
+    return { text: `❌ Error al guardar el pedido: ${orderError.message}` };
+  }
+
+  // 2. Crear los items de la orden
+  if (session.cart.length > 0) {
+    const itemsData = session.cart.map(item => ({
+      order_id: orderId,
+      product_id: item.product.id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_price: item.quantity * item.unit_price,
+    }));
+    
+    const { error: itemsError } = await supabase.from('order_items').insert(itemsData);
+    if (itemsError) {
+      console.error('Error Supabase Order Items:', itemsError);
+      // No cancelamos todo, pero lo registramos
+    }
   }
 
   // Reset session

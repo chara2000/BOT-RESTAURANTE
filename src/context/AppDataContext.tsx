@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import {
   cashService,
+  categoriesService,
   deliveryService,
   inventoryService,
   isSupabaseConfigured,
@@ -15,6 +16,14 @@ import {
   productsService,
   settingsService,
 } from '@/services/api';
+import type {
+  Category, CashSession, Customer, DashboardStats, DeliveryAssignment,
+  InventoryItem, Order, OrderStatus, Product, StockMovement, TenantSettings,
+} from '@/types';
+import {
+  initialCashSession, initialCustomers, initialInventory,
+  initialOrders, initialProducts, initialSettings, initialStockMovements,
+} from '@/services/seedData';
 
 function logSupabaseError(err: unknown) {
   if (err && typeof err === 'object' && 'message' in err) {
@@ -23,16 +32,9 @@ function logSupabaseError(err: unknown) {
     console.error('[Supabase]', err);
   }
 }
-import type {
-  CashSession, Customer, DashboardStats, DeliveryAssignment,
-  InventoryItem, Order, OrderStatus, Product, StockMovement, TenantSettings,
-} from '@/types';
-import {
-  initialCashSession, initialCustomers, initialInventory,
-  initialOrders, initialProducts, initialSettings, initialStockMovements,
-} from '@/services/seedData';
 
 interface AppDataContextValue {
+  categories: Category[];
   orders: Order[];
   products: Product[];
   customers: Customer[];
@@ -46,6 +48,8 @@ interface AppDataContextValue {
   updateProduct: (product: Product) => Promise<Product | void>;
   addProduct: (product: Product) => Promise<Product | void>;
   deleteProduct: (id: string) => Promise<void>;
+  addCategory: (category: Partial<Category>) => Promise<void>;
+  updateCategory: (category: Category) => Promise<void>;
   updateInventory: (item: InventoryItem) => Promise<void>;
   addCashTransaction: (type: 'income' | 'expense', amount: number, description: string) => Promise<void>;
   openCashRegister: (balance: number, openedBy: string) => Promise<void>;
@@ -111,6 +115,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
   const useSupabase = isSupabaseConfigured();
+  const [categories, setCategories] = useState<Category[]>([]);
   const [orders, setOrders] = useState<Order[]>(useSupabase ? [] : initialOrders);
   const [products, setProducts] = useState<Product[]>(useSupabase ? [] : initialProducts);
   const [customers, setCustomers] = useState<Customer[]>(useSupabase ? [] : initialCustomers);
@@ -148,6 +153,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     try {
       const data = await loadDashboardData();
       if (!data) return;
+      if (data.categories) setCategories(data.categories);
       setOrders(data.orders);
       setProducts(data.products);
       setCustomers(data.customers);
@@ -181,43 +187,37 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     if (!supabase) return () => { active = false; };
 
-function playNotificationSound() {
-  if (typeof window === 'undefined') return;
-  try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
-    oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // High pitch jump
-    
-    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-    
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + 0.5);
-  } catch (err) {
-    console.warn('Audio beep failed', err);
-  }
-}
+    function playNotificationSound() {
+      if (typeof window === 'undefined') return;
+      try {
+        const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.5);
+      } catch (err) {
+        console.warn('Audio beep failed', err);
+      }
+    }
 
     const channel = supabase
       .channel('chefflow-dashboard')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
-        (payload) => { 
+        (payload) => {
           if (active) {
-            syncFromSupabase().catch(logSupabaseError); 
-            if (payload.eventType === 'INSERT') {
-              playNotificationSound();
-            }
-          } 
+            syncFromSupabase().catch(logSupabaseError);
+            if (payload.eventType === 'INSERT') playNotificationSound();
+          }
         }
       )
       .on(
@@ -263,13 +263,7 @@ function playNotificationSound() {
     if (order.type === 'delivery') {
       setDeliveries((prev) => [
         ...prev,
-        {
-          order_id: order.id,
-          order,
-          status: 'searching',
-          latitude: 6.2088,
-          longitude: -75.5678,
-        },
+        { order_id: order.id, order, status: 'searching', latitude: 6.2088, longitude: -75.5678 },
       ]);
     }
   }, []);
@@ -317,6 +311,32 @@ function playNotificationSound() {
       }
     }
   }, [dataSource, products]);
+
+  const addCategory = useCallback(async (category: Partial<Category>) => {
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await categoriesService.create(category);
+        setCategories((prev) => [...prev, saved].sort((a, b) => a.sort_order - b.sort_order));
+      } catch (err) {
+        logSupabaseError(err);
+        throw err;
+      }
+    }
+  }, [dataSource]);
+
+  const updateCategory = useCallback(async (category: Category) => {
+    setCategories((prev) => prev.map((c) => (c.id === category.id ? category : c)));
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await categoriesService.update(category);
+        setCategories((prev) => prev.map((c) => (c.id === saved.id ? saved : c)));
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase]);
 
   const updateInventory = useCallback(async (item: InventoryItem) => {
     setInventory((prev) => prev.map((i) => (i.id === item.id ? item : i)));
@@ -429,14 +449,14 @@ function playNotificationSound() {
 
   const value = useMemo(
     () => ({
-      orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, updateInventory,
+      categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
     }),
     [
-      orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, updateInventory,
+      categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
     ]

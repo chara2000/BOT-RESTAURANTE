@@ -112,6 +112,7 @@ async function menuScreen(categoryId?: string): Promise<BotResponse> {
     if (error || !data || data.length === 0) return { text: '⚠️ No hay menú disponible en este momento. Intenta más tarde.' };
     
     const buttons = data.map(c => [{ text: `📁 ${c.name}`, callback_data: `cat:${c.id}` }]);
+    buttons.push([{ text: '🍔 Ver todo el menú', callback_data: 'cat:all' }]);
     buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
 
     return {
@@ -119,7 +120,12 @@ async function menuScreen(categoryId?: string): Promise<BotResponse> {
       reply_markup: { inline_keyboard: buttons },
     };
   } else {
-    const { data, error } = await supabase.from('products').select('id, name, price').eq('is_available', true).eq('category_id', categoryId);
+    let query = supabase.from('products').select('id, name, price').eq('is_available', true);
+    if (categoryId !== 'all') {
+      query = query.eq('category_id', categoryId);
+    }
+    
+    const { data, error } = await query;
     if (error || !data || data.length === 0) return { text: '⚠️ Categoría vacía o sin productos disponibles.' };
 
     const products = data as { id: string; name: string; price: number }[];

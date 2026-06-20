@@ -33,11 +33,12 @@ export default function PagosPage() {
     const updatedNotes = (order?.notes || '') + newNotesAdd;
 
     try {
-      if (!supabase) throw new Error('Supabase client is not configured');
-      await supabase
-        .from('orders')
-        .update({ payment_status: newStatus, notes: updatedNotes })
-        .eq('id', orderId);
+      const res = await fetch(`/api/orders/${orderId}/payment`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_status: newStatus, notes: updatedNotes }),
+      });
+      if (!res.ok) throw new Error('Error al actualizar');
       
       // La actualización en tiempo real actualizará el contexto
     } catch (err) {

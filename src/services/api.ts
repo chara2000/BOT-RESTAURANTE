@@ -3,7 +3,7 @@ import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import {
   mapCustomer, mapInventory, mapOrder, mapProduct, mapSettings,
 } from '@/services/supabaseMapper';
-import type { CashSession, Customer, DeliveryAssignment, InventoryItem, Order, Product, TenantSettings } from '@/types';
+import type { CashSession, Customer, DeliveryAssignment, InventoryItem, Order, Product, TenantSettings, Category } from '@/types';
 
 const ORDER_SELECT = `
   *,
@@ -219,6 +219,42 @@ export const deliveryService = {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? 'No se pudo actualizar domicilio');
     return body as DeliveryAssignment;
+  },
+};
+
+export const categoriesService = {
+  async getAll(): Promise<Category[]> {
+    const supabase = createClient();
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('tenant_id', DEMO_TENANT_ID)
+      .order('sort_order', { ascending: true });
+    if (error) throw error;
+    return data as Category[];
+  },
+
+  async create(category: Partial<Category>): Promise<Category> {
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(category),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo crear la categoría');
+    return body;
+  },
+
+  async update(category: Category): Promise<Category> {
+    const res = await fetch(`/api/categories/${category.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(category),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo actualizar la categoría');
+    return body;
   },
 };
 

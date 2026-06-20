@@ -18,7 +18,12 @@ export async function GET() {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
-  const [ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes] = await Promise.all([
+  const [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes] = await Promise.all([
+    supabase
+      .from('categories')
+      .select('*')
+      .eq('tenant_id', DEMO_TENANT_ID)
+      .order('sort_order', { ascending: true }),
     supabase
       .from('orders')
       .select(ORDER_SELECT)
@@ -62,7 +67,7 @@ export async function GET() {
       .order('updated_at', { ascending: false }),
   ]);
 
-  const errors = [ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes]
+  const errors = [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes]
     .filter((r) => r.error)
     .map((r) => r.error!.message);
 
@@ -109,6 +114,7 @@ export async function GET() {
     .filter(Boolean) as DeliveryAssignment[];
 
   return NextResponse.json({
+    categories: categoriesRes.data ?? [],
     orders,
     products: (productsRes.data ?? []).map((row) => mapProduct(row as Record<string, unknown>)),
     customers: (customersRes.data ?? []).map((row) => mapCustomer(row as Record<string, unknown>)),

@@ -18,6 +18,15 @@ export interface Product {
   is_combo?: boolean;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  description?: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at?: string;
+}
+
 export interface OrderItem {
   id: string;
   product: Product;

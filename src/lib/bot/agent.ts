@@ -233,14 +233,15 @@ export async function processMessage(chatId: number, text: string, username: str
   session.customerName = username;
   session.messages.push({ role: 'user', content: text });
 
-  // Agentic loop (max 5 rounds to prevent infinite loops)
-  for (let round = 0; round < 5; round++) {
+  // Agentic loop (max 3 rounds to prevent infinite loops and improve speed)
+  for (let round = 0; round < 3; round++) {
     const response = await openai.chat.completions.create({
-      // Free + excellent via OpenRouter
-      model: 'meta-llama/llama-3.3-70b-instruct:free',
+      // Usando Qwen 2.5 (Super rápido y gratis)
+      model: 'qwen/qwen-2.5-72b-instruct:free',
       messages: session.messages as Parameters<typeof openai.chat.completions.create>[0]['messages'],
       tools: TOOLS,
       tool_choice: 'auto',
+      max_tokens: 250, // Límite corto para respuestas más rápidas
     });
 
     const msg = response.choices[0].message;

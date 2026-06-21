@@ -483,10 +483,12 @@ async function promptTrackOrderScreen(session: BotSession): Promise<BotResponse>
     .single();
 
   if (customer) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const { data: orders } = await supabase
       .from('orders')
       .select('id, notes, status, created_at')
       .eq('customer_id', customer.id)
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(5);
 

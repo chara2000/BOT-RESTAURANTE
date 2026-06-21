@@ -85,7 +85,10 @@ function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => vo
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-xs font-bold truncate text-[var(--text-primary)]">{item.product.name}</p>
-              <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>Cant: {item.quantity}</p>
+              <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                Cant: {item.quantity}
+                {item.notes && <span className="ml-1.5 text-red-500 font-extrabold bg-red-500/10 px-1.5 py-0.5 rounded">({item.notes})</span>}
+              </p>
             </div>
           </div>
         ))}
@@ -503,6 +506,11 @@ export default function PedidosPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[var(--text-primary)] truncate">{item.product.name}</p>
                         <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>{formatCurrency(item.unit_price)} c/u</p>
+                        {item.notes && (
+                          <p className="text-[10px] font-black text-rose-500 bg-rose-500/10 px-2 py-0.5 rounded-lg mt-1.5 inline-block border border-rose-500/20">
+                            Nota: {item.notes}
+                          </p>
+                        )}
                       </div>
                       {/* Quantity Controls */}
                       <div className="flex items-center gap-1.5 bg-[var(--bg-card)] rounded-xl p-1 border shadow-sm" style={{ borderColor: 'var(--border)' }}>

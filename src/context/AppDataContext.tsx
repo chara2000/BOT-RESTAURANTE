@@ -3,6 +3,7 @@
 import {
   createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import {
@@ -120,6 +121,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
 }
 
 export function AppDataProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const useSupabase = isSupabaseConfigured();
   const [categories, setCategories] = useState<Category[]>([]);
   const [orders, setOrders] = useState<Order[]>(useSupabase ? [] : initialOrders);
@@ -186,6 +188,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [buildDeliveries]);
 
   useEffect(() => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
     if (!isSupabaseConfigured()) return;
     let active = true;
 
@@ -201,23 +207,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         if (!AudioCtxClass) return;
         const ctx = new AudioCtxClass();
 
-        // Play 3 ding tones in sequence: high → low → high
-        const tones = [1046, 784, 1046]; // C6, G5, C6
-        tones.forEach((freq, i) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
+        ctx.resume().then(() => {
+          // Play 3 ding tones in sequence: high → low → high
+          const tones = [1046, 784, 1046]; // C6, G5, C6
+          tones.forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = freq;
 
-          const startAt = ctx.currentTime + i * 0.22;
-          gain.gain.setValueAtTime(0, startAt);
-          gain.gain.linearRampToValueAtTime(0.8, startAt + 0.02); // fast attack
-          gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.4); // decay
+            const startAt = ctx.currentTime + i * 0.22;
+            gain.gain.setValueAtTime(0, startAt);
+            gain.gain.linearRampToValueAtTime(0.8, startAt + 0.02); // fast attack
+            gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.4); // decay
 
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(startAt);
-          osc.stop(startAt + 0.4);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(startAt);
+            osc.stop(startAt + 0.4);
+          });
+        }).catch(err => {
+          console.warn('Audio resume failed:', err);
         });
       } catch (err) {
         console.warn('Audio bell failed', err);
@@ -252,7 +262,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       active = false;
       supabase.removeChannel(channel);
     };
-  }, [syncFromSupabase]);
+  }, [syncFromSupabase, user]);
 
   const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus) => {
     const prevOrder = orders.find((o) => o.id === orderId);

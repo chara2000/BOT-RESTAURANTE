@@ -197,6 +197,20 @@ function isRestaurantOpen(hours: CachedSettings['business_hours']): boolean {
 }
 
 /**
+ * Formatea los horarios de atención para mostrar al cliente cuando el local está cerrado.
+ */
+function formatBusinessHours(hours: CachedSettings['business_hours']): string {
+  if (!hours || hours.length === 0) return 'Sin horarios configurados.';
+  
+  return hours.map(h => {
+    if (h.closed) {
+      return `• *${h.day}*: Cerrado`;
+    }
+    return `• *${h.day}*: ${h.open} - ${h.close}`;
+  }).join('\n');
+}
+
+/**
  * Valida si la dirección ingresada por el cliente corresponde a la cobertura
  * del restaurante según las palabras clave configuradas.
  * Retorna null si es válida, o un mensaje de error si no lo es.
@@ -832,10 +846,28 @@ export async function processMessage(
   if (text.trim() === '/start') {
     const freshSession: BotSession = { chatId, state: 'idle', cart: [], customerName: username };
     await saveSession(freshSession);
-    return welcomeScreen();
   }
 
   const session = await getSession(chatId, username);
+
+  // Verificar horario de atención antes de procesar el mensaje
+  const tenantSettings = await getTenantSettings();
+  if (!isRestaurantOpen(tenantSettings.business_hours)) {
+    // Si no está en estado de contactar al encargado y no es /start, forzar pantalla de cerrado
+    if (session.state !== 'contacting_manager' && text.trim() !== '/start') {
+      const city = tenantSettings.coverage_city ? ` en ${tenantSettings.coverage_city}` : '';
+      const hoursList = formatBusinessHours(tenantSettings.business_hours);
+      return {
+        text: `🕐 *Restaurante Cerrado*\n\nLo sentimos, en este momento no estamos atendiendo${city}.\n\n📅 *Nuestros Horarios de Atención:*\n${hoursList}\n\nPuedes dejar tu mensaje al encargado pulsando el botón de abajo.`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }]
+          ],
+        },
+      };
+    }
+  }
+
   const response = await handleProcessMessage(session, text, extra);
   await saveSession(session);
   return response;
@@ -899,21 +931,6 @@ async function handleProcessMessage(
     return confirmOrderScreen(session, address);
   }
 
-  // Verificar horario de atención antes de cualquier interacción de pedido
-  const tenantSettings = await getTenantSettings();
-  if (!isRestaurantOpen(tenantSettings.business_hours)) {
-    const city = tenantSettings.coverage_city ? ` en ${tenantSettings.coverage_city}` : '';
-    return {
-      text: `🕐 *Restaurante Cerrado*\n\nLo sentimos, en este momento no estamos atendiendo${city}.\n\nPuedes consultar nuestros horarios o dejar tu mensaje al encargado.`,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
-          [{ text: '🍽️ Ver Menú (para explorar)', callback_data: 'menu' }],
-        ],
-      },
-    };
-  }
-
   // Default
   return welcomeScreen();
 }
@@ -933,6 +950,30 @@ async function handleProcessCallback(
   session: BotSession,
   callbackData: string
 ): Promise<BotResponse> {
+  // Acciones permitidas siempre (aún estando cerrado)
+  const isAllowedAction = 
+    callbackData.startsWith('cancel_order:') ||
+    callbackData === 'confirm_cancel' ||
+    callbackData === 'abort_cancel' ||
+    callbackData === 'track_prompt' ||
+    callbackData.startsWith('track:') ||
+    callbackData === 'contact_manager';
+
+  if (!isAllowedAction) {
+    const tenantSettings = await getTenantSettings();
+    if (!isRestaurantOpen(tenantSettings.business_hours)) {
+      const city = tenantSettings.coverage_city ? ` en ${tenantSettings.coverage_city}` : '';
+      const hoursList = formatBusinessHours(tenantSettings.business_hours);
+      return {
+        text: `🕐 *Restaurante Cerrado*\n\nLo sentimos, en este momento no estamos atendiendo${city}.\n\n📅 *Nuestros Horarios de Atención:*\n${hoursList}\n\nPuedes dejar tu mensaje al encargado pulsando el botón de abajo.`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }]
+          ],
+        },
+      };
+    }
+  }
 
   if (callbackData.startsWith('cancel_order:')) {
     const orderId = callbackData.replace('cancel_order:', '');

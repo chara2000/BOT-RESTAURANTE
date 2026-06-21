@@ -424,7 +424,7 @@ export default function PedidosPage() {
                   <th className="px-6 py-4 text-xs font-black uppercase tracking-wider text-[var(--text-muted)]">Fecha</th>
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ divideColor: 'var(--border)' }}>
+              <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
                 {filteredOrders.length > 0 ? (
                   filteredOrders.map(order => {
                     const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);

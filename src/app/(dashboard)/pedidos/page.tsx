@@ -122,7 +122,7 @@ function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => vo
 }
 
 export default function PedidosPage() {
-  const { orders, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder } = useAppData();
+  const { orders, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings } = useAppData();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -199,7 +199,7 @@ export default function PedidosPage() {
       const newNotesFull = [...tags, editNotes].filter(Boolean).join(' ').trim();
 
       const newSubtotal = editItems.reduce((acc, i) => acc + i.unit_price * i.quantity, 0);
-      const newDeliveryFee = editType === 'delivery' ? (selectedOrder.delivery_fee || 5000) : 0;
+      const newDeliveryFee = editType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0;
       const newTotal = newSubtotal + newDeliveryFee;
 
       await updateOrderDetails(selectedOrder.id, {
@@ -253,7 +253,7 @@ export default function PedidosPage() {
     const shortId = `T-${code}`;
 
     const subtotal = newItems.reduce((acc, curr) => acc + (curr.product.price * curr.quantity), 0);
-    const delivery_fee = newType === 'delivery' ? 5000 : 0;
+    const delivery_fee = newType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0;
     const total = subtotal + delivery_fee;
 
     const chosenCust = customers.find(c => c.id === newCustomer) || (newCustomer ? {
@@ -599,7 +599,7 @@ export default function PedidosPage() {
                 <div className="flex justify-between items-center p-3 rounded-2xl bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
                   <span className="text-xs font-black text-[var(--text-primary)]">Total actualizado:</span>
                   <span className="text-sm font-black" style={{ color: 'var(--orange)' }}>
-                    {formatCurrency(editItems.reduce((a, i) => a + i.unit_price * i.quantity, 0) + (editType === 'delivery' ? (selectedOrder.delivery_fee || 5000) : 0))}
+                    {formatCurrency(editItems.reduce((a, i) => a + i.unit_price * i.quantity, 0) + (editType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0))}
                   </span>
                 </div>
               )}
@@ -735,7 +735,7 @@ export default function PedidosPage() {
                 <div className="p-3 rounded-2xl bg-[var(--bg-input)] border flex justify-between items-center" style={{ borderColor: 'var(--border)' }}>
                   <span className="text-xs font-black text-[var(--text-primary)]">Total:</span>
                   <span className="text-sm font-black" style={{ color: 'var(--orange)' }}>
-                    {formatCurrency(newItems.reduce((acc, curr) => acc + (curr.product.price * curr.quantity), 0) + (newType === 'delivery' ? 5000 : 0))}
+                    {formatCurrency(newItems.reduce((acc, curr) => acc + (curr.product.price * curr.quantity), 0) + (newType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0))}
                   </span>
                 </div>
               )}

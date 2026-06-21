@@ -140,6 +140,11 @@ export interface TenantSettings {
   ai_model: string;
   payment_methods: PaymentMethod[];
   business_hours: { day: string; open: string; close: string; closed: boolean }[];
+  // Cobertura de domicilio
+  coverage_city?: string;           // Nombre de la ciudad/municipio (ej: "Puerto Tejada")
+  coverage_department?: string;     // Departamento (ej: "Cauca")
+  coverage_keywords?: string[];     // Palabras clave que deben aparecer en la dirección
+  coverage_require_keywords?: boolean; // Si true, la dirección debe contener al menos una keyword
 }
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {

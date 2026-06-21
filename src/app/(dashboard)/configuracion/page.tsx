@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, CreditCard, Save, Shield, Clock, Store, Smartphone } from 'lucide-react';
+import { Bot, CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { PAYMENT_LABELS, type PaymentMethod } from '@/types';
@@ -212,6 +212,69 @@ export default function ConfiguracionPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Coverage */}
+          <div className="card p-6 space-y-5 xl:col-span-2 animate-fade-in-up delay-400">
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+              <MapPin className="h-5 w-5 text-emerald-500" /> Zona de Cobertura de Domicilio
+            </p>
+            <p className="text-[11px] font-bold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              Define la ubicación del restaurante. El bot solo aceptará direcciones que coincidan con la nomenclatura de tu ciudad.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Ciudad / Municipio</label>
+                <input
+                  placeholder="Ej: Puerto Tejada"
+                  defaultValue={settings.coverage_city || ''}
+                  onChange={(e) => updateSettings({ coverage_city: e.target.value })}
+                  className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Departamento</label>
+                <input
+                  placeholder="Ej: Cauca"
+                  defaultValue={settings.coverage_department || ''}
+                  onChange={(e) => updateSettings({ coverage_department: e.target.value })}
+                  className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Palabras Clave de Nomenclatura
+                <span className="ml-2 normal-case font-semibold">(separadas por coma)</span>
+              </label>
+              <input
+                placeholder="Ej: calle, carrera, manzana, barrio, vereda"
+                defaultValue={(settings.coverage_keywords || []).join(', ')}
+                onChange={(e) => {
+                  const keywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
+                  updateSettings({ coverage_keywords: keywords });
+                }}
+                className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+              <p className="text-[10px] mt-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>
+                El bot validará que la dirección del cliente contenga al menos una de estas palabras.
+              </p>
+            </div>
+            <label className="flex items-center gap-3 p-4 rounded-xl border cursor-pointer hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
+              <input
+                type="checkbox"
+                checked={settings.coverage_require_keywords ?? true}
+                onChange={(e) => updateSettings({ coverage_require_keywords: e.target.checked })}
+                className="w-5 h-5 accent-[var(--orange)]"
+              />
+              <div>
+                <span className="text-sm font-black block">Activar validación de cobertura</span>
+                <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Si está activo, el bot rechazará direcciones que no correspondan a la nomenclatura configurada.</span>
+              </div>
+            </label>
           </div>
 
           {/* Roles */}

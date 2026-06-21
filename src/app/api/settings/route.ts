@@ -30,6 +30,10 @@ export async function PATCH(request: Request) {
     'ai_model',
     'payment_methods',
     'business_hours',
+    'coverage_city',
+    'coverage_department',
+    'coverage_keywords',
+    'coverage_require_keywords',
   ];
   const patch: Record<string, unknown> = {
     tenant_id: DEMO_TENANT_ID,

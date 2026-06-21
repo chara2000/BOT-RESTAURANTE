@@ -16,6 +16,7 @@ export type BotState =
   | 'checkout_cash_amount'
   | 'checkout_address'
   | 'tracking_order'
+  | 'awaiting_cancel_confirm'
   | 'contacting_manager'
   | 'awaiting_payment_receipt';
 
@@ -30,6 +31,7 @@ export interface BotSession {
   changeAmount?: number;
   customerName?: string;
   paymentReceiptId?: string;
+  pendingCancelOrderId?: string; // ID del pedido pendiente de cancelar
 }
 
 export interface BotResponse {
@@ -37,12 +39,25 @@ export interface BotResponse {
   reply_markup?: object;
 }
 
-// ─── Session Store (Supabase) ─────────────────────────────────────────────────
+// ─── Session Store (bot_sessions table) ──────────────────────────────────────────────────────
 
 const TENANT_ID = 'a0000000-0000-4000-8000-000000000001';
 
 async function getSession(chatId: number, username: string): Promise<BotSession> {
-  const { data } = await supabase
+  // Intentar leer de bot_sessions primero
+  const { data, error } = await supabase
+    .from('bot_sessions')
+    .select('session_data')
+    .eq('chat_id', chatId.toString())
+    .eq('tenant_id', TENANT_ID)
+    .single();
+
+  if (!error && data?.session_data) {
+    return data.session_data as BotSession;
+  }
+
+  // Fallback: migrar desde chat_messages si existe una sesión antigua
+  const { data: legacy } = await supabase
     .from('chat_messages')
     .select('metadata')
     .eq('content', 'SESSION_STATE')
@@ -51,28 +66,143 @@ async function getSession(chatId: number, username: string): Promise<BotSession>
     .limit(1)
     .single();
 
-  if (data && data.metadata) {
-    return data.metadata as BotSession;
+  if (legacy?.metadata) {
+    const migratedSession = legacy.metadata as BotSession;
+    // Limpiar registros viejos y guardar en nueva tabla
+    await supabase
+      .from('chat_messages')
+      .delete()
+      .eq('content', 'SESSION_STATE')
+      .eq('metadata->>chatId', chatId.toString());
+    await saveSession(migratedSession);
+    return migratedSession;
   }
+
   return { chatId, state: 'idle', cart: [], customerName: username };
 }
 
 async function saveSession(session: BotSession): Promise<void> {
-  // Eliminar sesiones viejas para no saturar la tabla
-  await supabase
-    .from('chat_messages')
-    .delete()
-    .eq('content', 'SESSION_STATE')
-    .eq('metadata->>chatId', session.chatId.toString());
+  const { error } = await supabase
+    .from('bot_sessions')
+    .upsert(
+      {
+        chat_id: session.chatId.toString(),
+        tenant_id: TENANT_ID,
+        session_data: session,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'chat_id,tenant_id' }
+    );
 
-  // Insertar sesión actual
-  await supabase.from('chat_messages').insert([{
-    tenant_id: TENANT_ID,
-    channel: 'system',
-    direction: 'outbound',
-    content: 'SESSION_STATE',
-    metadata: session
-  }]);
+  if (error) {
+    console.warn('Failed to upsert to bot_sessions, falling back to chat_messages:', error.message);
+    await supabase.from('chat_messages').insert([{
+      direction: 'outbound',
+      content: 'SESSION_STATE',
+      metadata: session as any
+    }]);
+  }
+}
+
+// ─── Tenant Settings ──────────────────────────────────────────────────────────
+
+interface CachedSettings {
+  delivery_fee: number;
+  business_hours: { day: string; open: string; close: string; closed: boolean }[];
+  coverage_city?: string;
+  coverage_department?: string;
+  coverage_keywords?: string[];
+  coverage_require_keywords?: boolean;
+}
+
+let _settingsCache: CachedSettings | null = null;
+let _settingsCacheAt = 0;
+const SETTINGS_TTL_MS = 60_000; // refresca cada 1 minuto
+
+async function getTenantSettings(): Promise<CachedSettings> {
+  const now = Date.now();
+  if (_settingsCache && now - _settingsCacheAt < SETTINGS_TTL_MS) {
+    return _settingsCache;
+  }
+
+  const { data } = await supabase
+    .from('tenant_settings')
+    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords')
+    .eq('tenant_id', TENANT_ID)
+    .single();
+
+  _settingsCache = {
+    delivery_fee: data?.delivery_fee ?? 0,
+    business_hours: data?.business_hours ?? [],
+    coverage_city: data?.coverage_city,
+    coverage_department: data?.coverage_department,
+    coverage_keywords: data?.coverage_keywords ?? [],
+    coverage_require_keywords: data?.coverage_require_keywords ?? false,
+  };
+  _settingsCacheAt = now;
+  return _settingsCache;
+}
+
+/**
+ * Verifica si el restaurante está abierto según la configuración de horarios.
+ * Retorna true si está abierto, false si está cerrado.
+ */
+function isRestaurantOpen(hours: CachedSettings['business_hours']): boolean {
+  if (!hours || hours.length === 0) return true; // sin configuración = siempre abierto
+
+  const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const now = new Date();
+  // Horario Colombia (UTC-5)
+  const colombiaOffset = -5 * 60;
+  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const colombiaMinutes = ((utcMinutes + colombiaOffset) + 1440) % 1440;
+  const colombiaDayIndex = Math.floor(((now.getUTCDay() * 1440 + utcMinutes + colombiaOffset) + 10080) / 1440) % 7;
+  const dayName = DAYS_ES[colombiaDayIndex];
+
+  const todayHours = hours.find(h => h.day === dayName);
+  if (!todayHours) return true; // día no configurado = abierto
+  if (todayHours.closed) return false;
+
+  const [openH, openM] = todayHours.open.split(':').map(Number);
+  const [closeH, closeM] = todayHours.close.split(':').map(Number);
+  const openMinutes = openH * 60 + openM;
+  const closeMinutes = closeH * 60 + closeM;
+
+  return colombiaMinutes >= openMinutes && colombiaMinutes < closeMinutes;
+}
+
+/**
+ * Valida si la dirección ingresada por el cliente corresponde a la cobertura
+ * del restaurante según las palabras clave configuradas.
+ * Retorna null si es válida, o un mensaje de error si no lo es.
+ */
+function validateAddressCoverage(
+  address: string,
+  settings: CachedSettings
+): string | null {
+  // Si no hay validación activada o no hay keywords, se acepta todo
+  if (!settings.coverage_require_keywords) return null;
+  const keywords = settings.coverage_keywords ?? [];
+  if (keywords.length === 0) return null;
+
+  const normalizedAddress = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const hasKeyword = keywords.some(kw =>
+    normalizedAddress.includes(kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
+  );
+
+  if (!hasKeyword) {
+    const city = settings.coverage_city ? ` en *${settings.coverage_city}*` : '';
+    const examples = keywords.slice(0, 4).join(', ');
+    return [
+      `⚠️ *Dirección fuera de cobertura*`,
+      ``,
+      `Solo realizamos domicilios${city}.`,
+      `Tu dirección debe incluir una referencia como: _${examples}_${keywords.length > 4 ? '...' : ''}.`,
+      ``,
+      `Por favor ingresa una dirección válida o selecciona *Recoger en el local*:`,
+    ].join('\n');
+  }
+  return null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -92,9 +222,12 @@ function cartSummaryText(cart: OrderItem[]) {
 
 // ─── Screens ──────────────────────────────────────────────────────────────────
 
-function welcomeScreen(): BotResponse {
+function welcomeScreen(isReturning = false): BotResponse {
+  const greeting = isReturning
+    ? `👋 ¡Bienvenido de nuevo a *ChefFlow*! 👏\n\n¿Qué vas a pedir hoy?`
+    : `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`;
   return {
-    text: `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`,
+    text: greeting,
     reply_markup: {
       inline_keyboard: [
         [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
@@ -149,9 +282,13 @@ async function productScreen(session: BotSession, productId: string): Promise<Bo
   session.selectedProduct = data as Product;
   session.state = 'selecting_quantity';
   const p = data as Product;
+  const cartTotal = session.cart.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+  const cartInfo = session.cart.length > 0
+    ? `\n\n🛒 _Carrito actual: $${cartTotal.toLocaleString('es-CO')} (${session.cart.length} ${session.cart.length === 1 ? 'producto' : 'productos'})_`
+    : '';
 
   return {
-    text: `*${p.name}*\n💰 Precio: $${p.price.toLocaleString('es-CO')} c/u\n\n¿Cuántas unidades deseas?`,
+    text: `*${p.name}*\n💰 Precio: $${p.price.toLocaleString('es-CO')} c/u${cartInfo}\n\n¿Cuántas unidades deseas?`,
     reply_markup: {
       inline_keyboard: [
         [1, 2, 3].map(n => ({ text: `${n}`, callback_data: `qty:${n}` })),
@@ -392,19 +529,25 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
     notes += ` | [PAGO CONTRA ENTREGA] Llevar datáfono/cambio`;
   }
 
-  // 1. Crear la orden
+  // 1. Obtener configuración del tenant (delivery_fee, etc.)
+  const tenantSettings = await getTenantSettings();
+  const deliveryFee = /recoger|mesa|pickup/i.test(address) ? 0 : tenantSettings.delivery_fee;
+  const orderType: 'delivery' | 'pickup' | 'dine_in' = /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery';
+  const finalTotal = total + deliveryFee;
+
+  // 2. Crear la orden
   const { error: orderError } = await supabase.from('orders').insert([
     {
       id: orderId,
       tenant_id: TENANT_ID,
       branch_id: 'b0000000-0000-4000-8000-000000000001',
       customer_id: customerId,
-      type: /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery',
+      type: orderType,
       status: 'pending',
       payment_method: session.paymentMethod || 'cash',
       subtotal: total,
-      total,
-      delivery_fee: 0,
+      total: finalTotal,
+      delivery_fee: deliveryFee,
       tips: 0,
       delivery_address: address,
       notes: notes.trim(),
@@ -456,13 +599,17 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
       `🛒 *Resumen de tu pedido:*`,
       cartSummaryText(cartSnapshot),
       ``,
-      `💰 *TOTAL: $${total.toLocaleString('es-CO')}*`,
+      deliveryFee > 0 ? `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*` : `🏪 Recoges en el local (sin cargo de domicilio)`,
+      `💰 *TOTAL: $${finalTotal.toLocaleString('es-CO')}*`,
+      ``,
+      `⏱️ Tiempo estimado: *25–40 minutos*`,
       ``,
       `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
         [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
+        [{ text: '❌ Cancelar mi pedido', callback_data: `cancel_order:${orderId}` }],
         [{ text: '🏠 Hacer otro pedido', callback_data: 'menu' }]
       ],
     },
@@ -528,7 +675,7 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
   
   const { data, error } = await supabase
     .from('orders')
-    .select('status, created_at')
+    .select('id, status, created_at')
     .ilike('notes', `%[ID: ${cleanCode}]%`)
     .order('created_at', { ascending: false })
     .limit(1);
@@ -540,6 +687,7 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
     };
   }
 
+  const order = data[0];
   const statusMap: Record<string, string> = {
     'pending': '⏳ Pendiente (Esperando confirmación)',
     'confirmed': '✅ Confirmado (En cola)',
@@ -550,14 +698,69 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
     'cancelled': '❌ Cancelado'
   };
 
-  const statusText = statusMap[data[0].status] || data[0].status;
+  const statusText = statusMap[order.status] || order.status;
+
+  const buttons = [[{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }]];
+  if (['pending', 'confirmed'].includes(order.status)) {
+    buttons.push([{ text: `❌ Cancelar pedido`, callback_data: `cancel_order:${order.id}` }]);
+  }
+  buttons.push([{ text: '🏠 Menú principal', callback_data: 'menu' }]);
 
   return {
     text: `📦 *Estado de tu pedido (${cleanCode})*\n\nEstado actual:\n👉 *${statusText}*`,
     reply_markup: {
-      inline_keyboard: [[{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }], [{ text: '🏠 Menú principal', callback_data: 'menu' }]],
+      inline_keyboard: buttons,
     },
   };
+}
+
+function askCancelConfirmScreen(session: BotSession, orderId: string): BotResponse {
+  session.pendingCancelOrderId = orderId;
+  session.state = 'awaiting_cancel_confirm';
+  return {
+    text: '⚠️ *¿Estás seguro de que deseas cancelar tu pedido?*\n\nEsta acción no se puede deshacer.',
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '✅ Sí, cancelar mi pedido', callback_data: 'confirm_cancel' }],
+        [{ text: '↩️ No, mantener mi pedido', callback_data: 'abort_cancel' }],
+      ],
+    },
+  };
+}
+
+async function executeCancelOrder(session: BotSession): Promise<BotResponse> {
+  session.state = 'idle';
+  const orderId = session.pendingCancelOrderId;
+  session.pendingCancelOrderId = undefined;
+  if (!orderId) return welcomeScreen();
+
+  const baseUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  try {
+    const res = await fetch(`${baseUrl}/api/orders/${orderId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: session.chatId.toString() }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Error desconocido' }));
+      return { 
+        text: `❌ No se pudo cancelar: ${err.error || 'Error'}\n\nSi necesitas ayuda, contacta al encargado.`, 
+        reply_markup: { 
+          inline_keyboard: [
+            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+            [{ text: '🏠 Volver al menú', callback_data: 'menu' }]
+          ] 
+        } 
+      };
+    }
+    const data = await res.json();
+    return {
+      text: `✅ *Pedido ${data.shortId || ''} cancelado.*\n\nSi fue un error, contáctanos.`,
+      reply_markup: { inline_keyboard: [[{ text: '🏠 Volver al menú', callback_data: 'menu' }]] },
+    };
+  } catch (e) {
+    return { text: '❌ Error de conexión al cancelar. Intenta de nuevo.', reply_markup: { inline_keyboard: [[{ text: '🏠 Menú', callback_data: 'menu' }]] } };
+  }
 }
 
 function contactManagerScreen(session: BotSession): BotResponse {
@@ -634,6 +837,10 @@ async function handleProcessMessage(
     return handleContactManager(session, text.trim());
   }
 
+  if (session.state === 'awaiting_cancel_confirm') {
+    return { text: '👆 Por favor, usa los botones de arriba para confirmar o abortar la cancelación.' };
+  }
+
   if (session.state === 'awaiting_payment_receipt') {
     return handlePaymentReceipt(session, extra?.isPhoto || false, extra?.photoId);
   }
@@ -647,7 +854,39 @@ async function handleProcessMessage(
   }
 
   if (session.state === 'checkout_address') {
-    return confirmOrderScreen(session, text.trim());
+    const address = text.trim();
+    // Solo validar cobertura si NO es para recoger
+    if (!/recoger|mesa|pickup/i.test(address)) {
+      const tenantSettings = await getTenantSettings();
+      const coverageError = validateAddressCoverage(address, tenantSettings);
+      if (coverageError) {
+        return {
+          text: coverageError,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
+              [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+            ],
+          },
+        };
+      }
+    }
+    return confirmOrderScreen(session, address);
+  }
+
+  // Verificar horario de atención antes de cualquier interacción de pedido
+  const tenantSettings = await getTenantSettings();
+  if (!isRestaurantOpen(tenantSettings.business_hours)) {
+    const city = tenantSettings.coverage_city ? ` en ${tenantSettings.coverage_city}` : '';
+    return {
+      text: `🕐 *Restaurante Cerrado*\n\nLo sentimos, en este momento no estamos atendiendo${city}.\n\nPuedes consultar nuestros horarios o dejar tu mensaje al encargado.`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+          [{ text: '🍽️ Ver Menú (para explorar)', callback_data: 'menu' }],
+        ],
+      },
+    };
   }
 
   // Default
@@ -669,6 +908,19 @@ async function handleProcessCallback(
   session: BotSession,
   callbackData: string
 ): Promise<BotResponse> {
+
+  if (callbackData.startsWith('cancel_order:')) {
+    const orderId = callbackData.replace('cancel_order:', '');
+    return askCancelConfirmScreen(session, orderId);
+  }
+  if (callbackData === 'confirm_cancel') {
+    return executeCancelOrder(session);
+  }
+  if (callbackData === 'abort_cancel') {
+    session.pendingCancelOrderId = undefined;
+    session.state = 'idle';
+    return welcomeScreen();
+  }
 
   if (callbackData === 'menu') return menuScreen();
   if (callbackData === 'cart') return cartScreen(session);

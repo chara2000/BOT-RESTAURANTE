@@ -125,11 +125,36 @@ async function getTenantSettings(): Promise<CachedSettings> {
     return _settingsCache;
   }
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('tenant_settings')
     .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords')
     .eq('tenant_id', TENANT_ID)
     .single();
+
+  if (error) {
+    console.warn('Failed to query all tenant_settings fields (possibly missing coverage columns):', error.message);
+    // Fallback: intentar seleccionar solo campos básicos
+    const { data: basicData, error: basicError } = await supabase
+      .from('tenant_settings')
+      .select('delivery_fee, business_hours')
+      .eq('tenant_id', TENANT_ID)
+      .single();
+
+    if (basicError) {
+      console.error('Failed to query basic tenant_settings:', basicError.message);
+      return {
+        delivery_fee: 0,
+        business_hours: [],
+      };
+    }
+
+    _settingsCache = {
+      delivery_fee: basicData?.delivery_fee ?? 0,
+      business_hours: basicData?.business_hours ?? [],
+    };
+    _settingsCacheAt = now;
+    return _settingsCache;
+  }
 
   _settingsCache = {
     delivery_fee: data?.delivery_fee ?? 0,

@@ -469,10 +469,51 @@ async function confirmOrderScreen(session: BotSession, address: string): Promise
   };
 }
 
-function promptTrackOrderScreen(session: BotSession): BotResponse {
+async function promptTrackOrderScreen(session: BotSession): Promise<BotResponse> {
+  session.state = 'idle'; // Will only go to tracking_order if no orders found
+
+  // Buscar pedidos del cliente por su telegram_chat_id
+  const telegramId = session.chatId.toString();
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('tenant_id', TENANT_ID)
+    .eq('telegram_chat_id', telegramId)
+    .limit(1)
+    .single();
+
+  if (customer) {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id, notes, status, created_at')
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (orders && orders.length > 0) {
+      const statusMap: Record<string, string> = {
+        pending: '⏳', confirmed: '✅', preparing: '🍳',
+        ready: '🛍️', shipping: '🛵', delivered: '🎉', cancelled: '❌'
+      };
+
+      const buttons = orders.map(o => {
+        const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0,6).toUpperCase()}`;
+        const icon = statusMap[o.status] || '📦';
+        return [{ text: `${icon} ${shortId}`, callback_data: `track:${shortId}` }];
+      });
+      buttons.push([{ text: '↩️ Volver al menú', callback_data: 'menu' }]);
+
+      return {
+        text: `📦 *Tus pedidos recientes*\n\nSelecciona uno para ver su estado:`,
+        reply_markup: { inline_keyboard: buttons },
+      };
+    }
+  }
+
+  // Fallback: pedir código manualmente si no hay pedidos en el historial
   session.state = 'tracking_order';
   return {
-    text: '📦 *Rastrear Pedido*\n\n✏️ Por favor, escribe el código de seguimiento de tu pedido (Ej: *T-A1B2*):',
+    text: '📦 *Rastrear Pedido*\n\nNo encontramos pedidos anteriores con tu cuenta.\n\n✏️ Escribe el código de tu pedido (Ej: *T-A1B2*):',
     reply_markup: {
       inline_keyboard: [[{ text: '↩️ Volver al menú', callback_data: 'menu' }]],
     },

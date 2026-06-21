@@ -115,6 +115,17 @@ export const inventoryService = {
     return (data ?? []).map((row) => mapInventory(row as Record<string, unknown>));
   },
 
+  async create(item: Omit<InventoryItem, 'id'>): Promise<InventoryItem> {
+    const res = await fetch('/api/inventory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(item),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo crear el insumo');
+    return body;
+  },
+
   async update(item: InventoryItem): Promise<InventoryItem> {
     const res = await fetch(`/api/inventory/${item.id}`, {
       method: 'PATCH',
@@ -124,6 +135,12 @@ export const inventoryService = {
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? 'No se pudo actualizar inventario');
     return body;
+  },
+
+  async remove(id: string): Promise<void> {
+    const res = await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo eliminar el insumo');
   },
 };
 

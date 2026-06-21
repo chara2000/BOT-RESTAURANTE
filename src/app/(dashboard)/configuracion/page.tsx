@@ -24,6 +24,16 @@ export default function ConfiguracionPage() {
     setTimeout(() => setSaved(false), 2000);
   };
 
+  const handleHourChange = (index: number, field: 'open' | 'close' | 'closed', value: string | boolean) => {
+    const updated = settings.business_hours.map((h, idx) => {
+      if (idx === index) {
+        return { ...h, [field]: value };
+      }
+      return h;
+    });
+    updateSettings({ business_hours: updated });
+  };
+
   const togglePayment = (method: PaymentMethod) => {
     const methods = settings.payment_methods.includes(method)
       ? settings.payment_methods.filter((m) => m !== method)
@@ -146,12 +156,58 @@ export default function ConfiguracionPage() {
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {settings.business_hours.map((h, i) => (
-                <div key={h.day} className="flex flex-col gap-2 p-4 rounded-2xl border transition-colors hover:bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-                  <span className="text-sm font-black text-center mb-1">{h.day}</span>
-                  <div className="flex items-center justify-between gap-2">
-                    <input type="time" defaultValue={h.open} className="text-xs font-semibold px-2 py-1.5 rounded-lg border focus:outline-none w-full text-center" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }} />
-                    <span className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>A</span>
-                    <input type="time" defaultValue={h.close} className="text-xs font-semibold px-2 py-1.5 rounded-lg border focus:outline-none w-full text-center" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }} />
+                <div 
+                  key={h.day} 
+                  className="flex flex-col gap-3 p-5 rounded-3xl border transition-all duration-300 hover:shadow-lg relative overflow-hidden" 
+                  style={{ 
+                    borderColor: h.closed ? 'rgba(239, 68, 68, 0.2)' : 'var(--border)', 
+                    background: h.closed ? 'rgba(239, 68, 68, 0.02)' : 'var(--bg-card)',
+                  }}
+                >
+                  <div className={`absolute left-0 inset-y-0 w-1 ${h.closed ? 'bg-red-500' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`} />
+                  
+                  <div className="flex items-center justify-between pl-1">
+                    <span className="text-sm font-black text-[var(--text-primary)]">{h.day}</span>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={!h.closed} 
+                        onChange={(e) => handleHourChange(i, 'closed', !e.target.checked)}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-8 h-4.5 bg-red-500/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
+                      <span className={`text-[9px] font-black uppercase tracking-wider ml-2 px-1.5 py-0.5 rounded-md ${
+                        h.closed ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
+                      }`}>
+                        {h.closed ? 'Cerrado' : 'Abierto'}
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 pl-1">
+                    <div className="flex-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Apertura</p>
+                      <input 
+                        type="time" 
+                        value={h.open} 
+                        disabled={h.closed}
+                        onChange={(e) => handleHourChange(i, 'open', e.target.value)}
+                        className="text-xs font-bold px-3 py-2 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none w-full text-center disabled:opacity-40" 
+                        style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} 
+                      />
+                    </div>
+                    <span className="text-[10px] font-black pt-4" style={{ color: 'var(--text-muted)' }}>A</span>
+                    <div className="flex-1">
+                      <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Cierre</p>
+                      <input 
+                        type="time" 
+                        value={h.close} 
+                        disabled={h.closed}
+                        onChange={(e) => handleHourChange(i, 'close', e.target.value)}
+                        className="text-xs font-bold px-3 py-2 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none w-full text-center disabled:opacity-40" 
+                        style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} 
+                      />
+                    </div>
                   </div>
                 </div>
               ))}

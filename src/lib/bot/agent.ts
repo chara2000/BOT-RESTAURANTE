@@ -156,6 +156,7 @@ async function productScreen(session: BotSession, productId: string): Promise<Bo
       inline_keyboard: [
         [1, 2, 3].map(n => ({ text: `${n}`, callback_data: `qty:${n}` })),
         [4, 5, 6].map(n => ({ text: `${n}`, callback_data: `qty:${n}` })),
+        [{ text: '➕ Otra cantidad', callback_data: 'qty_other' }],
         [{ text: '↩️ Volver al Menú', callback_data: 'menu' }],
       ],
     },
@@ -653,6 +654,9 @@ async function handleProcessCallback(
   
   if (callbackData.startsWith('product:')) {
     return productScreen(session, callbackData.replace('product:', ''));
+  }
+  if (callbackData === 'qty_other') {
+    return { text: '⌨️ Por favor, escribe en el chat el número exacto de unidades que deseas (Ej: 8):' };
   }
   if (callbackData.startsWith('qty:')) {
     return askItemNoteScreen(session, parseInt(callbackData.replace('qty:', '')));

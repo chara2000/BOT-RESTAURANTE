@@ -18,7 +18,7 @@ export async function GET() {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
-  const [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes] = await Promise.all([
+  const [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes] = await Promise.all([
     supabase
       .from('categories')
       .select('*')
@@ -65,6 +65,11 @@ export async function GET() {
       .from('delivery_details')
       .select('*, profiles(name)')
       .order('updated_at', { ascending: false }),
+    supabase
+      .from('stock_movements')
+      .select('*, inventory(name, tenant_id)')
+      .order('created_at', { ascending: false })
+      .limit(50),
   ]);
 
   const errors = [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes]
@@ -113,6 +118,20 @@ export async function GET() {
     })
     .filter(Boolean) as DeliveryAssignment[];
 
+  // Filter stock movements to only those belonging to this tenant's inventory
+  const tenantInventoryIds = new Set((inventoryRes.data ?? []).map((i: any) => String(i.id)));
+  const stockMovements = (stockRes.data ?? []).filter((row: any) => {
+    const invId = String(row.inventory_id);
+    return tenantInventoryIds.has(invId);
+  }).map((row: any) => ({
+    id: String(row.id),
+    inventory_id: String(row.inventory_id),
+    inventory_name: String(row.inventory?.name ?? 'Desconocido'),
+    quantity: Number(row.quantity),
+    reason: String(row.reason),
+    created_at: String(row.created_at),
+  }));
+
   return NextResponse.json({
     categories: categoriesRes.data ?? [],
     orders,
@@ -124,5 +143,6 @@ export async function GET() {
       : null,
     cashSession,
     deliveries,
+    stockMovements,
   });
 }

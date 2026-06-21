@@ -108,7 +108,7 @@ export default function CajaPage() {
                 <div className="relative group">
                   <div className="absolute inset-0 bg-gradient-to-br from-[var(--orange)] to-amber-500 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur duration-500" />
                   <div className="relative h-full">
-                    <StatCard title="Saldo Esperado en Caja" value={formatCurrency(expected)} change="Arqueo teórico" up emoji="🏦" />
+                    <StatCard title="Arqueo Ciego Activo" value="***" change="Saldo oculto por seguridad" up emoji="🔒" />
                   </div>
                 </div>
               </div>

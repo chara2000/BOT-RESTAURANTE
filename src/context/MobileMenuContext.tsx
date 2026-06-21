@@ -7,12 +7,16 @@ type MobileMenuContextType = {
   isOpen: boolean;
   setIsOpen: (val: boolean) => void;
   toggle: () => void;
+  isCollapsed: boolean;
+  setIsCollapsed: (val: boolean) => void;
+  toggleCollapse: () => void;
 };
 
 const MobileMenuContext = createContext<MobileMenuContextType | undefined>(undefined);
 
 export function MobileMenuProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
   const pathname = usePathname();
 
   // Cerrar menú al cambiar de ruta
@@ -21,9 +25,10 @@ export function MobileMenuProvider({ children }: { children: React.ReactNode }) 
   }, [pathname]);
 
   const toggle = () => setIsOpen(p => !p);
+  const toggleCollapse = () => setIsCollapsed(p => !p);
 
   return (
-    <MobileMenuContext.Provider value={{ isOpen, setIsOpen, toggle }}>
+    <MobileMenuContext.Provider value={{ isOpen, setIsOpen, toggle, isCollapsed, setIsCollapsed, toggleCollapse }}>
       {children}
     </MobileMenuContext.Provider>
   );

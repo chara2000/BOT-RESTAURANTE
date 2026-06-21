@@ -20,7 +20,7 @@ const ORDER_TYPES: { value: OrderType; label: string; icon: string }[] = [
 ];
 
 export function PosSalePanel() {
-  const { products, customers, addOrder, addCashTransaction, cashSession } = useAppData();
+  const { products, customers, addOrder, updateOrderStatus, cashSession } = useAppData();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('dine_in');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -67,6 +67,14 @@ export function PosSalePanel() {
     setLoading(true);
     setMessage(null);
     try {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let shortCode = '';
+      for (let i = 0; i < 4; i++) {
+        shortCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      const formattedShortId = `T-${shortCode}`;
+      const finalNotes = `[ID: ${formattedShortId}] ${notes}`.trim();
+
       const payload = {
         order: {
           type: orderType,
@@ -77,7 +85,7 @@ export function PosSalePanel() {
           tips: 0,
           total,
           delivery_address: orderType === 'delivery' ? deliveryAddress : undefined,
-          notes: notes || undefined,
+          notes: finalNotes,
         },
         items: cart.map((l) => ({
           product_id: l.product.id,
@@ -87,11 +95,15 @@ export function PosSalePanel() {
       };
 
       const result = await createOrderViaN8n(payload);
-      if (result.order) addOrder(result.order);
-      await addCashTransaction('income', total, `Venta POS - ${cart.length} item(s)`);
+      if (result.order) {
+        addOrder(result.order);
+        // Confirmar inmediatamente: updateOrderStatus registra el ingreso UNA sola vez
+        // (evita el doble conteo que ocurría con addCashTransaction separado)
+        await updateOrderStatus(result.order.id, 'confirmed');
+      }
       clearCart();
       setNotes('');
-      setMessage(`Pedido creado vía ${result.source ?? 'n8n'} · ${formatCurrency(total)}`);
+      setMessage(`Pedido creado: N\u00b0${formattedShortId} ${formatCurrency(total)}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Error al crear pedido');
     } finally {
@@ -152,7 +164,7 @@ export function PosSalePanel() {
                     </div>
                   </div>
                   <div className="mt-4 inline-block px-3 py-1 rounded-lg bg-[var(--bg-card)] border shadow-sm group-hover:bg-[var(--orange)] group-hover:border-[var(--orange)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-                    <p className="text-xs font-black group-hover:text-white transition-colors" style={{ color: 'var(--orange)' }}>{formatCurrency(p.price)}</p>
+                    <p className="text-xs font-black group-hover:text-white transition-colors text-[var(--orange)]">{formatCurrency(p.price)}</p>
                   </div>
                 </button>
               ))}
@@ -299,7 +311,11 @@ export function PosSalePanel() {
               </div>
             )}
             {message && (
-              <p className={`mt-3 text-[10px] text-center font-black p-2 rounded-lg border ${message.startsWith('Pedido') ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
+              <p className={`mt-3 text-[10px] text-center font-black p-2.5 rounded-xl border ${
+                message.startsWith('Pedido creado')
+                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                  : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
+              }`}>
                 {message}
               </p>
             )}

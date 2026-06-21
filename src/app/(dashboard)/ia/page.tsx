@@ -4,11 +4,13 @@ import { useState, useEffect, useRef } from 'react';
 import { Bot, Send, Sparkles, Zap, BrainCircuit, Activity } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
+import type { Order } from '@/types';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   time: string;
+  orders?: Order[];
 }
 
 const INITIAL_MESSAGES: ChatMessage[] = [
@@ -26,7 +28,7 @@ const SUGGESTIONS = [
 ];
 
 export default function IAPage() {
-  const { stats, products, customers, settings } = useAppData();
+  const { stats, products, customers, settings, orders } = useAppData();
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,33 +40,69 @@ export default function IAPage() {
     }
   }, [messages, loading]);
 
-  const generateLocalResponse = (query: string): string => {
+  const generateLocalResponse = (query: string): { content: string; orders?: Order[] } => {
     const q = query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    // Check tracking query
+    const trackMatch = q.match(/rastrear pedido (t-[a-z0-9]+|#[a-z0-9]+|[a-z0-9]{6})/i);
+    if (trackMatch) {
+      const matchId = trackMatch[1].toUpperCase();
+      const foundOrder = orders.find((o) => {
+        const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0, 6).toUpperCase()}`;
+        return shortId.toUpperCase().includes(matchId) || o.id.toUpperCase().includes(matchId);
+      });
+      if (foundOrder) {
+        const shortId = foundOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${foundOrder.id.slice(0, 6).toUpperCase()}`;
+        const itemNames = foundOrder.items.map((i) => `${i.quantity}x ${i.product.name}`).join(', ');
+        const STATUS_LABELS: Record<string, string> = {
+          pending: 'Pendiente', confirmed: 'Confirmado', preparing: 'En Preparación',
+          ready: 'Listo', shipping: 'En Camino', delivered: 'Entregado', cancelled: 'Cancelado',
+        };
+        const statusText = STATUS_LABELS[foundOrder.status] || foundOrder.status;
+        return {
+          content: `📦 **Estado del Pedido ${shortId}**:\n\n• **Cliente:** ${foundOrder.customer?.name ?? 'Cliente Mostrador'}\n• **Detalle:** ${itemNames}\n• **Total:** $${foundOrder.total.toLocaleString('es-CO')} COP\n• **Estado Actual:** ${statusText}\n• **Tipo:** ${foundOrder.type === 'delivery' ? 'Domicilio' : 'Retiro / Mesa'}`
+        };
+      } else {
+        return { content: `🔍 No se encontró ningún pedido que coincida con "${matchId}".` };
+      }
+    }
+
+    if (q.includes('seguimiento') || q.includes('rastrear') || q.includes('estado') || q.includes('pedido')) {
+      const recent = orders.slice(0, 5);
+      if (recent.length === 0) {
+        return { content: `🔍 No hay pedidos recientes registrados en el sistema para realizar seguimiento.` };
+      }
+      return {
+        content: `Aquí tienes los pedidos más recientes para hacerles seguimiento. Haz clic en cualquiera para ver su estado actual en tiempo real:`,
+        orders: recent,
+      };
+    }
+
     if (q.includes('vendido') || q.includes('top') || q.includes('producto')) {
       const top = stats.topProducts
         .slice(0, 3)
         .map((p) => `• ${p.name}: ${p.sold} unidades (${p.revenue.toLocaleString('es-CO')} COP)`)
         .join('\n');
-      return `✨ Aquí tienes el **Top 3 de productos más vendidos**:\n\n${top || 'Sin datos aún.'}`;
+      return { content: `✨ Aquí tienes el **Top 3 de productos más vendidos**:\n\n${top || 'Sin datos aún.'}` };
     }
     if (q.includes('menu') || q.includes('carta')) {
       const items = products
         .slice(0, 5)
         .map((p) => `• ${p.name}: $${p.price.toLocaleString('es-CO')}`)
         .join('\n');
-      return `🍔 **Muestra del Menú Disponible**:\n\n${items || 'No hay productos cargados.'}\n\nRevisa la pestaña "Menú" para ver todo.`;
+      return { content: `🍔 **Muestra del Menú Disponible**:\n\n${items || 'No hay productos cargados.'}\n\nRevisa la pestaña "Menú" para ver todo.` };
     }
     if (q.includes('venta') || q.includes('ingreso') || q.includes('reporte')) {
-      return `📊 **Resumen Operativo de Hoy**:\n\n• **Ingresos Netos:** $${stats.salesToday.toLocaleString('es-CO')}\n• **Pedidos Activos:** ${stats.activeOrders}\n• **Ticket Promedio:** $${Math.round(stats.avgTicket).toLocaleString('es-CO')}\n• **Entregados:** ${stats.deliveredOrders}`;
+      return { content: `📊 **Resumen Operativo de Hoy**:\n\n• **Ingresos Netos:** $${stats.salesToday.toLocaleString('es-CO')}\n• **Pedidos Activos:** ${stats.activeOrders}\n• **Ticket Promedio:** $${Math.round(stats.avgTicket).toLocaleString('es-CO')}\n• **Entregados:** ${stats.deliveredOrders}` };
     }
     if (q.includes('vip') || q.includes('cliente')) {
       const vips = customers
         .filter((c) => c.segment === 'vip')
         .map((c) => `• ${c.name}: $${c.total_spent.toLocaleString('es-CO')} (${c.order_count} pedidos)`)
         .join('\n');
-      return `👑 **Clientes VIP Activos**:\n\n${vips || 'No hay clientes VIP aún.'}`;
+      return { content: `👑 **Clientes VIP Activos**:\n\n${vips || 'No hay clientes VIP aún.'}` };
     }
-    return 'Soy tu asistente local. Puedo analizar datos de ventas, productos populares y segmentación de clientes basándome en tu sistema actual. ¡Pregúntame algo específico!';
+    return { content: 'Soy tu asistente local. Puedo analizar datos de ventas, productos populares y segmentación de clientes basándome en tu sistema actual. ¡Pregúntame algo específico!' };
   };
 
   const sendMessage = async (text: string) => {
@@ -77,7 +115,7 @@ export default function IAPage() {
 
     setTimeout(() => {
       const reply = generateLocalResponse(text);
-      setMessages((prev) => [...prev, { role: 'assistant', content: reply, time: now }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: reply.content, orders: reply.orders, time: now }]);
       setLoading(false);
     }, 800);
   };
@@ -157,6 +195,25 @@ export default function IAPage() {
                     borderColor: m.role === 'user' ? 'transparent' : 'var(--border)'
                   }}>
                     <span className="whitespace-pre-line">{m.content}</span>
+                    {m.orders && m.orders.length > 0 && (
+                      <div className="mt-3 flex flex-col gap-2 min-w-[200px]">
+                        {m.orders.map((o) => {
+                          const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0, 6).toUpperCase()}`;
+                          return (
+                            <button
+                              key={o.id}
+                              type="button"
+                              onClick={() => sendMessage(`Rastrear pedido ${shortId}`)}
+                              className="text-xs font-black text-left px-3 py-2 rounded-xl border bg-[var(--bg-input)] hover:border-[var(--orange)] hover:text-[var(--orange)] transition-all flex justify-between items-center cursor-pointer"
+                              style={{ borderColor: 'var(--border)' }}
+                            >
+                              <span>{shortId} · {o.customer?.name ?? 'Cliente Mostrador'}</span>
+                              <span className="opacity-70 font-semibold text-[10px]">{o.items[0]?.product.name}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <p className={`text-[9px] font-bold mt-2 text-right ${m.role === 'user' ? 'text-white/80' : 'opacity-50'}`}>{m.time}</p>
                   </div>
                 </div>

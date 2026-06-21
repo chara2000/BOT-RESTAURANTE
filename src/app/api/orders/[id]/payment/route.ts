@@ -7,20 +7,32 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await request.json();
-  const { payment_status, notes } = body;
-
   const supabase = createAdminClient();
+
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  const body = await request.json();
+  const { payment_status, notes } = body;
+
+  // Update notes and optionally advance order status
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (notes !== undefined) patch.notes = notes;
+
+  // Move order to delivered when approved, or cancelled when rejected
+  if (payment_status === 'paid') {
+    patch.status = 'confirmed';
+  } else if (payment_status === 'failed') {
+    patch.status = 'cancelled';
+  }
+
   const { data, error } = await supabase
     .from('orders')
-    .update({ payment_status, notes, updated_at: new Date().toISOString() })
+    .update(patch)
     .eq('id', id)
     .eq('tenant_id', DEMO_TENANT_ID)
-    .select('id, payment_status, notes')
+    .select('id, status, notes')
     .single();
 
   if (error) {

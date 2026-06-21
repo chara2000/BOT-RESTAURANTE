@@ -35,3 +35,28 @@ export async function PATCH(
 
   return NextResponse.json(mapInventory(data as Record<string, unknown>));
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const supabase = createAdminClient();
+
+  if (!supabase) {
+    return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
+  }
+
+  const { error } = await supabase
+    .from('inventory')
+    .delete()
+    .eq('id', id)
+    .eq('tenant_id', DEMO_TENANT_ID);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ success: true });
+}
+

@@ -27,7 +27,9 @@ import {
 
 function logSupabaseError(err: unknown) {
   if (err && typeof err === 'object' && 'message' in err) {
-    console.error('[Supabase]', (err as { message: string }).message, err);
+    const msg = (err as { message: string }).message;
+    if (msg.includes('fetch failed')) return; // Ignore noisy network errors
+    console.error('[Supabase]', msg, err);
   } else {
     console.error('[Supabase]', err);
   }
@@ -45,12 +47,16 @@ interface AppDataContextValue {
   deliveries: DeliveryAssignment[];
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   addOrder: (order: Order) => void;
+  deleteOrder: (orderId: string) => Promise<void>;
+  updateOrderDetails: (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus }) => Promise<void>;
   updateProduct: (product: Product) => Promise<Product | void>;
   addProduct: (product: Product) => Promise<Product | void>;
   deleteProduct: (id: string) => Promise<void>;
   addCategory: (category: Partial<Category>) => Promise<void>;
   updateCategory: (category: Category) => Promise<void>;
   updateInventory: (item: InventoryItem) => Promise<void>;
+  addInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<void>;
+  deleteInventoryItem: (id: string) => Promise<void>;
   addCashTransaction: (type: 'income' | 'expense', amount: number, description: string) => Promise<void>;
   openCashRegister: (balance: number, openedBy: string) => Promise<void>;
   closeCashRegister: (actualCash: number) => Promise<void>;
@@ -121,7 +127,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [customers, setCustomers] = useState<Customer[]>(useSupabase ? [] : initialCustomers);
   const [dataSource, setDataSource] = useState<'mock' | 'supabase'>(useSupabase ? 'supabase' : 'mock');
   const [inventory, setInventory] = useState<InventoryItem[]>(useSupabase ? [] : initialInventory);
-  const [stockMovements] = useState<StockMovement[]>(initialStockMovements);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(useSupabase ? [] : initialStockMovements);
   const [cashSession, setCashSession] = useState<CashSession>(initialCashSession);
   const [settings, setSettings] = useState<TenantSettings>(initialSettings);
   const [deliveries, setDeliveries] = useState<DeliveryAssignment[]>(
@@ -158,6 +164,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       setProducts(data.products);
       setCustomers(data.customers);
       setInventory(data.inventory);
+      if (data.stockMovements) setStockMovements(data.stockMovements);
       setDeliveries(data.deliveries?.length ? data.deliveries : buildDeliveries(data.orders));
       if (data.cashSession) {
         setCashSession(data.cashSession);
@@ -248,6 +255,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [syncFromSupabase]);
 
   const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus) => {
+    const prevOrder = orders.find((o) => o.id === orderId);
     setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, status } : o)));
     setDeliveries((prev) =>
       prev.map((d) =>
@@ -256,6 +264,39 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           : d
       )
     );
+
+    if (prevOrder) {
+      const shortId = prevOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] ?? `#${orderId.slice(0, 6).toUpperCase()}`;
+      const wasAlreadyIncome = prevOrder.status === 'confirmed' || prevOrder.status === 'delivered';
+      const isNewIncome = status === 'confirmed' || status === 'delivered';
+
+      if (isNewIncome && !wasAlreadyIncome) {
+        if (cashSession.status === 'open') {
+          if (dataSource === 'supabase' && cashSession.id) {
+            try {
+              await cashService.addTransaction(cashSession.id, 'income', prevOrder.total, `Pedido ${shortId} - ${status === 'confirmed' ? 'Confirmado' : 'Entregado'}`);
+            } catch (_) {}
+          }
+          setCashSession((prev) => ({
+            ...prev,
+            transactions: [{ id: `t${Date.now()}`, type: 'income', amount: prevOrder.total, description: `Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
+          }));
+        }
+      } else if (status === 'cancelled' && wasAlreadyIncome) {
+        if (cashSession.status === 'open') {
+          if (dataSource === 'supabase' && cashSession.id) {
+            try {
+              await cashService.addTransaction(cashSession.id, 'expense', prevOrder.total, `Cancelación Pedido ${shortId}`);
+            } catch (_) {}
+          }
+          setCashSession((prev) => ({
+            ...prev,
+            transactions: [{ id: `t${Date.now()}`, type: 'expense', amount: prevOrder.total, description: `Cancelación Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
+          }));
+        }
+      }
+    }
+
     if (dataSource === 'supabase') {
       try {
         await ordersService.updateStatus(orderId, status);
@@ -265,7 +306,67 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase]);
+  }, [dataSource, syncFromSupabase, orders, cashSession]);
+
+  const deleteOrder = useCallback(async (orderId: string) => {
+    const prevOrder = orders.find((o) => o.id === orderId);
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    setDeliveries((prev) => prev.filter((d) => d.order_id !== orderId));
+
+    if (prevOrder && (prevOrder.status === 'confirmed' || prevOrder.status === 'delivered')) {
+      const shortId = prevOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] ?? `#${orderId.slice(0, 6).toUpperCase()}`;
+      if (cashSession.status === 'open') {
+        if (dataSource === 'supabase' && cashSession.id) {
+          try {
+            await cashService.addTransaction(cashSession.id, 'expense', prevOrder.total, `Eliminación Pedido ${shortId}`);
+          } catch (_) {}
+        }
+        setCashSession((prev) => ({
+          ...prev,
+          transactions: [{ id: `t${Date.now()}`, type: 'expense', amount: prevOrder.total, description: `Eliminación Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
+        }));
+      }
+    }
+
+    if (dataSource === 'supabase') {
+      try {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase.from('orders').delete().eq('id', orderId);
+        }
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase, orders, cashSession]);
+
+  const updateOrderDetails = useCallback(async (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus }) => {
+    const prevOrder = orders.find((o) => o.id === orderId);
+    if (!prevOrder) return;
+
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updates } : o)));
+
+    if (dataSource === 'supabase') {
+      try {
+        const supabase = createClient();
+        if (supabase) {
+          const { error } = await supabase.from('orders').update({
+            notes: updates.notes ?? prevOrder.notes,
+            total: updates.total ?? prevOrder.total,
+            status: updates.status ?? prevOrder.status,
+            updated_at: new Date().toISOString()
+          }).eq('id', orderId);
+          if (error) throw error;
+        }
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase();
+        throw err;
+      }
+    }
+  }, [dataSource, syncFromSupabase, orders]);
 
   const addOrder = useCallback((order: Order) => {
     setOrders((prev) => [order, ...prev]);
@@ -348,18 +449,115 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [dataSource, syncFromSupabase]);
 
   const updateInventory = useCallback(async (item: InventoryItem) => {
+    const prevItem = inventory.find((i) => i.id === item.id);
+    const delta = prevItem ? item.stock - prevItem.stock : 0;
     setInventory((prev) => prev.map((i) => (i.id === item.id ? item : i)));
+
+    // Log movement locally for immediate display in Auditoría
+    if (delta !== 0) {
+      const newMovement = {
+        id: `sm-${Date.now()}`,
+        inventory_id: item.id,
+        inventory_name: item.name,
+        quantity: delta,
+        reason: delta > 0 ? 'Ajuste manual de entrada' : 'Ajuste manual de salida',
+        created_at: new Date().toISOString(),
+      };
+      setStockMovements((prev) => [newMovement, ...prev]);
+    }
+
     if (dataSource === 'supabase') {
       try {
         const saved = await inventoryService.update(item);
         setInventory((prev) => prev.map((i) => (i.id === saved.id ? saved : i)));
+        // Persist movement to Supabase (non-blocking)
+        if (delta !== 0) {
+          const supabase = createClient();
+          if (supabase) {
+              Promise.resolve(supabase.from('stock_movements').insert({
+                inventory_id: item.id,
+                quantity: delta,
+                reason: delta > 0 ? 'Ajuste manual de entrada' : 'Ajuste manual de salida',
+              })).catch(() => {});
+            }
+        }
       } catch (err) {
         logSupabaseError(err);
         await syncFromSupabase();
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase]);
+  }, [dataSource, syncFromSupabase, inventory]);
+
+  const addInventoryItem = useCallback(async (item: Omit<InventoryItem, 'id'>) => {
+    if (dataSource === 'supabase') {
+      try {
+        const saved = await inventoryService.create(item);
+        setInventory((prev) => [...prev, saved]);
+        // Log creation as a positive movement
+        const newMovement = {
+          id: `sm-${Date.now()}`,
+          inventory_id: saved.id,
+          inventory_name: saved.name,
+          quantity: saved.stock,
+          reason: 'Insumo creado en inventario',
+          created_at: new Date().toISOString(),
+        };
+        setStockMovements((prev) => [newMovement, ...prev]);
+        // Persist to Supabase (non-blocking)
+        const supabase = createClient();
+        if (supabase && saved.stock > 0) {
+          Promise.resolve(supabase.from('stock_movements').insert({
+            inventory_id: saved.id,
+            quantity: saved.stock,
+            reason: 'Insumo creado en inventario',
+          })).catch(() => {});
+        }
+      } catch (err) {
+        logSupabaseError(err);
+        throw err;
+      }
+    } else {
+      const newItem: InventoryItem = { ...item, id: `inv-${Date.now()}` };
+      setInventory((prev) => [...prev, newItem]);
+      if (newItem.stock > 0) {
+        setStockMovements((prev) => [{
+          id: `sm-${Date.now()}`,
+          inventory_id: newItem.id,
+          inventory_name: newItem.name,
+          quantity: newItem.stock,
+          reason: 'Insumo creado en inventario',
+          created_at: new Date().toISOString(),
+        }, ...prev]);
+      }
+    }
+  }, [dataSource]);
+
+  const deleteInventoryItem = useCallback(async (id: string) => {
+    const previous = inventory;
+    const deletedItem = inventory.find((i) => i.id === id);
+    setInventory((prev) => prev.filter((i) => i.id !== id));
+    // Log deletion as a negative movement
+    if (deletedItem) {
+      setStockMovements((prev) => [{
+        id: `sm-${Date.now()}`,
+        inventory_id: id,
+        inventory_name: deletedItem.name,
+        quantity: -deletedItem.stock,
+        reason: 'Insumo eliminado del inventario',
+        created_at: new Date().toISOString(),
+      }, ...prev]);
+    }
+    if (dataSource === 'supabase') {
+      try {
+        await inventoryService.remove(id);
+      } catch (err) {
+        logSupabaseError(err);
+        setInventory(previous);
+        throw err;
+      }
+    }
+  }, [dataSource, inventory]);
 
   const addCashTransaction = useCallback(async (type: 'income' | 'expense', amount: number, description: string) => {
     if (dataSource === 'supabase') {
@@ -459,13 +657,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
     }),
     [
       categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
     ]

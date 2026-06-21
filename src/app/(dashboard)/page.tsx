@@ -237,7 +237,9 @@ export default function DashboardPage() {
                       {recentOrders.map((o) => (
                         <tr key={o.id} className="border-t transition-colors hover:bg-[var(--bg-input)] cursor-pointer"
                             style={{ borderColor: 'var(--border)' }}>
-                          <td className="px-5 lg:px-6 py-3 lg:py-4 font-black" style={{ color: 'var(--orange)' }}>#{o.id}</td>
+                          <td className="px-5 lg:px-6 py-3 lg:py-4 font-black" style={{ color: 'var(--orange)' }}>
+                            {o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] ?? `#${o.id.slice(0, 6).toUpperCase()}`}
+                          </td>
                           <td className="px-5 lg:px-6 py-3 lg:py-4">
                             <p className="font-bold text-[13px] lg:text-sm truncate max-w-[150px]">{o.items[0]?.product.name}</p>
                             <span style={{ color: 'var(--text-muted)' }} className="text-[9px] lg:text-[10px] font-medium uppercase tracking-wide">{o.items[0]?.product.category}</span>

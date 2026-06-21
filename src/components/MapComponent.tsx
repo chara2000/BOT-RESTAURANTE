@@ -6,9 +6,11 @@ import type { Map as LeafletMap, Marker } from 'leaflet';
 interface MapComponentProps {
   riderCoords: [number, number];
   deliveryAddress: string;
+  className?: string;
+  isPublic?: boolean;
 }
 
-export default function MapComponent({ riderCoords, deliveryAddress }: MapComponentProps) {
+export default function MapComponent({ riderCoords, deliveryAddress, className, isPublic }: MapComponentProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<LeafletMap | null>(null);
   const riderMarkerRef = useRef<Marker | null>(null);
@@ -76,7 +78,7 @@ export default function MapComponent({ riderCoords, deliveryAddress }: MapCompon
   }, [riderCoords, deliveryAddress]);
 
   return (
-    <div className="relative w-full h-full min-h-[350px] rounded-xl overflow-hidden border border-gray-800 shadow-inner">
+    <div className={className || `relative w-full h-full min-h-[350px] rounded-xl overflow-hidden border shadow-inner`} style={!className ? { borderColor: 'var(--border)' } : {}}>
       <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"

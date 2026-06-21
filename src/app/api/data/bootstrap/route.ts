@@ -118,6 +118,31 @@ export async function GET() {
     })
     .filter(Boolean) as DeliveryAssignment[];
 
+  // ── Fallback: si delivery_details está vacío, construir deliveries
+  // directamente desde los pedidos con dirección de domicilio ──────────────
+  const finalDeliveries: DeliveryAssignment[] =
+    deliveries.length > 0
+      ? deliveries
+      : orders
+          .filter(
+            (o) =>
+              (o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
+              !['cancelled', 'draft'].includes(o.status)
+          )
+          .map((o, i) => ({
+            order_id: o.id,
+            order: o,
+            rider_name: undefined,
+            status: (o.status === 'delivered'
+              ? 'delivered'
+              : o.status === 'shipping'
+              ? 'assigned'
+              : 'searching') as DeliveryAssignment['status'],
+            latitude: 6.2088 + i * 0.005,
+            longitude: -75.5678 + i * 0.005,
+          }));
+
+
   // Filter stock movements to only those belonging to this tenant's inventory
   const tenantInventoryIds = new Set((inventoryRes.data ?? []).map((i: any) => String(i.id)));
   const stockMovements = (stockRes.data ?? []).filter((row: any) => {
@@ -142,7 +167,7 @@ export async function GET() {
       ? mapSettings({ ...(settingsRes.data as Record<string, unknown>), restaurant_name: tenantRes.data?.name })
       : null,
     cashSession,
-    deliveries,
+    deliveries: finalDeliveries,
     stockMovements,
   });
 }

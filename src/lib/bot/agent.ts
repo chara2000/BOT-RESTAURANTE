@@ -169,31 +169,51 @@ async function getTenantSettings(): Promise<CachedSettings> {
 }
 
 /**
+ * Obtiene la fecha y hora actual en la zona horaria de Colombia (UTC-5).
+ * Devuelve { dayName, minutesOfDay } para comparar con los horarios.
+ */
+function getColombiaTime(): { dayName: string; minutesOfDay: number } {
+  // Colombia siempre UTC-5, sin cambio de horario de verano
+  const COLOMBIA_OFFSET_MS = -5 * 60 * 60 * 1000;
+  const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+  const nowUtc = Date.now();
+  const colombiaMs = nowUtc + COLOMBIA_OFFSET_MS;
+  const dt = new Date(colombiaMs);
+
+  const dayName = DAYS_ES[dt.getUTCDay()];
+  const minutesOfDay = dt.getUTCHours() * 60 + dt.getUTCMinutes();
+
+  return { dayName, minutesOfDay };
+}
+
+/**
  * Verifica si el restaurante está abierto según la configuración de horarios.
  * Retorna true si está abierto, false si está cerrado.
  */
 function isRestaurantOpen(hours: CachedSettings['business_hours']): boolean {
   if (!hours || hours.length === 0) return true; // sin configuración = siempre abierto
 
-  const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-  const now = new Date();
-  // Horario Colombia (UTC-5)
-  const colombiaOffset = -5 * 60;
-  const utcMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  const colombiaMinutes = ((utcMinutes + colombiaOffset) + 1440) % 1440;
-  const colombiaDayIndex = Math.floor(((now.getUTCDay() * 1440 + utcMinutes + colombiaOffset) + 10080) / 1440) % 7;
-  const dayName = DAYS_ES[colombiaDayIndex];
+  const { dayName, minutesOfDay } = getColombiaTime();
 
-  const todayHours = hours.find(h => h.day === dayName);
+  const todayHours = hours.find(h => normalize(h.day) === normalize(dayName));
   if (!todayHours) return true; // día no configurado = abierto
   if (todayHours.closed) return false;
+
+  // Validar que open y close estén bien definidos
+  if (!todayHours.open || !todayHours.close) return true;
 
   const [openH, openM] = todayHours.open.split(':').map(Number);
   const [closeH, closeM] = todayHours.close.split(':').map(Number);
   const openMinutes = openH * 60 + openM;
   const closeMinutes = closeH * 60 + closeM;
 
-  return colombiaMinutes >= openMinutes && colombiaMinutes < closeMinutes;
+  // Soporte para horarios que cruzan medianoche (ej: 22:00 - 02:00)
+  if (closeMinutes < openMinutes) {
+    return minutesOfDay >= openMinutes || minutesOfDay < closeMinutes;
+  }
+
+  return minutesOfDay >= openMinutes && minutesOfDay < closeMinutes;
 }
 
 /**
@@ -206,41 +226,74 @@ function formatBusinessHours(hours: CachedSettings['business_hours']): string {
     if (h.closed) {
       return `• *${h.day}*: Cerrado`;
     }
-    return `• *${h.day}*: ${h.open} - ${h.close}`;
+    return `• *${h.day}*: ${h.open} – ${h.close}`;
   }).join('\n');
+}
+
+/** Normaliza texto: minúsculas + sin tildes */
+function normalize(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+    .trim();
 }
 
 /**
  * Valida si la dirección ingresada por el cliente corresponde a la cobertura
- * del restaurante según las palabras clave configuradas.
+ * del restaurante. Verifica palabras clave de nomenclatura (calle, cra, etc.).
  * Retorna null si es válida, o un mensaje de error si no lo es.
  */
 function validateAddressCoverage(
   address: string,
   settings: CachedSettings
 ): string | null {
-  // Si no hay validación activada o no hay keywords, se acepta todo
-  if (!settings.coverage_require_keywords) return null;
-  const keywords = settings.coverage_keywords ?? [];
-  if (keywords.length === 0) return null;
+  const addr = normalize(address);
+  const city = settings.coverage_city ? normalize(settings.coverage_city) : '';
+  const dept = settings.coverage_department ? normalize(settings.coverage_department) : '';
 
-  const normalizedAddress = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const hasKeyword = keywords.some(kw =>
-    normalizedAddress.includes(kw.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''))
-  );
+  const keywords = (settings.coverage_keywords ?? []).filter(Boolean);
+  const hasKeyword = keywords.length > 0 ? keywords.some(kw => addr.includes(normalize(kw))) : false;
+  const hasCity = city ? addr.includes(city) : false;
 
-  if (!hasKeyword) {
-    const city = settings.coverage_city ? ` en *${settings.coverage_city}*` : '';
+  // Si tiene palabras clave (ej: "cra", "calle") pero no menciona la ciudad,
+  // la aceptamos automáticamente completando internamente la ciudad para que el mapa funcione.
+  if (hasKeyword && !hasCity && settings.coverage_city) {
+    // Retornamos null (es válida), y el bot guardará la dirección más adelante concatenada
+    return null; 
+  }
+
+  // Si no tiene la ciudad Y tampoco tiene una palabra clave de nomenclatura válida, se rechaza
+  if (city && !hasCity && !hasKeyword) {
+    const cityName = settings.coverage_city ? `*${settings.coverage_city}*` : '';
+    const deptName = settings.coverage_department ? `, ${settings.coverage_department}` : '';
     const examples = keywords.slice(0, 4).join(', ');
     return [
-      `⚠️ *Dirección fuera de cobertura*`,
+      `⚠️ *Dirección incompleta o no reconocida*`,
       ``,
-      `Solo realizamos domicilios${city}.`,
-      `Tu dirección debe incluir una referencia como: _${examples}_${keywords.length > 4 ? '...' : ''}.`,
-      ``,
-      `Por favor ingresa una dirección válida o selecciona *Recoger en el local*:`,
+      `Solo realizamos entregas en el municipio de ${cityName}${deptName}.`,
+      `Asegúrate de escribir la calle/carrera o incluir el nombre del municipio:`,
+      `_Ej: Cra 19 #18-44 Barrio Centro, ${settings.coverage_city}_`,
     ].join('\n');
   }
+
+  // Si tiene activa la validación estricta de palabras clave pero no cumple ninguna regla
+  if (settings.coverage_require_keywords && keywords.length > 0 && !hasKeyword && !hasCity) {
+    const cityName = settings.coverage_city ? `*${settings.coverage_city}*` : 'nuestra ciudad';
+    const deptName = settings.coverage_department ? `, ${settings.coverage_department}` : '';
+    const examples = keywords.slice(0, 4).join(', ');
+    return [
+      `⚠️ *Dirección no reconocida*`,
+      ``,
+      `Solo realizamos domicilios en ${cityName}${deptName}.`,
+      `Tu dirección debe incluir la nomenclatura de la ciudad:`,
+      `_Ej: ${examples}${keywords.length > 4 ? '...' : ''}_`,
+      ``,
+      `✏️ Escribe tu dirección completa (Ej: *Cra 19 #18-44 Barrio Centro*) o selecciona recoger en el local:`,
+    ].join('\n');
+  }
+
   return null;
 }
 
@@ -911,7 +964,7 @@ async function handleProcessMessage(
   }
 
   if (session.state === 'checkout_address') {
-    const address = text.trim();
+    let address = text.trim();
     // Solo validar cobertura si NO es para recoger
     if (!/recoger|mesa|pickup/i.test(address)) {
       const tenantSettings = await getTenantSettings();
@@ -927,8 +980,44 @@ async function handleProcessMessage(
           },
         };
       }
+      
+      // Si la validacion paso y se configuro ciudad, pero la direccion NO contiene la ciudad explicitamente,
+      // se la concatenamos automaticamente para que se guarde de forma correcta y aparezca en el mapa.
+      if (tenantSettings.coverage_city) {
+        const cityNormalized = tenantSettings.coverage_city.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        const addressNormalized = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        if (!addressNormalized.includes(cityNormalized)) {
+          address = `${address}, ${tenantSettings.coverage_city}`;
+        }
+      }
     }
     return confirmOrderScreen(session, address);
+  }
+
+  // Si la sesión está en 'idle' pero el usuario envía un texto aleatorio (que no es un comando)
+  if (session.state === 'idle') {
+    const rawText = text.trim();
+    if (rawText !== '/start') {
+      return {
+        text: `🤔 *No logré entender esa opción.*\n\nPor favor, utiliza el menú interactivo para realizar tu pedido de forma rápida y sencilla:`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
+            [{ text: '🛒 Ver Carrito', callback_data: 'cart' }],
+            [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
+            [{ text: '🙋 Hablar con un Humano', callback_data: 'contact_manager' }]
+          ],
+        },
+      };
+    }
+  }
+
+  // Fallback para otros estados interactivos donde se espera una interacción con botones en lugar de texto
+  const buttonOnlyStates = ['checkout_payment', 'awaiting_cancel_confirm'];
+  if (buttonOnlyStates.includes(session.state)) {
+    return {
+      text: `👆 *Por favor, selecciona una de las opciones presionando los botones de arriba:*`,
+    };
   }
 
   // Default

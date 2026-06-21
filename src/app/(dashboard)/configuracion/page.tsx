@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin } from 'lucide-react';
+import { Bot, CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2 } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { PAYMENT_LABELS, type PaymentMethod } from '@/types';
@@ -149,132 +149,200 @@ export default function ConfiguracionPage() {
             </div>
           </div>
 
-          {/* Hours */}
-          <div className="card p-6 space-y-5 xl:col-span-2 animate-fade-in-up delay-300">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+          {/* ── Horarios de Servicio ── */}
+          <div className="card p-6 xl:col-span-2 animate-fade-in-up delay-300">
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-5" style={{ borderColor: 'var(--border)' }}>
               <Clock className="h-5 w-5 text-[var(--orange)]" /> Horarios de Servicio
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
               {settings.business_hours.map((h, i) => (
-                <div 
-                  key={h.day} 
-                  className="flex flex-col gap-3 p-5 rounded-3xl border transition-all duration-300 hover:shadow-lg relative overflow-hidden" 
-                  style={{ 
-                    borderColor: h.closed ? 'rgba(239, 68, 68, 0.2)' : 'var(--border)', 
-                    background: h.closed ? 'rgba(239, 68, 68, 0.02)' : 'var(--bg-card)',
+                <div
+                  key={h.day}
+                  className="relative flex flex-col rounded-2xl border overflow-hidden transition-all duration-300"
+                  style={{
+                    borderColor: h.closed ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.3)',
+                    background: h.closed ? 'rgba(239,68,68,0.04)' : 'rgba(16,185,129,0.04)',
                   }}
                 >
-                  <div className={`absolute left-0 inset-y-0 w-1 ${h.closed ? 'bg-red-500' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'}`} />
-                  
-                  <div className="flex items-center justify-between pl-1">
-                    <span className="text-sm font-black text-[var(--text-primary)]">{h.day}</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        checked={!h.closed} 
-                        onChange={(e) => handleHourChange(i, 'closed', !e.target.checked)}
-                        className="sr-only peer" 
-                      />
-                      <div className="w-8 h-4.5 bg-red-500/20 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
-                      <span className={`text-[9px] font-black uppercase tracking-wider ml-2 px-1.5 py-0.5 rounded-md ${
-                        h.closed ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
-                      }`}>
-                        {h.closed ? 'Cerrado' : 'Abierto'}
-                      </span>
-                    </label>
-                  </div>
+                  {/* Color bar top */}
+                  <div className={`h-1 w-full ${h.closed ? 'bg-red-500' : 'bg-emerald-500'}`} />
 
-                  <div className="flex items-center justify-between gap-3 pl-1">
-                    <div className="flex-1">
-                      <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Apertura</p>
-                      <input 
-                        type="time" 
-                        value={h.open} 
-                        disabled={h.closed}
-                        onChange={(e) => handleHourChange(i, 'open', e.target.value)}
-                        className="text-xs font-bold px-3 py-2 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none w-full text-center disabled:opacity-40" 
-                        style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} 
-                      />
+                  <div className="p-4 flex flex-col gap-3 flex-1">
+                    {/* Day + toggle */}
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-black truncate" style={{ color: 'var(--text-primary)' }}>{h.day}</span>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={!h.closed}
+                          onChange={(e) => handleHourChange(i, 'closed', !e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-red-400/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+                      </label>
                     </div>
-                    <span className="text-[10px] font-black pt-4" style={{ color: 'var(--text-muted)' }}>A</span>
-                    <div className="flex-1">
-                      <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Cierre</p>
-                      <input 
-                        type="time" 
-                        value={h.close} 
-                        disabled={h.closed}
-                        onChange={(e) => handleHourChange(i, 'close', e.target.value)}
-                        className="text-xs font-bold px-3 py-2 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none w-full text-center disabled:opacity-40" 
-                        style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }} 
-                      />
-                    </div>
+
+                    {/* Status badge */}
+                    <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full self-start ${
+                      h.closed ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-600'
+                    }`}>
+                      {h.closed ? '🔴 Cerrado' : '🟢 Abierto'}
+                    </span>
+
+                    {/* Time inputs */}
+                    {!h.closed ? (
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Apertura</p>
+                          <input
+                            type="time"
+                            value={h.open}
+                            onChange={(e) => handleHourChange(i, 'open', e.target.value)}
+                            className="w-full text-[11px] font-bold px-2 py-1.5 rounded-lg border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none text-center"
+                            style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-center">
+                          <span className="text-[9px] font-black" style={{ color: 'var(--text-muted)' }}>hasta</span>
+                        </div>
+                        <div>
+                          <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Cierre</p>
+                          <input
+                            type="time"
+                            value={h.close}
+                            onChange={(e) => handleHourChange(i, 'close', e.target.value)}
+                            className="w-full text-[11px] font-bold px-2 py-1.5 rounded-lg border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none text-center"
+                            style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex items-center justify-center py-2">
+                        <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Sin servicio</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
+
+            {/* Quick tip */}
+            <p className="text-[10px] font-semibold mt-4" style={{ color: 'var(--text-muted)' }}>
+              💡 El bot rechazará pedidos automáticamente fuera de los horarios configurados.
+            </p>
           </div>
 
-          {/* Coverage */}
-          <div className="card p-6 space-y-5 xl:col-span-2 animate-fade-in-up delay-400">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
-              <MapPin className="h-5 w-5 text-emerald-500" /> Zona de Cobertura de Domicilio
+                  {/* ── Zona de Cobertura ── */}
+          <div className="card p-6 xl:col-span-2 animate-fade-in-up delay-400">
+            <div className="flex items-start justify-between border-b pb-4 mb-5" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-black flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-emerald-500 animate-pulse" /> Zona de Cobertura de Domicilio
+              </p>
+              {/* Active indicator */}
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={settings.coverage_require_keywords ?? true}
+                  onChange={(e) => updateSettings({ coverage_require_keywords: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-9 h-5 bg-red-400/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+                <span className="ml-2 text-[10px] font-black uppercase tracking-wider hidden sm:inline" style={{ color: 'var(--text-primary)' }}>
+                  {settings.coverage_require_keywords ? 'Validación Activa' : 'Sin Validación'}
+                </span>
+              </label>
+            </div>
+
+            <p className="text-[11px] font-bold leading-relaxed mb-5" style={{ color: 'var(--text-muted)' }}>
+              Define la ubicación del restaurante. El bot validará de forma inteligente las direcciones del cliente basándose en estos parámetros para decidir si están dentro de la cobertura.
             </p>
-            <p className="text-[11px] font-bold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-              Define la ubicación del restaurante. El bot solo aceptará direcciones que coincidan con la nomenclatura de tu ciudad.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Ciudad / Municipio</label>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+              {/* Ciudad card */}
+              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
+                   style={{
+                     borderColor: 'rgba(16,185,129,0.3)',
+                     background: 'rgba(16,185,129,0.02)'
+                   }}>
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 self-start mb-2 inline-block">
+                    🌆 Territorio
+                  </span>
+                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Ciudad / Municipio</label>
+                </div>
                 <input
                   placeholder="Ej: Puerto Tejada"
                   defaultValue={settings.coverage_city || ''}
-                  onChange={(e) => updateSettings({ coverage_city: e.target.value })}
-                  className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  onChange={(e) => updateSettings({ coverage_city: e.target.value.trim() })}
+                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Departamento</label>
+
+              {/* Departamento card */}
+              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
+                   style={{
+                     borderColor: 'rgba(16,185,129,0.3)',
+                     background: 'rgba(16,185,129,0.02)'
+                   }}>
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 self-start mb-2 inline-block">
+                    🗺️ Región
+                  </span>
+                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Departamento</label>
+                </div>
                 <input
                   placeholder="Ej: Cauca"
                   defaultValue={settings.coverage_department || ''}
-                  onChange={(e) => updateSettings({ coverage_department: e.target.value })}
-                  className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  onChange={(e) => updateSettings({ coverage_department: e.target.value.trim() })}
+                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              {/* Nomenclatura card */}
+              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
+                   style={{
+                     borderColor: settings.coverage_require_keywords ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.25)',
+                     background: settings.coverage_require_keywords ? 'rgba(16,185,129,0.02)' : 'rgba(239,68,68,0.02)'
+                   }}>
+                <div>
+                  <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full self-start mb-2 inline-block ${
+                    settings.coverage_require_keywords ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'
+                  }`}>
+                    {settings.coverage_require_keywords ? '🔑 Nomenclatura' : '⚪ Desactivado'}
+                  </span>
+                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Palabras Clave</label>
+                </div>
+                <input
+                  placeholder="Ej: calle, cra, carrera, vereda"
+                  defaultValue={(settings.coverage_keywords || []).join(', ')}
+                  onChange={(e) => {
+                    const keywords = e.target.value.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
+                    updateSettings({ coverage_keywords: keywords });
+                  }}
+                  disabled={!settings.coverage_require_keywords}
+                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] disabled:opacity-50"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Palabras Clave de Nomenclatura
-                <span className="ml-2 normal-case font-semibold">(separadas por coma)</span>
-              </label>
-              <input
-                placeholder="Ej: calle, carrera, manzana, barrio, vereda"
-                defaultValue={(settings.coverage_keywords || []).join(', ')}
-                onChange={(e) => {
-                  const keywords = e.target.value.split(',').map(k => k.trim()).filter(Boolean);
-                  updateSettings({ coverage_keywords: keywords });
-                }}
-                className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-              <p className="text-[10px] mt-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>
-                El bot validará que la dirección del cliente contenga al menos una de estas palabras.
-              </p>
-            </div>
-            <label className="flex items-center gap-3 p-4 rounded-xl border cursor-pointer hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-              <input
-                type="checkbox"
-                checked={settings.coverage_require_keywords ?? true}
-                onChange={(e) => updateSettings({ coverage_require_keywords: e.target.checked })}
-                className="w-5 h-5 accent-[var(--orange)]"
-              />
-              <div>
-                <span className="text-sm font-black block">Activar validación de cobertura</span>
-                <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Si está activo, el bot rechazará direcciones que no correspondan a la nomenclatura configurada.</span>
+
+            {/* Preview de validación activa */}
+            {settings.coverage_city && (
+              <div className="p-4 rounded-2xl border transition-all duration-300" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
+                <p className="text-[11px] font-black mb-1.5 text-emerald-600 flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4" /> Resumen de Regla de Cobertura Bot:
+                </p>
+                <p className="text-[11px] font-bold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                  Las direcciones recibidas por el bot <span className="text-[var(--text-primary)]">deben contener la palabra clave "{settings.coverage_city.toLowerCase()}"</span>.
+                  {settings.coverage_require_keywords && settings.coverage_keywords && settings.coverage_keywords.length > 0 && (
+                    <span> Además, deben contener alguna de las palabras de nomenclatura: <span className="font-extrabold text-[var(--orange)]">{settings.coverage_keywords.join(', ')}</span>.</span>
+                  )}
+                </p>
               </div>
-            </label>
+            )}
           </div>
 
           {/* Roles */}

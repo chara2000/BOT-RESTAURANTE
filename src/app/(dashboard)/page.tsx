@@ -40,8 +40,12 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const { dark } = useTheme();
-  const { orders, stats, deliveries } = useAppData();
-  const [riderCoords, setRiderCoords] = useState<[number, number]>([6.2088, -75.5678]);
+  const { orders, stats, deliveries, settings } = useAppData();
+  
+  const isPuertoTejada = settings?.coverage_city?.toLowerCase().includes('puerto tejada') || false;
+  const defaultCenter: [number, number] = isPuertoTejada ? [3.2311, -76.4167] : [6.2088, -75.5678];
+  
+  const [riderCoords, setRiderCoords] = useState<[number, number]>(defaultCenter);
   const [gpsRunning, setGpsRunning] = useState(false);
 
   const activeDelivery = deliveries.find((d) => d.order.status === 'shipping');

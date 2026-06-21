@@ -148,14 +148,23 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] =>
     orderList
-      .filter((o) => o.type === 'delivery')
+      .filter((o) =>
+        (o.type === 'delivery' ||
+          (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
+        !['cancelled', 'draft'].includes(o.status)
+      )
       .map((o, i) => ({
         order_id: o.id,
         order: o,
-        status: o.status === 'delivered' ? 'delivered' as const : i === 0 ? 'assigned' as const : 'searching' as const,
-        latitude: 6.2088 + i * 0.01,
-        longitude: -75.5678 + i * 0.01,
+        status: (o.status === 'delivered'
+          ? 'delivered'
+          : o.status === 'shipping'
+          ? 'assigned'
+          : 'searching') as DeliveryAssignment['status'],
+        latitude: 6.2088 + i * 0.005,
+        longitude: -75.5678 + i * 0.005,
       })), []);
+
 
   const syncFromSupabase = useCallback(async () => {
     try {
@@ -195,6 +204,29 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     if (!isSupabaseConfigured()) return;
     let active = true;
 
+    // Ref or local variable to hold a clean, unlocked audio context
+    let unlockedAudioCtx: AudioContext | null = null;
+    const initAudio = () => {
+      if (unlockedAudioCtx) return;
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtxClass) {
+          unlockedAudioCtx = new AudioCtxClass();
+          // Immediately try to resume
+          unlockedAudioCtx.resume();
+        }
+      } catch (e) {
+        console.warn('Failed to initialize AudioContext on gesture:', e);
+      }
+    };
+
+    // Listen to common user interaction gestures
+    if (typeof window !== 'undefined') {
+      window.addEventListener('click', initAudio, { once: true });
+      window.addEventListener('touchstart', initAudio, { once: true });
+      window.addEventListener('keydown', initAudio, { once: true });
+    }
+
     syncFromSupabase().catch(logSupabaseError);
 
     const supabase = createClient();
@@ -205,7 +237,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       try {
         const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioCtxClass) return;
-        const ctx = new AudioCtxClass();
+
+        // Use the unlocked context if available, otherwise create a new one
+        const ctx = unlockedAudioCtx || new AudioCtxClass();
 
         ctx.resume().then(() => {
           // Play 3 ding tones in sequence: high → low → high
@@ -228,6 +262,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           });
         }).catch(err => {
           console.warn('Audio resume failed:', err);
+          // Fallback to HTML5 Audio element using a browser-friendly sound if needed
+          try {
+            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav');
+            audio.volume = 0.8;
+            audio.play().catch(e => console.warn('HTML5 Audio play failed:', e));
+          } catch (e) {}
         });
       } catch (err) {
         console.warn('Audio bell failed', err);

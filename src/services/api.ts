@@ -278,17 +278,27 @@ export const categoriesService = {
 export async function loadDashboardData() {
   if (!isSupabaseConfigured()) return null;
 
-  try {
-    const res = await fetch('/api/data/bootstrap', { cache: 'no-store' });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error ?? `Error ${res.status} cargando datos`);
+  const fetchData = async (retry = 0): Promise<any> => {
+    try {
+      const res = await fetch('/api/data/bootstrap', { cache: 'no-store' });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const errMsg = errBody.error ?? `Error ${res.status} loading data`;
+        throw new Error(errMsg);
+      }
+      return await res.json();
+    } catch (err) {
+      console.error('[Supabase] bootstrap failed', err);
+      if (retry < 1) {
+        // simple retry after a short delay
+        await new Promise((r) => setTimeout(r, 500));
+        return fetchData(retry + 1);
+      }
+      return null;
     }
-    return res.json();
-  } catch (err) {
-    console.error('[Supabase] bootstrap:', err);
-    return null;
-  }
+  };
+
+  return await fetchData();
 }
 
 export { isSupabaseConfigured };

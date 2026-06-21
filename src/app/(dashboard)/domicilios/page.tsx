@@ -14,21 +14,40 @@ const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: f
 const RIDERS = ['Carlos M.', 'Andrea R.', 'Diego P.', 'Laura S.'];
 
 const STATUS_FLOW: { from: OrderStatus; to: OrderStatus; label: string; icon: typeof ChevronRight }[] = [
+  { from: 'pending', to: 'confirmed', label: 'Confirmar', icon: CheckCircle2 },
   { from: 'confirmed', to: 'preparing', label: 'En Preparación', icon: Package },
   { from: 'preparing', to: 'ready', label: 'Listo', icon: CheckCircle2 },
   { from: 'ready', to: 'shipping', label: 'En Camino', icon: Navigation },
   { from: 'shipping', to: 'delivered', label: 'Entregar', icon: CheckCircle2 },
 ];
 
+const STATUS_COLORS: Partial<Record<OrderStatus, string>> = {
+  pending:   'bg-yellow-500/10 text-yellow-600 border-yellow-500/30',
+  confirmed: 'bg-sky-500/10 text-sky-500 border-sky-500/30',
+  preparing: 'bg-orange-500/10 text-orange-500 border-orange-500/30',
+  ready:     'bg-indigo-500/10 text-indigo-500 border-indigo-500/30',
+  shipping:  'bg-violet-500/10 text-violet-500 border-violet-500/30',
+  delivered: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30',
+  cancelled: 'bg-red-500/10 text-red-500 border-red-500/30',
+};
+
+
 export default function DomiciliosPage() {
-  const { deliveries, assignRider, updateRiderPosition, updateOrderStatus } = useAppData();
+  const { deliveries, assignRider, updateRiderPosition, updateOrderStatus, settings } = useAppData();
   const [selected, setSelected] = useState(deliveries[0]?.order_id ?? '');
   const [gpsRunning] = useState(true); // Always running
   const [message, setMessage] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
 
   const active = deliveries.find((d) => d.order_id === selected) ?? deliveries[0];
-  const coords: [number, number] = active ? [active.latitude, active.longitude] : [6.2088, -75.5678];
+  
+  // Default coordinate selection based on configured city (Puerto Tejada vs Medellin)
+  const isPuertoTejada = settings?.coverage_city?.toLowerCase().includes('puerto tejada') || false;
+  const defaultCenter: [number, number] = isPuertoTejada ? [3.2311, -76.4167] : [6.2088, -75.5678];
+  
+  const coords: [number, number] = active 
+    ? [active.latitude === 6.2088 && isPuertoTejada ? 3.2311 : active.latitude, active.longitude === -75.5678 && isPuertoTejada ? -76.4167 : active.longitude] 
+    : defaultCenter;
 
   useEffect(() => {
     if (deliveries.length && !selected) setSelected(deliveries[0].order_id);
@@ -107,11 +126,12 @@ export default function DomiciliosPage() {
                   style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
                 >
                   <option value="all">Todos los estados</option>
-                  <option value="confirmed">Confirmados / Pendientes de preparación</option>
-                  <option value="preparing">En Preparación</option>
-                  <option value="ready">Listos para despacho</option>
-                  <option value="shipping">En Camino</option>
-                  <option value="delivered">Entregados</option>
+                  <option value="pending">⏳ Pendientes (sin confirmar)</option>
+                  <option value="confirmed">✅ Confirmados</option>
+                  <option value="preparing">🍳 En Preparación</option>
+                  <option value="ready">🛍️ Listos para despacho</option>
+                  <option value="shipping">🛵 En Camino</option>
+                  <option value="delivered">🎉 Entregados</option>
                 </select>
               </div>
 
@@ -142,7 +162,7 @@ export default function DomiciliosPage() {
                           <span className="text-xs font-black tracking-wider uppercase" style={{ color: 'var(--orange)' }}>
                             {d.order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${d.order.id.slice(0, 6).toUpperCase()}`}
                           </span>
-                          <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm bg-sky-500/10 text-sky-500 border-sky-500/30">
+                          <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm ${STATUS_COLORS[d.order.status] ?? 'bg-gray-500/10 text-gray-500 border-gray-500/30'}`}>
                             {ORDER_STATUS_LABELS[d.order.status]}
                           </span>
                         </div>

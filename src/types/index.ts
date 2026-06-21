@@ -159,7 +159,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export const ORDER_STATUS_COLUMNS: OrderStatus[] = [
-  'draft', 'pending', 'confirmed', 'preparing', 'ready', 'shipping', 'delivered', 'cancelled',
+  'pending', 'confirmed', 'preparing', 'ready', 'shipping', 'delivered', 'cancelled',
 ];
 
 export const SEGMENT_LABELS: Record<CustomerSegment, string> = {

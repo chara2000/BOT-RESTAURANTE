@@ -40,7 +40,9 @@ export default function MapComponent({ riderCoords, deliveryAddress, className, 
         maxZoom: 20,
       }).addTo(map);
 
-      L.marker([6.2088, -75.5678])
+      // Sede Principal Restaurant Marker
+      const centerCoords: [number, number] = initialRiderCoordsRef.current;
+      L.marker(centerCoords)
         .addTo(map)
         .bindPopup('<b>Sede Principal Restaurante</b><br/>Despacho Central')
         .openPopup();
@@ -55,9 +57,33 @@ export default function MapComponent({ riderCoords, deliveryAddress, className, 
         iconAnchor: [16, 16],
       });
 
-      riderMarkerRef.current = L.marker(initialRiderCoordsRef.current, { icon: riderIcon })
-        .addTo(map)
-        .bindPopup(`<b>Repartidor en Camino</b><br/>Entregando a: ${initialDeliveryAddressRef.current}`);
+      // Deliveries client location marker
+      const clientMarker = L.marker(centerCoords, { icon: riderIcon }).addTo(map);
+      riderMarkerRef.current = clientMarker;
+      clientMarker.bindPopup(`<b>Repartidor en Camino</b><br/>Entregando a: ${initialDeliveryAddressRef.current}`);
+
+      // Attempt to geocode the client address
+      if (initialDeliveryAddressRef.current) {
+        const query = encodeURIComponent(initialDeliveryAddressRef.current);
+        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`, {
+          headers: {
+            'User-Agent': 'ChefFlow-Restaurant-App/1.0'
+          }
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data && data[0]) {
+              const lat = parseFloat(data[0].lat);
+              const lon = parseFloat(data[0].lon);
+              const coords: [number, number] = [lat, lon];
+              clientMarker.setLatLng(coords);
+              map.setView(coords, 14);
+            }
+          })
+          .catch(err => {
+            console.warn('Geocoding client address failed:', err);
+          });
+      }
     });
 
     return () => {

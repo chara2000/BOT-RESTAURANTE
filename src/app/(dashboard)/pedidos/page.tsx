@@ -181,10 +181,10 @@ export default function PedidosPage() {
 
   // Cargar repartidores propios del negocio desde Supabase
   useEffect(() => {
-    ridersService.getAll()
+    ridersService.getAll(activeTenantId)
       .then(setDbRiders)
       .catch((err) => console.error('[Kanban] Error fetching riders:', err));
-  }, []);
+  }, [activeTenantId]);
 
   // Construir un mapa rápido: orderId -> { deliveryStatus, riderName } para badges en Kanban
   const deliveryMap = new Map<string, { status: string; riderName: string | undefined }>(

@@ -42,7 +42,7 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
 };
 
 export default function DomiciliosPage() {
-  const { deliveries, assignRider, updateOrderStatus, settings } = useAppData();
+  const { deliveries, assignRider, updateOrderStatus, settings, activeTenantId } = useAppData();
   const [selected, setSelected] = useState(deliveries[0]?.order_id ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
@@ -61,12 +61,12 @@ export default function DomiciliosPage() {
     : defaultCenter;
 
   useEffect(() => {
-    ridersService.getAll()
+    ridersService.getAll(activeTenantId)
       .then((riders) => {
         setDbRiders(riders);
       })
       .catch((err) => console.error('Error fetching riders:', err));
-  }, []);
+  }, [activeTenantId]);
 
   useEffect(() => {
     if (deliveries.length && !selected) setSelected(deliveries[0].order_id);

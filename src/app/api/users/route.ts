@@ -50,6 +50,13 @@ export async function POST(request: Request) {
 
     const targetTenantId = tenant_id || request.headers.get('x-tenant-id') || DEMO_TENANT_ID;
 
+    if (role === 'delivery') {
+      return NextResponse.json(
+        { error: 'Los repartidores deben registrarse exclusivamente desde el módulo de Repartidores con sus datos de vehículo y placa.' },
+        { status: 400 }
+      );
+    }
+
     if (!email || !password || !name) {
       return NextResponse.json(
         { error: 'El nombre, correo electrónico y contraseña son obligatorios.' },

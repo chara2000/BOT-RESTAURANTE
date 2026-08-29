@@ -117,16 +117,22 @@ export async function GET(request: Request) {
       
     const sharedTenantIds = (sharedSettings ?? []).map((s: any) => s.tenant_id);
     
-    // 2. Fetch order ids assigned to this rider in delivery_details
+    // 2. Fetch order ids assigned to this rider in delivery_details or in orders table
     let assignedOrderIds: string[] = [];
     if (riderId) {
-      const { data: myAssigned } = await supabase
-        .from('delivery_details')
-        .select('order_id')
-        .eq('rider_id', riderId);
-      if (myAssigned) {
-        assignedOrderIds = myAssigned.map((a: any) => a.order_id).filter(Boolean);
-      }
+      const [myAssignedDelivery, myAssignedOrders] = await Promise.all([
+        supabase
+          .from('delivery_details')
+          .select('order_id')
+          .eq('rider_id', riderId),
+        supabase
+          .from('orders')
+          .select('id')
+          .eq('rider_id', riderId),
+      ]);
+      const fromDetails = (myAssignedDelivery.data ?? []).map((a: any) => String(a.order_id));
+      const fromOrders = (myAssignedOrders.data ?? []).map((a: any) => String(a.id));
+      assignedOrderIds = Array.from(new Set([...fromDetails, ...fromOrders])).filter(Boolean);
     }
     
     // 3. Build query for shared pool and assigned orders
@@ -188,7 +194,7 @@ export async function GET(request: Request) {
       return {
         order_id: order.id,
         order,
-        rider_id: row.rider_id ? String(row.rider_id) : undefined,
+        rider_id: row.rider_id ? String(row.rider_id) : (order.rider_id || undefined),
         rider_name: profile?.name,
         status: row.status as DeliveryAssignment['status'],
         latitude: Number(row.latitude ?? 6.2088),
@@ -209,16 +215,19 @@ export async function GET(request: Request) {
       const existing = deliveries.find((d: DeliveryAssignment) => d.order_id === o.id);
       if (existing) {
         existing.order = o;
+        if (!existing.rider_id && o.rider_id) {
+          existing.rider_id = o.rider_id;
+        }
         return existing;
       }
       return {
         order_id: o.id,
         order: o,
-        rider_id: undefined,
+        rider_id: o.rider_id || undefined,
         rider_name: undefined,
         status: (o.status === 'delivered'
           ? 'delivered'
-          : o.status === 'shipping'
+          : (o.status === 'shipping' || o.rider_id)
           ? 'assigned'
           : 'searching') as DeliveryAssignment['status'],
         latitude: 6.2088 + i * 0.005,

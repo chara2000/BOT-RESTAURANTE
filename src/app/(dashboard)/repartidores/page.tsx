@@ -5,6 +5,7 @@ import { Topbar } from '@/components/layout/Topbar';
 import { Plus, Bike, MapPin, CheckCircle2, XCircle, Edit, Trash2, Shield, Eye, EyeOff, Search, Star, Phone, Mail, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { useUIModal } from '@/components/ui/UIModal';
 import { useAppData } from '@/context/AppDataContext';
+import { ridersService } from '@/services/api';
 
 const inputCls = 'w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] transition-all';
 const inputStyle = { background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' };
@@ -43,17 +44,13 @@ export default function RepartidoresPage() {
 
   useEffect(() => {
     fetchRiders();
-  }, []);
+  }, [activeTenantId]);
 
   const fetchRiders = async () => {
     setLoading(true);
     try {
-      const tid = activeTenantId || '';
-      const res = await fetch(`/api/riders${tid ? `?tenant_id=${tid}` : ''}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRiders(data);
-      }
+      const data = await ridersService.getAll(activeTenantId);
+      setRiders(data);
     } catch (error) {
       console.error('Error fetching riders:', error);
     } finally {
@@ -105,7 +102,10 @@ export default function RepartidoresPage() {
     try {
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-tenant-id': activeTenantId || '',
+        },
         body: JSON.stringify({ ...formData, tenant_id: activeTenantId })
       });
       

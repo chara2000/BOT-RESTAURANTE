@@ -10,8 +10,8 @@ export function getActiveTenantId(): string {
   return DEMO_TENANT_ID;
 }
 
-function getHeaders(extra?: Record<string, string>) {
-  const tid = getActiveTenantId();
+function getHeaders(extra?: Record<string, string>, tenantIdOverride?: string) {
+  const tid = tenantIdOverride || getActiveTenantId();
   return {
     'x-tenant-id': tid,
     ...extra,
@@ -372,12 +372,14 @@ export async function loadDashboardData(tenantId?: string, riderId?: string) {
 }
 
 export const ridersService = {
-  async getAll(): Promise<any[]> {
+  async getAll(tenantId?: string): Promise<any[]> {
     // Use the server-side API endpoint that uses the admin client,
     // bypassing RLS policies which would otherwise restrict each user
     // to only see their own profile row.
-    const res = await fetch('/api/riders', {
-      headers: getHeaders(),
+    const tid = tenantId || getActiveTenantId();
+    const url = `/api/riders${tid ? `?tenant_id=${encodeURIComponent(tid)}` : ''}`;
+    const res = await fetch(url, {
+      headers: getHeaders(undefined, tid),
     });
     if (!res.ok) return [];
     const data = await res.json();

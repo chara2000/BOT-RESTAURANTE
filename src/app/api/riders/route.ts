@@ -25,21 +25,25 @@ export async function POST(req: Request) {
       tenant_id: bodyTenantId,
     } = await req.json();
 
-    const tenantId = bodyTenantId || DEMO_TENANT_ID;
+    const tenantId = bodyTenantId || req.headers.get('x-tenant-id') || DEMO_TENANT_ID;
 
     if (!email || !password || !name) {
       return NextResponse.json({ error: 'Email, password y nombre son requeridos' }, { status: 400 });
     }
 
+    const riderModules = ['/domicilios', '/repartidores', '/mis-pedidos', '/repartidor', '/disponibles', '/inicio', '/perfil', '/ruta'];
+
     // 1. Create the user in Auth
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
+      email: email.trim().toLowerCase(),
       password,
       email_confirm: true,
       user_metadata: {
-        name,
-        phone,
+        name: name.trim(),
+        phone: phone || null,
         role: 'delivery',
+        tenant_id: tenantId,
+        allowed_modules: riderModules,
       },
     });
 
@@ -49,15 +53,17 @@ export async function POST(req: Request) {
 
     const userId = authData.user.id;
 
-    // 2. Ensure user profile exists in profiles table with correct email, name, role and tenant_id
+    // 2. Ensure user profile exists in profiles table with correct email, name, role, allowed_modules and tenant_id
     const { error: profileError } = await supabase
       .from('profiles')
       .upsert({
         id: userId,
-        email,
-        name,
+        email: email.trim().toLowerCase(),
+        name: name.trim(),
         role: 'delivery',
         tenant_id: tenantId,
+        allowed_modules: riderModules,
+        is_active: true,
       });
 
     if (profileError) {
@@ -70,11 +76,11 @@ export async function POST(req: Request) {
       .upsert({
         id: userId,
         vehicle_type: vehicle_type || 'motorcycle',
-        plate_number: plate_number || null,
-        vehicle_model: vehicle_model || null,
-        vehicle_color: vehicle_color || null,
-        vehicle_description: vehicle_description || null,
-        is_available: false,
+        plate_number: plate_number ? plate_number.trim().toUpperCase() : null,
+        vehicle_model: vehicle_model ? vehicle_model.trim() : null,
+        vehicle_color: vehicle_color ? vehicle_color.trim() : null,
+        vehicle_description: vehicle_description ? vehicle_description.trim() : null,
+        is_available: true,
         last_latitude: 3.2311,  // Default restaurant coordinates
         last_longitude: -76.4167,
         rating: 5.0,
@@ -99,9 +105,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Supabase Admin not configured' }, { status: 503 });
     }
 
-    // Read tenant_id from query param — falls back to DEMO_TENANT_ID
+    // Read tenant_id from query param or header — falls back to DEMO_TENANT_ID
     const { searchParams } = new URL(req.url);
-    const tenantId = searchParams.get('tenant_id') || DEMO_TENANT_ID;
+    const tenantId = searchParams.get('tenant_id') || req.headers.get('x-tenant-id') || DEMO_TENANT_ID;
 
     // Get all users from Auth to fetch their phone from user_metadata
     const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();

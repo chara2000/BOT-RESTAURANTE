@@ -9,13 +9,7 @@ import { BotChannelsSection } from '@/components/settings/BotChannelsSection';
 import { TeamManagementSection } from '@/components/settings/TeamManagementSection';
 import { ImageInputPicker } from '@/components/ImageInputPicker';
 
-const ROLES = [
-  { role: 'Super Admin', desc: 'Acceso total al sistema', users: 1 },
-  { role: 'Admin', desc: 'Gestión completa del restaurante', users: 2 },
-  { role: 'Operador', desc: 'Pedidos, menú y caja', users: 3 },
-  { role: 'Cocina', desc: 'Solo vista de pedidos', users: 4 },
-  { role: 'Repartidor', desc: 'Domicilios y entregas', users: 2 },
-];
+
 
 function LocationPickerMap({
   lat,

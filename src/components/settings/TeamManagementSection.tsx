@@ -173,8 +173,7 @@ function UserModal({
   const ROLE_OPTIONS = [
     { role: 'operator', label: 'Operador / Cajero', icon: '💵' },
     { role: 'kitchen',  label: 'Cocina',            icon: '👨‍🍳' },
-    { role: 'delivery', label: 'Repartidor',         icon: '🛵' },
-    { role: 'admin',    label: 'Admin',              icon: '👑' },
+    { role: 'admin',    label: 'Administrador',      icon: '👑' },
   ];
 
   return (
@@ -207,6 +206,15 @@ function UserModal({
 
         {/* Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-5">
+          {/* Banner informativo de repartidores */}
+          <div className="p-3.5 rounded-2xl border border-sky-500/30 bg-sky-500/10 flex items-start gap-3">
+            <span className="text-lg shrink-0">🛵</span>
+            <div className="text-[11px] leading-relaxed text-sky-200">
+              <strong className="text-sky-100 font-bold block mb-0.5">¿Deseas registrar un Repartidor?</strong>
+              Los repartidores con vehículos, placas y gestión de entregas se administran exclusivamente desde el módulo <a href="/repartidores" className="underline font-bold text-white hover:text-sky-300">🛵 Repartidores</a>.
+            </div>
+          </div>
+
           {/* Datos personales — solo en modo crear */}
           {mode === 'create' && (
             <div className="space-y-3">
@@ -259,7 +267,7 @@ function UserModal({
             <label className="text-[10px] font-black uppercase tracking-wider block mb-2" style={{ color: 'var(--text-muted)' }}>
               Rol Base — selecciona para cargar módulos por defecto
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {ROLE_OPTIONS.map(r => (
                 <button
                   key={r.role}

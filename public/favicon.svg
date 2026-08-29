@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="14" fill="#0D1117"/>
+  <!-- Chef hat body -->
+  <path d="M14 38 C14 30 19 26 26 26 C27 22 29.5 19 32 19 C34.5 19 37 22 38 26 C45 26 50 30 50 38 L14 38Z" fill="url(#hat)" opacity="0.95"/>
+  <!-- Hat brim -->
+  <rect x="13" y="37" width="38" height="6" rx="3" fill="url(#hat)"/>
+  <!-- Lightning bolt -->
+  <path d="M35 20 L27 33 L32 33 L29 44 L39 29 L34 29 Z" fill="#FFF" opacity="0.95"/>
+  <!-- Top puff shadows -->
+  <circle cx="32" cy="18" r="6" fill="url(#hat2)" opacity="0.5"/>
+  <defs>
+    <linearGradient id="hat" x1="14" y1="19" x2="50" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF6B35"/>
+      <stop offset="100%" stop-color="#FF8C42"/>
+    </linearGradient>
+    <linearGradient id="hat2" x1="26" y1="12" x2="38" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF8C42"/>
+      <stop offset="100%" stop-color="#FF6B35"/>
+    </linearGradient>
+  </defs>
+</svg>

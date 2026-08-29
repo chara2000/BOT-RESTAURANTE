@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
+import { encodePaymentAccounts } from '@/services/supabaseMapper';
 
 export async function PATCH(request: Request) {
   const supabase = createAdminClient();
@@ -8,17 +8,23 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  const tenantId = getTenantId(request);
   const body = await request.json();
   if (body.restaurant_name !== undefined) {
     const { error: tenantError } = await supabase
       .from('tenants')
       .update({ name: String(body.restaurant_name), updated_at: new Date().toISOString() })
-      .eq('id', DEMO_TENANT_ID);
+      .eq('id', tenantId);
 
     if (tenantError) {
       return NextResponse.json({ error: tenantError.message }, { status: 400 });
     }
   }
+
+  if (body.nequi_number !== undefined || body.bancolombia_number !== undefined || body.bancolombia_type !== undefined) {
+    body.whatsapp_phone = encodePaymentAccounts(body.nequi_number, body.bancolombia_number, body.bancolombia_type);
+  }
+
 
   const allowed = [
     'delivery_fee',
@@ -34,9 +40,13 @@ export async function PATCH(request: Request) {
     'coverage_department',
     'coverage_keywords',
     'coverage_require_keywords',
+    'restaurant_lat',
+    'restaurant_lng',
+    'auto_assign_riders',
+    'allow_external_riders',
   ];
   const patch: Record<string, unknown> = {
-    tenant_id: DEMO_TENANT_ID,
+    tenant_id: tenantId,
     updated_at: new Date().toISOString(),
   };
 

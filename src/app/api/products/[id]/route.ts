@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapProduct } from '@/services/supabaseMapper';
 
 const PRODUCT_SELECT = '*, categories(name)';
@@ -16,7 +15,7 @@ type ProductBody = {
   is_combo?: boolean;
 };
 
-async function resolveCategoryId(categoryName?: string, categoryId?: string | null) {
+async function resolveCategoryId(categoryName: string | undefined, categoryId: string | null | undefined, tenantId: string) {
   const supabase = createAdminClient();
   if (!supabase) throw new Error('Supabase no configurado');
 
@@ -27,7 +26,7 @@ async function resolveCategoryId(categoryName?: string, categoryId?: string | nu
   const { data: existing, error: findError } = await supabase
     .from('categories')
     .select('id')
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
     .ilike('name', name)
     .maybeSingle();
 
@@ -36,7 +35,7 @@ async function resolveCategoryId(categoryName?: string, categoryId?: string | nu
 
   const { data: created, error: createError } = await supabase
     .from('categories')
-    .insert({ tenant_id: DEMO_TENANT_ID, name, is_active: true })
+    .insert({ tenant_id: tenantId, name, is_active: true })
     .select('id')
     .single();
 
@@ -50,6 +49,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const tenantId = getTenantId(request);
     const body = (await request.json()) as ProductBody;
     const supabase = createAdminClient();
 
@@ -65,14 +65,14 @@ export async function PATCH(
     if (body.is_available !== undefined) patch.is_available = body.is_available;
     if (body.is_combo !== undefined) patch.is_combo = body.is_combo;
     if (body.category !== undefined || body.category_id !== undefined) {
-      patch.category_id = await resolveCategoryId(body.category, body.category_id);
+      patch.category_id = await resolveCategoryId(body.category, body.category_id, tenantId);
     }
 
     const { data, error } = await supabase
       .from('products')
       .update(patch)
       .eq('id', id)
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', tenantId)
       .select(PRODUCT_SELECT)
       .single();
 
@@ -88,10 +88,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const tenantId = getTenantId(request);
   const supabase = createAdminClient();
 
   if (!supabase) {
@@ -102,11 +103,28 @@ export async function DELETE(
     .from('products')
     .delete()
     .eq('id', id)
-    .eq('tenant_id', DEMO_TENANT_ID);
+    .eq('tenant_id', tenantId);
 
   if (error) {
+    // Si falla por foreign key (por estar en order_items), aplicar soft-delete
+    if (error.code === '23503' || error.message.includes('foreign key') || error.message.includes('violates')) {
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({
+          is_available: false,
+          category_id: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('tenant_id', tenantId);
+
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 400 });
+      }
+      return NextResponse.json({ id, softDeleted: true });
+    }
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  return NextResponse.json({ id });
+  return NextResponse.json({ id, softDeleted: false });
 }

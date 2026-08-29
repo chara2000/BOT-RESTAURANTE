@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapInventory } from '@/services/supabaseMapper';
 
 export async function PATCH(
@@ -8,6 +7,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const tenantId = getTenantId(request);
   const supabase = createAdminClient();
 
   if (!supabase) {
@@ -25,7 +25,7 @@ export async function PATCH(
     .from('inventory')
     .update(patch)
     .eq('id', id)
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
     .select('*')
     .single();
 
@@ -37,10 +37,11 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const tenantId = getTenantId(request);
   const supabase = createAdminClient();
 
   if (!supabase) {
@@ -51,7 +52,7 @@ export async function DELETE(
     .from('inventory')
     .delete()
     .eq('id', id)
-    .eq('tenant_id', DEMO_TENANT_ID);
+    .eq('tenant_id', tenantId);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { Bot, CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2, Navigation, Target, Map, Truck } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { PAYMENT_LABELS, type PaymentMethod } from '@/types';
+import { BotChannelsSection } from '@/components/settings/BotChannelsSection';
+import { TeamManagementSection } from '@/components/settings/TeamManagementSection';
+import { ImageInputPicker } from '@/components/ImageInputPicker';
 
 const ROLES = [
   { role: 'Super Admin', desc: 'Acceso total al sistema', users: 1 },
@@ -14,25 +17,166 @@ const ROLES = [
   { role: 'Repartidor', desc: 'Domicilios y entregas', users: 2 },
 ];
 
+function LocationPickerMap({
+  lat,
+  lng,
+  onLocationChange,
+}: {
+  lat: number;
+  lng: number;
+  onLocationChange: (lat: number, lng: number) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !mapRef.current) return;
+
+    let active = true;
+
+    import('leaflet').then((L) => {
+      if (!active || !mapRef.current) return;
+      if ((mapRef.current as any)._leaflet_id) return;
+
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+      });
+
+      const map = L.map(mapRef.current!, {
+        center: [lat, lng],
+        zoom: 15,
+        zoomControl: true,
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap',
+        className: 'dark-mode-map',
+        maxZoom: 19,
+      }).addTo(map);
+
+      const restaurantIcon = L.divIcon({
+        className: '',
+        html: `<div style="
+          width:36px;height:36px;border-radius:50%;
+          background:linear-gradient(135deg,#f97316,#ea580c);
+          border:3px solid #fff;
+          box-shadow:0 4px 12px rgba(249,115,22,0.5);
+          display:flex;align-items:center;justify-content:center;
+          font-size:18px;cursor:pointer;
+        ">🍽️</div>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 36],
+      });
+
+      const marker = L.marker([lat, lng], { icon: restaurantIcon, draggable: true }).addTo(map);
+      marker.bindPopup('<strong>📍 Ubicación del Restaurante</strong><br>Arrastra el marcador para ajustar.').openPopup();
+
+      marker.on('dragend', () => {
+        const pos = marker.getLatLng();
+        onLocationChange(parseFloat(pos.lat.toFixed(6)), parseFloat(pos.lng.toFixed(6)));
+      });
+
+      map.on('click', (e: any) => {
+        marker.setLatLng(e.latlng);
+        onLocationChange(parseFloat(e.latlng.lat.toFixed(6)), parseFloat(e.latlng.lng.toFixed(6)));
+      });
+
+      mapInstanceRef.current = map;
+      markerRef.current = marker;
+    });
+
+    return () => {
+      active = false;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        markerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (markerRef.current && mapInstanceRef.current) {
+      markerRef.current.setLatLng([lat, lng]);
+      mapInstanceRef.current.setView([lat, lng], mapInstanceRef.current.getZoom());
+    }
+  }, [lat, lng]);
+
+  return <div ref={mapRef} style={{ height: '320px', width: '100%', borderRadius: '24px', zIndex: 1 }} />;
+}
+
+const AVAILABLE_MODULES = [
+  { id: '/', label: 'Dashboard General', icon: '📊' },
+  { id: '/pedidos', label: 'Pedidos (Kanban / Lista)', icon: '🛍️' },
+  { id: '/historial', label: 'Historial de Pedidos', icon: '📜' },
+  { id: '/menu', label: 'Menú & Productos', icon: '🍽️' },
+  { id: '/inventario', label: 'Inventario & Stock', icon: '📦' },
+  { id: '/caja', label: 'Caja POS & Cuadre', icon: '💵' },
+  { id: '/pagos', label: 'Registro de Pagos', icon: '💳' },
+  { id: '/clientes', label: 'Clientes & CRM', icon: '👥' },
+  { id: '/domicilios', label: 'Domicilios & Asignación', icon: '🛵' },
+  { id: '/repartidores', label: 'Repartidores', icon: '🛵' },
+  { id: '/mensajes', label: 'Mensajes & Chat', icon: '💬' },
+  { id: '/ia', label: 'IA & Automatizaciones', icon: '🤖' },
+  { id: '/reportes', label: 'Reportes & Analítica', icon: '📈' },
+  { id: '/configuracion', label: 'Configuración', icon: '⚙️' },
+];
+
 export default function ConfiguracionPage() {
-  const { settings, updateSettings } = useAppData();
+  const { settings, updateSettings, selectedTenantId } = useAppData();
   const [saved, setSaved] = useState(false);
+  const [geolocating, setGeolocating] = useState(false);
+  const [geoError, setGeoError] = useState('');
+  const [mapReady, setMapReady] = useState(false);
+
+  const [mapLat, setMapLat] = useState(settings.restaurant_lat ?? 4.7110);
+  const [mapLng, setMapLng] = useState(settings.restaurant_lng ?? -74.0721);
+
+
+  // Team management state now handled inside <TeamManagementSection />
+
+
+  useEffect(() => {
+    if (settings.restaurant_lat) setMapLat(settings.restaurant_lat);
+    if (settings.restaurant_lng) setMapLng(settings.restaurant_lng);
+  }, [settings.restaurant_lat, settings.restaurant_lng]);
+
+  useEffect(() => {
+    if (document.getElementById('leaflet-css')) {
+      setMapReady(true);
+      return;
+    }
+    const link = document.createElement('link');
+    link.id = 'leaflet-css';
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    link.onload = () => setMapReady(true);
+    document.head.appendChild(link);
+  }, []);
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 2500);
   };
 
-  const handleHourChange = (index: number, field: 'open' | 'close' | 'closed', value: string | boolean) => {
-    const updated = settings.business_hours.map((h, idx) => {
-      if (idx === index) {
-        return { ...h, [field]: value };
-      }
-      return h;
-    });
-    updateSettings({ business_hours: updated });
-  };
+  const DEFAULT_BUSINESS_HOURS = [
+    { day: 'Lunes', open: '08:00', close: '22:00', closed: false },
+    { day: 'Martes', open: '08:00', close: '22:00', closed: false },
+    { day: 'Miércoles', open: '08:00', close: '22:00', closed: false },
+    { day: 'Jueves', open: '08:00', close: '22:00', closed: false },
+    { day: 'Viernes', open: '08:00', close: '23:00', closed: false },
+    { day: 'Sábado', open: '08:00', close: '23:00', closed: false },
+    { day: 'Domingo', open: '09:00', close: '21:00', closed: false },
+  ];
+
+  const currentHours = (settings.business_hours && settings.business_hours.length > 0)
+    ? settings.business_hours
+    : DEFAULT_BUSINESS_HOURS;
 
   const togglePayment = (method: PaymentMethod) => {
     const methods = settings.payment_methods.includes(method)
@@ -41,17 +185,45 @@ export default function ConfiguracionPage() {
     updateSettings({ payment_methods: methods });
   };
 
+  const handleLocationChange = useCallback((lat: number, lng: number) => {
+    setMapLat(lat);
+    setMapLng(lng);
+    updateSettings({ restaurant_lat: lat, restaurant_lng: lng });
+  }, [updateSettings]);
+
+  const handleGetMyLocation = () => {
+    if (!navigator.geolocation) {
+      setGeoError('Tu navegador no soporta geolocalización.');
+      return;
+    }
+    setGeolocating(true);
+    setGeoError('');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = parseFloat(pos.coords.latitude.toFixed(6));
+        const lng = parseFloat(pos.coords.longitude.toFixed(6));
+        handleLocationChange(lat, lng);
+        setGeolocating(false);
+      },
+      (err) => {
+        setGeoError(`No se pudo obtener la ubicación.`);
+        setGeolocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   return (
     <div className="relative flex-1 flex flex-col h-full overflow-hidden">
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-sky-500 opacity-[0.02] rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-sky-500 opacity-[0.03] rounded-full blur-[140px] pointer-events-none" />
       <Topbar title="Ajustes del Sistema" subtitle="Personalización, integraciones, pagos y seguridad" />
       
       <div className="flex-1 overflow-y-auto p-5 lg:p-8 z-10 relative">
-        <form onSubmit={handleSave} className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 max-w-7xl mx-auto">
+        <form onSubmit={handleSave} className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 max-w-7xl mx-auto pb-12">
           
           {/* General */}
-          <div className="card p-6 space-y-5 animate-fade-in-up">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+          <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <Store className="h-5 w-5 text-[var(--orange)]" /> Datos del Restaurante
             </p>
             <div className="space-y-4">
@@ -59,16 +231,25 @@ export default function ConfiguracionPage() {
                 <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Nombre Comercial</label>
                 <input defaultValue={settings.restaurant_name}
                   onChange={(e) => updateSettings({ restaurant_name: e.target.value })}
-                  className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]" 
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]" 
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+              </div>
+              <div>
+                <ImageInputPicker
+                  label="Logo del Negocio / Restaurante"
+                  value={settings.logo_url || ''}
+                  onChange={(url) => updateSettings({ logo_url: url })}
+                  placeholder="https://ejemplo.com/logo.png"
+                  bucket="logos"
+                />
               </div>
               <div>
                 <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Tarifa Base Domicilio (COP)</label>
                 <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-[var(--text-muted)]">$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-xs text-[var(--text-muted)]">$</span>
                   <input type="number" defaultValue={settings.delivery_fee}
                     onChange={(e) => updateSettings({ delivery_fee: Number(e.target.value) })}
-                    className="w-full text-sm font-semibold pl-8 pr-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]" 
+                    className="w-full text-xs font-semibold pl-8 pr-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]" 
                     style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
                 </div>
               </div>
@@ -76,18 +257,18 @@ export default function ConfiguracionPage() {
           </div>
 
           {/* Payment Methods */}
-          <div className="card p-6 space-y-5 animate-fade-in-up delay-75">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+          <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up delay-75 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
               <CreditCard className="h-5 w-5 text-emerald-500" /> Pasarelas y Métodos de Pago
             </p>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-2.5">
               {(Object.keys(PAYMENT_LABELS) as PaymentMethod[]).map((m) => (
                 <button key={m} type="button" onClick={() => togglePayment(m)}
-                  className="text-xs font-black uppercase tracking-wider px-5 py-2.5 rounded-xl transition-all shadow-sm border hover:shadow-md"
+                  className="text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-2xl transition-all shadow-sm border cursor-pointer"
                   style={{
                     background: settings.payment_methods.includes(m) ? 'var(--orange)' : 'var(--bg-input)',
                     color: settings.payment_methods.includes(m) ? '#fff' : 'var(--text-muted)',
-                    borderColor: settings.payment_methods.includes(m) ? 'var(--orange-glow)' : 'var(--border)',
+                    borderColor: settings.payment_methods.includes(m) ? 'var(--orange)' : 'var(--border)',
                   }}>
                   {settings.payment_methods.includes(m) ? '✓ ' : ''}{PAYMENT_LABELS[m]}
                 </button>
@@ -95,282 +276,220 @@ export default function ConfiguracionPage() {
             </div>
           </div>
 
-          {/* Bots */}
-          <div className="card p-6 space-y-5 animate-fade-in-up delay-150">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
-              <Smartphone className="h-5 w-5 text-sky-500" /> Canales de Automatización
+          {/* Cuentas de Pago Digital */}
+          <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up delay-100 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <CreditCard className="h-5 w-5 text-sky-500" /> Cuentas para Pago Digital (Nequi / Bancolombia)
             </p>
-            
-            <label className="flex items-center gap-3 p-4 rounded-xl border cursor-pointer hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-              <input type="checkbox" checked={settings.telegram_enabled} onChange={(e) => updateSettings({ telegram_enabled: e.target.checked })} 
-                className="w-5 h-5 accent-[var(--orange)]" />
-              <div>
-                <span className="text-sm font-black block">Activar Bot Telegram</span>
-                <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Recibe y gestiona pedidos automáticamente.</span>
-              </div>
-            </label>
-
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Token de Acceso Telegram</label>
-              <input placeholder="ej. 123456789:ABCdefGHIjkl..." defaultValue={settings.telegram_bot_token}
-                onChange={(e) => updateSettings({ telegram_bot_token: e.target.value })}
-                className="w-full text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]" 
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
-            </div>
-
-            <label className="flex items-center gap-3 p-4 rounded-xl border opacity-60 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
-              <input type="checkbox" disabled checked={settings.whatsapp_enabled} className="w-5 h-5" />
-              <div>
-                <span className="text-sm font-black block">WhatsApp Business Cloud API</span>
-                <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Próximamente disponible.</span>
-              </div>
-            </label>
-          </div>
-
-          {/* AI */}
-          <div className="card p-6 space-y-5 animate-fade-in-up delay-200">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
-              <Bot className="h-5 w-5 text-amber-500" /> Inteligencia Artificial
+            <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+              Estos números aparecerán en el Bot de Telegram cuando el cliente elija pagar por transferencia.
             </p>
-            
-            <label className="flex items-center gap-3 p-4 rounded-xl border cursor-pointer hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-              <input type="checkbox" checked={settings.ai_enabled} onChange={(e) => updateSettings({ ai_enabled: e.target.checked })} 
-                className="w-5 h-5 accent-[var(--orange)]" />
+            <div className="space-y-4">
               <div>
-                <span className="text-sm font-black block">Habilitar Asistente NLP</span>
-                <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Motor conversacional para análisis de datos.</span>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Número Nequi / Daviplata</label>
+                <input type="text" placeholder="Ej: 300 123 4567"
+                  defaultValue={settings.nequi_number || '300 123 4567'}
+                  onChange={(e) => updateSettings({ nequi_number: e.target.value })}
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
               </div>
-            </label>
-
-            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-800">
-               <p className="text-[11px] font-bold leading-relaxed text-amber-700 dark:text-amber-400">
-                 El asistente opera de manera autónoma con las reglas locales de ChefFlow y procesa la información en tiempo real sin requerir APIs de LLM externos.
-               </p>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Número Bancolombia</label>
+                <input type="text" placeholder="Ej: 123-456789-00"
+                  defaultValue={settings.bancolombia_number || '123-456789-00'}
+                  onChange={(e) => updateSettings({ bancolombia_number: e.target.value })}
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+              </div>
             </div>
           </div>
 
-          {/* ── Horarios de Servicio ── */}
-          <div className="card p-6 xl:col-span-2 animate-fade-in-up delay-300">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-5" style={{ borderColor: 'var(--border)' }}>
-              <Clock className="h-5 w-5 text-[var(--orange)]" /> Horarios de Servicio
-            </p>
+          {/* Bots & IA */}
+          <BotChannelsSection tenantId={selectedTenantId ?? ''} />
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
-              {settings.business_hours.map((h, i) => (
+          {/* Configuración de Logística y Domicilios */}
+          <div className="card p-6 rounded-3xl space-y-5 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <Truck className="h-5 w-5 text-[var(--orange)]" /> Configuración de Domicilios y Repartidores
+            </p>
+            <div className="space-y-4">
+              {/* Auto Assign */}
+              <div className="flex items-center justify-between p-3 rounded-2xl border" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }}>
+                <div>
+                  <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>Asignación Automática</p>
+                  <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    Asignar automáticamente a repartidores disponibles cuando el pedido esté listo.
+                  </p>
+                </div>
+                <div
+                  onClick={() => updateSettings({ auto_assign_riders: !settings.auto_assign_riders })}
+                  className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border shrink-0 ${settings.auto_assign_riders ? 'bg-emerald-500/20 border-emerald-500/40' : 'bg-slate-500/20 border-slate-500/40'}`}
+                >
+                  <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-transform shadow-sm ${settings.auto_assign_riders ? 'left-[22px] bg-emerald-500' : 'left-0.5 bg-slate-400'}`} />
+                </div>
+              </div>
+
+              {/* Allow External Riders */}
+              <div className="flex items-center justify-between p-3 rounded-2xl border" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }}>
+                <div>
+                  <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>Compartir Domiciliarios (Pool SaaS)</p>
+                  <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    Permitir que repartidores de otros restaurantes tomen tus pedidos de la pool general.
+                  </p>
+                </div>
+                <div
+                  onClick={() => updateSettings({ allow_external_riders: !settings.allow_external_riders })}
+                  className={`relative w-12 h-6 rounded-full transition-colors cursor-pointer border shrink-0 ${settings.allow_external_riders ? 'bg-emerald-500/20 border-emerald-500/40' : 'bg-slate-500/20 border-slate-500/40'}`}
+                >
+                  <div className={`absolute top-0.5 w-5 h-5 rounded-full transition-transform shadow-sm ${settings.allow_external_riders ? 'left-[22px] bg-emerald-500' : 'left-0.5 bg-slate-400'}`} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Business Hours */}
+          <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up delay-[125ms] xl:col-span-2 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <Clock className="h-5 w-5 text-violet-500" /> Horario Comercial del Restaurante
+            </p>
+            <p className="text-xs font-medium -mt-2" style={{ color: 'var(--text-muted)' }}>
+              Define los horarios en los que el bot de Telegram acepta pedidos. Fuera de este rango, el bot informará que el restaurante está cerrado.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              {currentHours.map((h, index) => (
                 <div
                   key={h.day}
-                  className="relative flex flex-col rounded-2xl border overflow-hidden transition-all duration-300"
-                  style={{
-                    borderColor: h.closed ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.3)',
-                    background: h.closed ? 'rgba(239,68,68,0.04)' : 'rgba(16,185,129,0.04)',
-                  }}
+                  className={`p-4 rounded-2xl border transition-all space-y-3 ${h.closed ? 'opacity-50' : ''}`}
+                  style={{ background: 'var(--bg-input)', borderColor: h.closed ? 'var(--border)' : 'var(--border)' }}
                 >
-                  {/* Color bar top */}
-                  <div className={`h-1 w-full ${h.closed ? 'bg-red-500' : 'bg-emerald-500'}`} />
-
-                  <div className="p-4 flex flex-col gap-3 flex-1">
-                    {/* Day + toggle */}
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-black truncate" style={{ color: 'var(--text-primary)' }}>{h.day}</span>
-                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                        <input
-                          type="checkbox"
-                          checked={!h.closed}
-                          onChange={(e) => handleHourChange(i, 'closed', !e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-red-400/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
-                      </label>
-                    </div>
-
-                    {/* Status badge */}
-                    <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full self-start ${
-                      h.closed ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-600'
-                    }`}>
-                      {h.closed ? '🔴 Cerrado' : '🟢 Abierto'}
-                    </span>
-
-                    {/* Time inputs */}
-                    {!h.closed ? (
-                      <div className="flex flex-col gap-2">
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Apertura</p>
-                          <input
-                            type="time"
-                            value={h.open}
-                            onChange={(e) => handleHourChange(i, 'open', e.target.value)}
-                            className="w-full text-[11px] font-bold px-2 py-1.5 rounded-lg border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none text-center"
-                            style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-                          />
-                        </div>
-                        <div className="flex items-center justify-center">
-                          <span className="text-[9px] font-black" style={{ color: 'var(--text-muted)' }}>hasta</span>
-                        </div>
-                        <div>
-                          <p className="text-[8px] font-black uppercase tracking-widest mb-1" style={{ color: 'var(--text-muted)' }}>Cierre</p>
-                          <input
-                            type="time"
-                            value={h.close}
-                            onChange={(e) => handleHourChange(i, 'close', e.target.value)}
-                            className="w-full text-[11px] font-bold px-2 py-1.5 rounded-lg border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none text-center"
-                            style={{ borderColor: 'var(--border)', background: 'var(--bg-input)', color: 'var(--text-primary)' }}
-                          />
-                        </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider" style={{ color: 'var(--text-primary)' }}>{h.day}</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                        {h.closed ? 'Cerrado' : 'Abierto'}
+                      </span>
+                      <div
+                        onClick={() => {
+                          const updated = currentHours.map((x, idx) =>
+                            idx === index ? { ...x, closed: !x.closed } : x
+                          );
+                          updateSettings({ business_hours: updated });
+                        }}
+                        className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer border ${h.closed ? 'bg-rose-500/20 border-rose-500/40' : 'bg-emerald-500/20 border-emerald-500/40'}`}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform shadow-sm ${h.closed ? 'left-0.5 bg-rose-400' : 'left-[18px] bg-emerald-400'}`} />
                       </div>
-                    ) : (
-                      <div className="flex-1 flex items-center justify-center py-2">
-                        <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Sin servicio</span>
-                      </div>
-                    )}
+                    </label>
                   </div>
+                  {!h.closed && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] font-black uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Abre</label>
+                        <input
+                          type="time"
+                          value={h.open}
+                          onChange={(e) => {
+                            const updated = currentHours.map((x, idx) =>
+                              idx === index ? { ...x, open: e.target.value } : x
+                            );
+                            updateSettings({ business_hours: updated });
+                          }}
+                          className="w-full text-xs font-bold px-2 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-black uppercase tracking-wider block mb-1" style={{ color: 'var(--text-muted)' }}>Cierra</label>
+                        <input
+                          type="time"
+                          value={h.close}
+                          onChange={(e) => {
+                            const updated = currentHours.map((x, idx) =>
+                              idx === index ? { ...x, close: e.target.value } : x
+                            );
+                            updateSettings({ business_hours: updated });
+                          }}
+                          className="w-full text-xs font-bold px-2 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
-
-            {/* Quick tip */}
-            <p className="text-[10px] font-semibold mt-4" style={{ color: 'var(--text-muted)' }}>
-              💡 El bot rechazará pedidos automáticamente fuera de los horarios configurados.
-            </p>
           </div>
 
-                  {/* ── Zona de Cobertura ── */}
-          <div className="card p-6 xl:col-span-2 animate-fade-in-up delay-400">
-            <div className="flex items-start justify-between border-b pb-4 mb-5" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-sm font-black flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-emerald-500 animate-pulse" /> Zona de Cobertura de Domicilio
+          {/* Location Map */}
+          <div className="card p-6 rounded-3xl xl:col-span-2 animate-fade-in-up delay-200 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <div className="flex items-start justify-between border-b pb-4 mb-4" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <Map className="h-5 w-5 text-[var(--orange)]" /> Ubicación del Restaurante
               </p>
-              {/* Active indicator */}
-              <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                <input
-                  type="checkbox"
-                  checked={settings.coverage_require_keywords ?? true}
-                  onChange={(e) => updateSettings({ coverage_require_keywords: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-red-400/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
-                <span className="ml-2 text-[10px] font-black uppercase tracking-wider hidden sm:inline" style={{ color: 'var(--text-primary)' }}>
-                  {settings.coverage_require_keywords ? 'Validación Activa' : 'Sin Validación'}
-                </span>
-              </label>
+              <span className="text-[10px] font-black uppercase tracking-wider px-3 py-1 rounded-full bg-orange-500/10 text-[var(--orange)] border border-orange-500/30">
+                GPS Preciso
+              </span>
             </div>
 
-            <p className="text-[11px] font-bold leading-relaxed mb-5" style={{ color: 'var(--text-muted)' }}>
-              Define la ubicación del restaurante. El bot validará de forma inteligente las direcciones del cliente basándose en estos parámetros para decidir si están dentro de la cobertura.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
-              {/* Ciudad card */}
-              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
-                   style={{
-                     borderColor: 'rgba(16,185,129,0.3)',
-                     background: 'rgba(16,185,129,0.02)'
-                   }}>
-                <div>
-                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 self-start mb-2 inline-block">
-                    🌆 Territorio
-                  </span>
-                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Ciudad / Municipio</label>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>📌 Latitud</label>
                 <input
-                  placeholder="Ej: Puerto Tejada"
-                  defaultValue={settings.coverage_city || ''}
-                  onChange={(e) => updateSettings({ coverage_city: e.target.value.trim() })}
-                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
-                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-              </div>
-
-              {/* Departamento card */}
-              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
-                   style={{
-                     borderColor: 'rgba(16,185,129,0.3)',
-                     background: 'rgba(16,185,129,0.02)'
-                   }}>
-                <div>
-                  <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 self-start mb-2 inline-block">
-                    🗺️ Región
-                  </span>
-                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Departamento</label>
-                </div>
-                <input
-                  placeholder="Ej: Cauca"
-                  defaultValue={settings.coverage_department || ''}
-                  onChange={(e) => updateSettings({ coverage_department: e.target.value.trim() })}
-                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
-                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-              </div>
-
-              {/* Nomenclatura card */}
-              <div className="rounded-2xl border p-4 transition-all duration-300 flex flex-col justify-between"
-                   style={{
-                     borderColor: settings.coverage_require_keywords ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.25)',
-                     background: settings.coverage_require_keywords ? 'rgba(16,185,129,0.02)' : 'rgba(239,68,68,0.02)'
-                   }}>
-                <div>
-                  <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full self-start mb-2 inline-block ${
-                    settings.coverage_require_keywords ? 'bg-emerald-500/10 text-emerald-600' : 'bg-red-500/10 text-red-500'
-                  }`}>
-                    {settings.coverage_require_keywords ? '🔑 Nomenclatura' : '⚪ Desactivado'}
-                  </span>
-                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-primary)' }}>Palabras Clave</label>
-                </div>
-                <input
-                  placeholder="Ej: calle, cra, carrera, vereda"
-                  defaultValue={(settings.coverage_keywords || []).join(', ')}
+                  type="number"
+                  step="0.000001"
+                  value={mapLat}
                   onChange={(e) => {
-                    const keywords = e.target.value.split(',').map(k => k.trim().toLowerCase()).filter(Boolean);
-                    updateSettings({ coverage_keywords: keywords });
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v)) handleLocationChange(v, mapLng);
                   }}
-                  disabled={!settings.coverage_require_keywords}
-                  className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] disabled:opacity-50"
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
               </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>📌 Longitud</label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={mapLng}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v)) handleLocationChange(mapLat, v);
+                  }}
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  onClick={handleGetMyLocation}
+                  disabled={geolocating}
+                  className="px-4 py-3 rounded-2xl text-xs font-black text-white shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  style={{ background: 'var(--orange)' }}
+                >
+                  <Target className="w-4 h-4" />
+                  <span>Obtener Mi Ubicación</span>
+                </button>
+              </div>
             </div>
 
-            {/* Preview de validación activa */}
-            {settings.coverage_city && (
-              <div className="p-4 rounded-2xl border transition-all duration-300" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
-                <p className="text-[11px] font-black mb-1.5 text-emerald-600 flex items-center gap-1.5">
-                  <CheckCircle2 className="h-4 w-4" /> Resumen de Regla de Cobertura Bot:
-                </p>
-                <p className="text-[11px] font-bold leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  Las direcciones recibidas por el bot <span className="text-[var(--text-primary)]">deben contener la palabra clave "{settings.coverage_city.toLowerCase()}"</span>.
-                  {settings.coverage_require_keywords && settings.coverage_keywords && settings.coverage_keywords.length > 0 && (
-                    <span> Además, deben contener alguna de las palabras de nomenclatura: <span className="font-extrabold text-[var(--orange)]">{settings.coverage_keywords.join(', ')}</span>.</span>
-                  )}
-                </p>
-              </div>
+            {mapReady && (
+              <LocationPickerMap lat={mapLat} lng={mapLng} onLocationChange={handleLocationChange} />
             )}
           </div>
 
-          {/* Roles */}
-          <div className="card p-6 space-y-5 xl:col-span-2 animate-fade-in-up delay-500">
-            <p className="text-sm font-black flex items-center gap-2 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
-              <Shield className="h-5 w-5 text-violet-500" /> Permisos y Seguridad
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-              {ROLES.map((r) => (
-                <div key={r.role} className="p-5 rounded-2xl border flex flex-col h-full" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }}>
-                  <p className="text-sm font-black mb-1">{r.role}</p>
-                  <p className="text-[10px] font-bold leading-snug flex-1" style={{ color: 'var(--text-muted)' }}>{r.desc}</p>
-                  <div className="mt-4 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
-                    <p className="text-[10px] font-black uppercase tracking-wider bg-[var(--orange-soft)] text-[var(--orange)] px-2 py-1 rounded-lg w-max shadow-sm">
-                      {r.users} usuarios
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* Gestión de Equipo de Trabajo & Permisos Modulares */}
+          <TeamManagementSection />
 
-          {/* Save Action */}
-          <div className="xl:col-span-2 flex justify-end animate-fade-in-up delay-700">
-            <button type="submit" className="flex items-center gap-3 text-sm font-black px-8 py-4 rounded-xl text-white shadow-[0_4px_12px_var(--orange-glow)] hover:scale-105 active:scale-95 transition-all w-full md:w-auto justify-center"
-              style={{ background: 'var(--orange)' }}>
-              <Save className="h-5 w-5" />
-              {saved ? '✓ Cambios Guardados' : 'Guardar Configuración'}
+          <div className="xl:col-span-2 flex justify-end">
+            <button
+              type="submit"
+              className="px-8 py-4 rounded-2xl text-white font-black text-xs shadow-lg transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-2 cursor-pointer"
+              style={{ background: 'var(--orange)' }}
+            >
+              <Save className="w-4 h-4" />
+              <span>{saved ? '✓ Guardado Correctamente' : 'Guardar Ajustes del Sistema'}</span>
             </button>
           </div>
         </form>
@@ -378,3 +497,5 @@ export default function ConfiguracionPage() {
     </div>
   );
 }
+
+

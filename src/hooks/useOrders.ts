@@ -5,7 +5,9 @@ import type { OrderStatus } from '@/types';
 
 export function useOrders() {
   const { orders, updateOrderStatus, addOrder, activeOrdersCount } = useAppData();
-  return { orders, updateOrderStatus, addOrder, activeOrdersCount };
+  const updateStatus = ({ orderId, status }: { orderId: string; status: OrderStatus }) =>
+    updateOrderStatus(orderId, status);
+  return { orders, updateOrderStatus, updateStatus, addOrder, activeOrdersCount };
 }
 
 export function useOrderStatusMutation() {
@@ -16,10 +18,6 @@ export function useOrderStatusMutation() {
   };
 }
 
-export function useDashboardStats() {
-  const { stats } = useAppData();
-  return stats;
-}
 
 export function useProducts() {
   const { products, updateProduct, addProduct, deleteProduct } = useAppData();

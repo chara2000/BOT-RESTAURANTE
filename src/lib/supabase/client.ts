@@ -1,4 +1,5 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from '@supabase/supabase-js';
+import { safeLocalStorage } from '@/lib/utils/safeStorage';
 
 let browserClient: SupabaseClient | null = null;
 
@@ -9,7 +10,16 @@ export function createClient() {
   if (!url || !key) return null;
 
   if (!browserClient) {
-    browserClient = createSupabaseClient(url, key);
+    browserClient = createSupabaseClient(url, key, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        flowType: 'pkce',
+        storageKey: 'chefflow_sb_auth_token',
+        storage: safeLocalStorage,
+      },
+    });
   }
 
   return browserClient;

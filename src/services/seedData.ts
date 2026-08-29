@@ -4,13 +4,14 @@ import type {
 } from '@/types';
 
 export const initialProducts: Product[] = [
-  { id: '1', name: 'Hamburguesa Premium Trufa', category: 'Hamburguesas', price: 32000, description: 'Carne madurada, queso provolone, mayonesa de trufa negra, pan brioche.', image_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400', is_available: true, stock: 45 },
-  { id: '2', name: 'Pizza Burrata & Prosciutto', category: 'Pizzas', price: 42000, description: 'Salsa pomodoro, mozzarella di bufala, burrata fresca, jamón prosciutto y rúgula.', image_url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400', is_available: true, stock: 20 },
-  { id: '3', name: 'Papas Rústicas de la Casa', category: 'Acompañamientos', price: 12000, description: 'Papas con piel, sal de romero, salsa alioli de ajo asado.', image_url: 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=400', is_available: true, stock: 120 },
-  { id: '4', name: 'Tacos de Birria (3 und)', category: 'Entradas', price: 24000, description: 'Tacos de costilla de res desmechada, queso fundido, cilantro, cebolla y consomé.', image_url: 'https://images.unsplash.com/photo-1551504734-5ee1c4a1479b?w=400', is_available: true, stock: 30 },
-  { id: '5', name: 'Limonada de Coco Imperial', category: 'Bebidas', price: 9500, description: 'Refrescante limonada batida con crema de coco y ralladura de lima.', image_url: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=400', is_available: true, stock: 80 },
-  { id: '6', name: 'Salmon Sushi Roll', category: 'Mariscos', price: 30000, description: 'Roll de salmón fresco con aguacate y salsa teriyaki.', image_url: 'https://images.unsplash.com/photo-1617196034183-421b4040ed20?w=400', is_available: true, stock: 25 },
-  { id: '7', name: 'Volcán de Chocolate', category: 'Postres', price: 18000, description: 'Brownie tibio con centro de chocolate belga y helado de vainilla.', image_url: 'https://images.unsplash.com/photo-1544025162-d76538d7e027?w=400', is_available: true, stock: 15 },
+  { id: '1', name: 'Salchipapa Salvaje Shek', category: 'Salchipapas', price: 28000, description: 'Papa criolla y francesa, salchicha americana, tocineta, queso costeño gratinado, ripio y salsas de la casa.', image_url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=600', is_available: true, stock: 50 },
+  { id: '2', name: 'Hamburguesa Shek Doble Queso', category: 'Hamburguesas', price: 26000, description: 'Doble carne a la parrilla, queso cheddar y costeño fundido, tocineta caramelizada y pan brioche.', image_url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600', is_available: true, stock: 45 },
+  { id: '3', name: 'Picada Colombiana Especial', category: 'Picadas & Parrilla', price: 48000, description: 'Chicharrón carnudo crocante, costilla BBQ, chorizo santarrosano, morcilla, papa criolla y patacón.', image_url: 'https://images.unsplash.com/photo-1544025162-d76538d7e027?w=600', is_available: true, stock: 20 },
+  { id: '4', name: 'Mazorcada Desgranada Mixta', category: 'Desgranados', price: 24000, description: 'Maíz dulce a la mantequilla, pollo y res a la plancha, queso costeño rallado, tocineta y ripio.', image_url: 'https://images.unsplash.com/photo-1551782450-a2132b4ba21d?w=600', is_available: true, stock: 30 },
+  { id: '5', name: 'Granizado de Milo Supremo', category: 'Bebidas & Granizados', price: 12000, description: 'Cremoso granizado a punto de nieve con abundante Milo, leche condensada y chantilly.', image_url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600', is_available: true, stock: 80 },
+  { id: '6', name: 'Michelada Frutal Mango Biche', category: 'Bebidas & Cócteles', price: 14000, description: 'Cerveza helada con sal, limón, pulpa natural de mango biche fresco y salsa chamoy artesanal.', image_url: 'https://images.unsplash.com/photo-1536935338788-846bb9981813?w=600', is_available: true, stock: 60 },
+  { id: '7', name: 'Alitas BBQ Melosas (8 und)', category: 'Alitas & Pollo', price: 24000, description: 'Alitas crocantes bañadas en salsa BBQ de maracuyá ahumada, papas francesas y aderezo ranch.', image_url: 'https://images.unsplash.com/photo-1567620832903-9fc6debc209f?w=600', is_available: true, stock: 35 },
+  { id: '8', name: 'Patacones con Hogao y Queso', category: 'Entradas', price: 16000, description: 'Patacones crocantes de plátano verde con hogao criollo casero y queso campesino rallado.', image_url: 'https://images.unsplash.com/photo-1565299585323-38d6b0865b47?w=600', is_available: true, stock: 40 },
 ];
 
 export const initialCustomers: Customer[] = [
@@ -111,7 +112,21 @@ export const initialSettings: TenantSettings = {
   whatsapp_phone: '',
   ai_enabled: true,
   ai_model: 'local-chefflow',
+  auto_assign_riders: false,
+  allow_external_riders: false,
   payment_methods: ['cash', 'nequi', 'daviplata', 'wompi', 'card', 'transfer'],
+  additions: [
+    { id: 'add_1', name: '🧀 Extra Queso Costeño / Mozzarella', price: 3500, is_available: true },
+    { id: 'add_2', name: '🥓 Tocineta Ahumada Caramelizada', price: 4000, is_available: true },
+    { id: 'add_3', name: '🥩 Carne Artesanal Extra (150g)', price: 8500, is_available: true },
+    { id: 'add_4', name: '🥚 Huevos de Codorniz (3 und)', price: 2500, is_available: true },
+    { id: 'add_5', name: '🍟 Porción de Papas Francesas', price: 6000, is_available: true },
+    { id: 'add_6', name: '🌽 Maíz Tierno Desgranado', price: 3000, is_available: true },
+    { id: 'add_7', name: '🥫 Salsa Tártara / Piña de la Casa', price: 1500, is_available: true },
+  ],
+  // Ubicación por defecto (Bogotá, Colombia)
+  restaurant_lat: 4.7110,
+  restaurant_lng: -74.0721,
   business_hours: [
     { day: 'Lunes', open: '11:00', close: '22:00', closed: false },
     { day: 'Martes', open: '11:00', close: '22:00', closed: false },

@@ -4,8 +4,16 @@ import type { NextRequest } from 'next/server';
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Public routes that don't need auth
-  const publicPaths = ['/login', '/api/'];
+  // Static and public assets/routes that must NEVER be intercepted by auth redirect
+  const publicPaths = [
+    '/login',
+    '/api/',
+    '/manifest',
+    '/sw.js',
+    '/favicon',
+    '/icon-',
+    '/public',
+  ];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
 
   if (isPublic) return NextResponse.next();
@@ -27,5 +35,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'],
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|manifest.json|manifest.webmanifest|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|json|webmanifest|js)$).*)',
+  ],
 };

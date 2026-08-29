@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Moon, Search, Sun, Menu, LogOut, User, ChevronDown, CheckCircle } from 'lucide-react';
+import { Bell, Moon, Search, Sun, Menu, LogOut, User, ChevronDown, CheckCircle, Store, Building2, Check } from 'lucide-react';
 import { useTheme } from '@/context/ThemeContext';
 import { useMobileMenu } from '@/context/MobileMenuContext';
 import { useAuth } from '@/context/AuthContext';
@@ -15,6 +15,12 @@ const ROLE_LABELS: Record<string, string> = {
   delivery: 'Repartidor',
 };
 
+const DEMO_TENANTS = [
+  { id: 'a0000000-0000-4000-8000-000000000001', name: 'ChefFlow Restaurante', subdomain: 'chefflow', plan: 'pro' },
+  { id: 'a0000000-0000-4000-8000-000000000002', name: 'La Casona Gourmet', subdomain: 'lacasona', plan: 'pro' },
+  { id: 'a0000000-0000-4000-8000-000000000003', name: 'Burger & Shake House', subdomain: 'burgershake', plan: 'starter' },
+];
+
 interface TopbarProps {
   title: string;
   subtitle?: string;
@@ -24,14 +30,37 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
   const { dark, toggle: toggleTheme } = useTheme();
   const { toggle: toggleMenu } = useMobileMenu();
   const { user, signOut } = useAuth();
-  const { orders } = useAppData();
+  const { orders, settings, selectedTenantId, setSelectedTenantId, allTenants } = useAppData();
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showTenantDropdown, setShowTenantDropdown] = useState(false);
   const [seenOrders, setSeenOrders] = useState<Set<string>>(new Set());
 
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
+  const tenantRef = useRef<HTMLDivElement>(null);
+
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const currentTenant = allTenants.find((t) => t.id === selectedTenantId);
+
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
+      if (userRef.current && !userRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+      if (tenantRef.current && !tenantRef.current.contains(e.target as Node)) {
+        setShowTenantDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
 
   // Recent pending orders as notifications
   const pendingOrders = orders
@@ -79,6 +108,8 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
           <h1 className="text-xl lg:text-2xl font-black tracking-tight text-[var(--text-primary)] leading-tight">{title}</h1>
           <p style={{ color: 'var(--text-muted)' }} className="text-[11px] lg:text-xs font-bold mt-0.5">{subtitle}</p>
         </div>
+
+
       </div>
 
       <div className="relative flex-1 max-w-md hidden lg:block group ml-4">
@@ -103,6 +134,20 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
       </div>
 
       <div className="flex items-center gap-2 lg:gap-4 shrink-0">
+        {/* Alarm Test Button */}
+        <button
+          onClick={() => {
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new Event('play_alarm_sound'));
+            }
+          }}
+          title="Probar Alarma Sonora de Pedidos"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-black transition-all hover:scale-105 active:scale-95 text-amber-500 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20"
+        >
+          <Bell className="h-3.5 w-3.5 animate-pulse" />
+          <span className="hidden md:inline">Alarma</span>
+        </button>
+
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}

@@ -6,13 +6,56 @@ import { AlertTriangle, ChefHat, ChevronLeft, ChevronRight } from 'lucide-react'
 import { NAV_ITEMS } from '@/config/navigation';
 import { useAppData } from '@/context/AppDataContext';
 import { useMobileMenu } from '@/context/MobileMenuContext';
+import { useAuth } from '@/context/AuthContext';
+
+// Paths allowed per role. 'Registro Sedes' is ONLY for super_admin.
+const ROLE_ALLOWED_PATHS: Record<string, string[]> = {
+  super_admin: ['*'],
+  admin: [
+    '/', '/pedidos', '/historial', '/menu', '/inventario',
+    '/caja', '/pagos', '/clientes', '/domicilios', '/repartidores',
+    '/mensajes', '/ia', '/reportes', '/configuracion',
+    // Explicitly exclude /registro — only super_admin gets it
+  ],
+  operator: ['/', '/pedidos', '/historial', '/menu', '/caja', '/pagos', '/clientes', '/domicilios'],
+  kitchen: ['/pedidos'],
+  delivery: ['/domicilios', '/repartidores', '/mis-pedidos', '/repartidor'],
+};
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { activeOrdersCount, lowStockCount } = useAppData();
+  const { activeOrdersCount, lowStockCount, deliveries } = useAppData();
   const { isOpen, isCollapsed, toggleCollapse } = useMobileMenu();
+  const { user } = useAuth();
+
+  const userRoleStr: string = user?.role || 'admin';
+  const customModules = user?.allowed_modules;
+  const allowed = (customModules && customModules.length > 0)
+    ? customModules
+    : (ROLE_ALLOWED_PATHS[userRoleStr] || ROLE_ALLOWED_PATHS.admin);
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (userRoleStr === 'super_admin') return true;
+    if (item.href === '/registro') return false;
+    if (allowed.includes('*')) return true;
+    return allowed.includes(item.href);
+  });
 
   const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
+
+  // Dynamic badge counts
+  const activeDeliveries = deliveries.filter((d) => d.status === 'assigned' || d.status === 'searching').length;
+
+  const getDynamicBadge = (label: string, staticBadge?: number) => {
+    if (label === 'Pedidos') return activeOrdersCount || undefined;
+    if (label === 'Domicilios') return activeDeliveries || undefined;
+    return staticBadge;
+  };
+
+  const getShowAlert = (label: string, staticAlert?: boolean) => {
+    if (label === 'Inventario') return lowStockCount > 0;
+    return staticAlert;
+  };
 
   return (
     <aside className={`sidebar fixed inset-y-0 left-0 z-50 transform transition-all duration-300 md:relative md:translate-x-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'} md:flex ${isCollapsed ? 'w-[88px]' : 'w-[260px]'} flex-col justify-between shrink-0 overflow-hidden border-r shadow-2xl md:shadow-none bg-[var(--bg-sidebar)]`} style={{ borderColor: 'var(--border)' }}>
@@ -35,10 +78,10 @@ export function Sidebar() {
         </div>
 
         <nav className="space-y-1.5">
-          {NAV_ITEMS.map(({ label, href, icon: Icon, badge, alert }) => {
+          {visibleNavItems.map(({ label, href, icon: Icon, badge, alert }) => {
             const active = isActive(href);
-            const dynamicBadge = label === 'Pedidos' ? activeOrdersCount : badge;
-            const showAlert = label === 'Inventario' ? lowStockCount > 0 : alert;
+            const dynamicBadge = getDynamicBadge(label, badge);
+            const showAlert = getShowAlert(label, alert);
 
             return (
               <Link key={href} href={href}
@@ -61,7 +104,12 @@ export function Sidebar() {
                   <span className="h-5 px-2 rounded-lg text-[10px] font-black text-white flex items-center shadow-md transition-transform group-hover:scale-105"
                         style={{ background: 'var(--orange)' }}>{dynamicBadge}</span>
                 ) : null}
+                {/* Collapsed badge dot */}
+                {isCollapsed && dynamicBadge ? (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-[var(--orange)] shadow-sm" />
+                ) : null}
                 {(!isCollapsed && showAlert) ? <AlertTriangle className="h-4 w-4 text-amber-500 drop-shadow-sm animate-pulse" /> : null}
+                {(isCollapsed && showAlert) ? <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 animate-pulse" /> : null}
               </Link>
             );
           })}

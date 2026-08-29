@@ -1,4 +1,7 @@
 import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import { createAdminClient } from '@/lib/supabase/server';
 import {
@@ -12,58 +15,72 @@ const ORDER_SELECT = `
   order_items(*, products(*, categories(name)))
 `;
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  // Run DB DDL migration to add allow_external_riders if not exists
+  try {
+    await supabase.rpc('execute_sql', {
+      sql: 'ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS allow_external_riders BOOLEAN DEFAULT false;'
+    });
+  } catch (err) {
+    console.warn('[Bootstrap] SQL migration for allow_external_riders skipped/failed:', err);
+  }
+
+  const { searchParams } = new URL(request.url);
+  const targetTenantId = searchParams.get('tenant_id') || DEMO_TENANT_ID;
+
   const [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes] = await Promise.all([
     supabase
       .from('categories')
       .select('*')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .order('sort_order', { ascending: true }),
     supabase
       .from('orders')
       .select(ORDER_SELECT)
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .order('created_at', { ascending: false }),
     supabase
       .from('products')
       .select('*, categories(name)')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
+      .not('category_id', 'is', null)
       .order('name'),
     supabase
       .from('customers')
       .select('*')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .order('created_at', { ascending: false }),
     supabase
       .from('inventory')
       .select('*')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .order('name'),
     supabase
       .from('tenant_settings')
       .select('*')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .maybeSingle(),
     supabase
       .from('tenants')
       .select('name')
-      .eq('id', DEMO_TENANT_ID)
+      .eq('id', targetTenantId)
       .maybeSingle(),
     supabase
       .from('cash_registers')
       .select('*, cash_transactions(*)')
-      .eq('tenant_id', DEMO_TENANT_ID)
+      .eq('tenant_id', targetTenantId)
       .order('opened_at', { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabase
       .from('delivery_details')
       .select('*, profiles(name)')
+      .in('order_id', ordersRes.data?.map((o: any) => o.id) ?? [])
       .order('updated_at', { ascending: false }),
     supabase
       .from('stock_movements')
@@ -81,6 +98,63 @@ export async function GET() {
   }
 
   const orders = (ordersRes.data ?? []).map((row) => mapOrder(row as Record<string, unknown>));
+
+  // If a rider is fetching the data, load extra pool orders from other tenants
+  // that have allow_external_riders enabled
+  try {
+    const riderId = searchParams.get('rider_id');
+    
+    // 1. Fetch other tenants that have allow_external_riders enabled
+    const { data: sharedSettings } = await supabase
+      .from('tenant_settings')
+      .select('tenant_id')
+      .eq('allow_external_riders', true)
+      .neq('tenant_id', targetTenantId);
+      
+    const sharedTenantIds = (sharedSettings ?? []).map((s: any) => s.tenant_id);
+    
+    // 2. Fetch order ids assigned to this rider in delivery_details
+    let assignedOrderIds: string[] = [];
+    if (riderId) {
+      const { data: myAssigned } = await supabase
+        .from('delivery_details')
+        .select('order_id')
+        .eq('rider_id', riderId);
+      if (myAssigned) {
+        assignedOrderIds = myAssigned.map((a: any) => a.order_id).filter(Boolean);
+      }
+    }
+    
+    // 3. Build query for shared pool and assigned orders
+    const queryParts: string[] = [];
+    if (sharedTenantIds.length > 0) {
+      queryParts.push(`and(tenant_id.in.(${sharedTenantIds.join(',')}),status.eq.ready,type.eq.delivery)`);
+    }
+    if (assignedOrderIds.length > 0) {
+      queryParts.push(`id.in.(${assignedOrderIds.join(',')})`);
+    }
+    
+    if (queryParts.length > 0) {
+      const { data: sharedOrdersRes } = await supabase
+        .from('orders')
+        .select(ORDER_SELECT)
+        .or(queryParts.join(','));
+        
+      if (sharedOrdersRes && sharedOrdersRes.length > 0) {
+        const sharedOrders = sharedOrdersRes.map((row) => mapOrder(row as Record<string, unknown>));
+        // Add to orders list, avoiding duplicates
+        const ownOrderIds = new Set(orders.map(o => o.id));
+        sharedOrders.forEach((o) => {
+          if (!ownOrderIds.has(o.id)) {
+            orders.push(o);
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[Bootstrap] Failed to merge shared pool orders:', err);
+  }
+
   const ordersById = new Map(orders.map((order) => [order.id, order]));
   const cashRow = cashRes.data as (Record<string, unknown> & { cash_transactions?: Record<string, unknown>[] }) | null;
   const cashSession: CashSession | null = cashRow ? {
@@ -101,6 +175,7 @@ export async function GET() {
       created_at: String(tx.created_at),
     })).sort((a, b) => b.created_at.localeCompare(a.created_at)),
   } : null;
+
   const deliveries: DeliveryAssignment[] = ((deliveryRes.data ?? []) as Record<string, unknown>[])
     .map((row) => {
       const order = ordersById.get(String(row.order_id));
@@ -109,6 +184,7 @@ export async function GET() {
       return {
         order_id: order.id,
         order,
+        rider_id: row.rider_id ? String(row.rider_id) : undefined,
         rider_name: profile?.name,
         status: row.status as DeliveryAssignment['status'],
         latitude: Number(row.latitude ?? 6.2088),
@@ -118,30 +194,33 @@ export async function GET() {
     })
     .filter(Boolean) as DeliveryAssignment[];
 
-  // ── Fallback: si delivery_details está vacío, construir deliveries
-  // directamente desde los pedidos con dirección de domicilio ──────────────
-  const finalDeliveries: DeliveryAssignment[] =
-    deliveries.length > 0
-      ? deliveries
-      : orders
-          .filter(
-            (o) =>
-              (o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
-              !['cancelled', 'draft'].includes(o.status)
-          )
-          .map((o, i) => ({
-            order_id: o.id,
-            order: o,
-            rider_name: undefined,
-            status: (o.status === 'delivered'
-              ? 'delivered'
-              : o.status === 'shipping'
-              ? 'assigned'
-              : 'searching') as DeliveryAssignment['status'],
-            latitude: 6.2088 + i * 0.005,
-            longitude: -75.5678 + i * 0.005,
-          }));
-
+  // Mezclar delivery_details y pedidos a domicilio activos
+  const finalDeliveries: DeliveryAssignment[] = orders
+    .filter(
+      (o) =>
+        (o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
+        !['cancelled', 'draft'].includes(o.status)
+    )
+    .map((o, i) => {
+      const existing = deliveries.find((d) => d.order_id === o.id);
+      if (existing) {
+        existing.order = o;
+        return existing;
+      }
+      return {
+        order_id: o.id,
+        order: o,
+        rider_id: undefined,
+        rider_name: undefined,
+        status: (o.status === 'delivered'
+          ? 'delivered'
+          : o.status === 'shipping'
+          ? 'assigned'
+          : 'searching') as DeliveryAssignment['status'],
+        latitude: 6.2088 + i * 0.005,
+        longitude: -75.5678 + i * 0.005,
+      };
+    });
 
   // Filter stock movements to only those belonging to this tenant's inventory
   const tenantInventoryIds = new Set((inventoryRes.data ?? []).map((i: any) => String(i.id)));

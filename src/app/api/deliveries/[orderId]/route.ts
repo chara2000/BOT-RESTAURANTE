@@ -43,15 +43,37 @@ export async function PATCH(
 
     const body = await request.json();
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (body.rider_name) {
+    
+    // Get existing delivery details to check previous assignment
+    const { data: existingDelivery } = await supabase
+      .from('delivery_details')
+      .select('rider_id, status, profiles(name)')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    const prevRiderId = existingDelivery?.rider_id;
+    const prevRiderName = (existingDelivery?.profiles as any)?.name;
+
+    // Handle rider assignment / removal
+    if (body.hasOwnProperty('rider_id')) {
+      const nextRiderId = body.rider_id; // could be null
+      patch.rider_id = nextRiderId;
+      if (nextRiderId) {
+        patch.status = body.status ?? 'assigned';
+      } else {
+        patch.status = 'searching';
+      }
+    } else if (body.rider_name) {
       patch.rider_id = await ensureRiderProfile(String(body.rider_name));
       patch.status = body.status ?? 'assigned';
     }
+
     if (body.status) patch.status = body.status;
     if (body.latitude !== undefined) patch.latitude = Number(body.latitude);
     if (body.longitude !== undefined) patch.longitude = Number(body.longitude);
     if (body.estimated_arrival !== undefined) patch.estimated_arrival = body.estimated_arrival;
 
+    // Save to delivery_details
     const { data, error } = await supabase
       .from('delivery_details')
       .upsert({ order_id: orderId, ...patch }, { onConflict: 'order_id' })
@@ -59,6 +81,60 @@ export async function PATCH(
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    // Sincronizar campo rider_id en la tabla orders también
+    await supabase
+      .from('orders')
+      .update({ rider_id: patch.rider_id ?? null, updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+
+    // Si cambió el repartidor, registrarlo en rider_assignments y order_events
+    if (patch.hasOwnProperty('rider_id') && patch.rider_id !== prevRiderId) {
+      let newRiderName = null;
+      if (patch.rider_id) {
+        const { data: newRiderProf } = await supabase
+          .from('profiles')
+          .select('name')
+          .eq('id', patch.rider_id)
+          .maybeSingle();
+        newRiderName = newRiderProf?.name || 'Repartidor';
+      }
+
+      // Log in rider_assignments
+      await supabase.from('rider_assignments').insert({
+        order_id: orderId,
+        prev_rider_id: prevRiderId || null,
+        prev_rider_name: prevRiderName || null,
+        new_rider_id: patch.rider_id || null,
+        new_rider_name: newRiderName,
+        changed_by_name: body.actor_name || 'Admin',
+        reason: body.reason || 'Reasignacion'
+      });
+
+      // Log in order_events
+      await supabase.from('order_events').insert({
+        order_id: orderId,
+        tenant_id: DEMO_TENANT_ID,
+        event_type: patch.rider_id ? 'rider_assigned' : 'rider_removed',
+        from_value: prevRiderName || null,
+        to_value: newRiderName || null,
+        actor_name: body.actor_name || 'Admin',
+        notes: body.reason || (patch.rider_id ? `Asignado a ${newRiderName}` : 'Repartidor desasignado')
+      });
+    }
+
+    // Si cambió de estado operativo en delivery_details, registrar evento
+    if (body.status && body.status !== existingDelivery?.status) {
+      await supabase.from('order_events').insert({
+        order_id: orderId,
+        tenant_id: DEMO_TENANT_ID,
+        event_type: 'delivery_status_change',
+        from_value: existingDelivery?.status || 'searching',
+        to_value: body.status,
+        actor_name: body.actor_name || 'Repartidor/Sistema'
+      });
+    }
+
     return NextResponse.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error actualizando domicilio';

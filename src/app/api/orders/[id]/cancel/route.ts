@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 
 export async function POST(
   request: Request,
@@ -15,12 +14,14 @@ export async function POST(
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  const tenantId = getTenantId(request);
+
   // Obtener el pedido y verificar que pertenece a este cliente
   const { data: order, error: fetchError } = await supabase
     .from('orders')
     .select('id, status, notes, customer_id, customers(telegram_chat_id)')
     .eq('id', id)
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
     .single();
 
   if (fetchError || !order) {
@@ -47,7 +48,7 @@ export async function POST(
     .from('orders')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', id)
-    .eq('tenant_id', DEMO_TENANT_ID);
+    .eq('tenant_id', tenantId);
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 400 });

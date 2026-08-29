@@ -15,7 +15,7 @@ export async function notifyOrderStatusChange(orderId: string, status: string) {
 
 export async function createOrderViaN8n(payload: {
   order: Record<string, unknown>;
-  items: { product_id: string; quantity: number; unit_price: number }[];
+  items: { product_id: string; quantity: number; unit_price: number; notes?: string }[];
 }) {
   if (!N8N_BASE) throw new Error('N8N_WEBHOOK_URL no configurada');
   const res = await fetch(`${N8N_BASE}/webhook/chefflow-new-order`, {

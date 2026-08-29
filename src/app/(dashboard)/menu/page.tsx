@@ -1,20 +1,35 @@
 'use client';
 
 import { useState } from 'react';
-import { Edit2, Plus, Search, Trash2, ToggleLeft, ToggleRight, FolderPlus, X, Check, Tag } from 'lucide-react';
+import { Edit2, Plus, Search, Trash2, ToggleLeft, ToggleRight, FolderPlus, X, Check, Tag, ChevronLeft, ChevronRight, Utensils, Layers, PlusCircle, CheckCircle2 } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency } from '@/lib/utils';
-import type { Category, Product } from '@/types';
+import type { Category, Product, AdditionItem } from '@/types';
+import { ImageInputPicker } from '@/components/ImageInputPicker';
+import { useUIModal } from '@/components/ui/UIModal';
 
 export default function MenuPage() {
-  const { products, categories, updateProduct, addProduct, deleteProduct, addCategory, updateCategory } = useAppData();
+  const { products, categories, settings, updateSettings, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory } = useAppData();
+  const { showConfirm, showAlert } = useUIModal();
   const [filter, setFilter] = useState('Todos');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Product | null>(null);
+  
+  // Controlled product form state
+  const [formName, setFormName] = useState('');
+  const [formPrice, setFormPrice] = useState<number | string>('');
+  const [formCategory, setFormCategory] = useState('');
+  const [formDescription, setFormDescription] = useState('');
+  const [formImageUrl, setFormImageUrl] = useState('');
+  const [formAvailable, setFormAvailable] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
 
   // Category modal state
   const [showCatModal, setShowCatModal] = useState(false);
@@ -22,265 +37,672 @@ export default function MenuPage() {
   const [newCatName, setNewCatName] = useState('');
   const [savingCat, setSavingCat] = useState(false);
 
+  // Additions modal state
+  const [showAdditionsModal, setShowAdditionsModal] = useState(false);
+  const [newAddName, setNewAddName] = useState('');
+  const [newAddPrice, setNewAddPrice] = useState<number | string>('');
+  const [savingAdd, setSavingAdd] = useState(false);
+
+  const startEditProduct = (prod: Product) => {
+    setEditing(prod);
+    setFormName(prod.name);
+    setFormPrice(prod.price);
+    setFormCategory(prod.category);
+    setFormDescription(prod.description || '');
+    setFormImageUrl(prod.image_url || '');
+    setFormAvailable(prod.is_available ?? true);
+    setShowForm(true);
+  };
+
+  const startNewProduct = () => {
+    setEditing(null);
+    setFormName('');
+    setFormPrice('');
+    setFormCategory(categories[0]?.name || 'Hamburguesas');
+    setFormDescription('');
+    setFormImageUrl('');
+    setFormAvailable(true);
+    setShowForm(true);
+  };
+
   const filtered = products.filter((p) => {
     const matchCat = filter === 'Todos' || p.category === filter || p.category_id === categories.find(c => c.name === filter)?.id;
     const matchSearch = p.name.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   });
 
+  const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const paginated = filtered.slice(startIndex, startIndex + pageSize);
+
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     setMessage(null);
-    const fd = new FormData(e.currentTarget);
-    const catId = fd.get('category_id') as string;
-    const catName = categories.find(c => c.id === catId)?.name ?? catId;
-    const data: Product = {
-      id: editing?.id ?? `p${Date.now()}`,
-      name: fd.get('name') as string,
+    const catName = formCategory || categories[0]?.name || 'General';
+    const matchedCat = categories.find((c) => c.name === catName);
+
+    const payload: Partial<Product> = {
+      name: formName.trim(),
+      price: Number(formPrice) || 0,
       category: catName,
-      category_id: catId,
-      price: Number(fd.get('price')),
-      description: fd.get('description') as string,
-      image_url: (fd.get('image_url') as string) || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400',
-      is_available: fd.get('is_available') === 'on',
-      stock: Number(fd.get('stock') ?? 0),
+      category_id: matchedCat?.id,
+      image_url: formImageUrl || (editing?.image_url ?? 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400'),
+      description: formDescription.trim(),
+      is_available: formAvailable,
     };
+
     try {
-      if (editing) await updateProduct(data);
-      else await addProduct(data);
-      setEditing(null);
+      if (editing) {
+        await updateProduct({ ...editing, ...payload });
+        setMessage('Producto actualizado exitosamente.');
+      } else {
+        await addProduct(payload as any);
+        setMessage('Producto creado exitosamente.');
+      }
       setShowForm(false);
-      setMessage(editing ? 'Producto actualizado.' : 'Producto creado y guardado.');
+      setEditing(null);
+      setFormName('');
+      setFormPrice('');
+      setFormDescription('');
+      setFormImageUrl('');
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'No se pudo guardar el producto.');
+      setMessage(err instanceof Error ? err.message : 'Error al guardar el producto.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveCategory = async () => {
+  const handleSaveCat = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!newCatName.trim()) return;
     setSavingCat(true);
     try {
       if (editingCat) {
         await updateCategory({ ...editingCat, name: newCatName.trim() });
       } else {
-        await addCategory({ name: newCatName.trim(), sort_order: categories.length, is_active: true });
+        await addCategory({ name: newCatName.trim() } as any);
       }
       setNewCatName('');
       setEditingCat(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Error al guardar categoría');
+      showAlert({ title: 'Error', message: err instanceof Error ? err.message : 'Error al guardar categoría', type: 'error' });
     } finally {
       setSavingCat(false);
     }
   };
 
-  const handleToggleCat = async (cat: Category) => {
+  const handleDeleteCat = async (cat: Category) => {
+    const confirmed = await showConfirm({
+      title: '¿Eliminar Categoría?',
+      message: `¿Estás seguro de que deseas eliminar la categoría "${cat.name}"?`,
+      confirmText: 'Sí, Eliminar',
+      cancelText: 'Cancelar',
+      isDanger: true,
+    });
+
+    if (confirmed) {
+      try {
+        await deleteCategory(cat.id);
+        showAlert({ title: 'Éxito', message: 'Categoría eliminada correctamente', type: 'success' });
+      } catch (err) {
+        showAlert({ title: 'Error', message: err instanceof Error ? err.message : 'Error al eliminar categoría', type: 'error' });
+      }
+    }
+  };
+
+  // Additions handlers
+  const currentAdditions = settings?.additions || [
+    { id: 'add_1', name: '🧀 Extra Queso Costeño', price: 3500, is_available: true },
+    { id: 'add_2', name: '🥓 Tocineta Ahumada', price: 4000, is_available: true },
+    { id: 'add_3', name: '🥩 Carne Extra (150g)', price: 8500, is_available: true },
+    { id: 'add_4', name: '🥚 Huevos de Codorniz (3 und)', price: 2500, is_available: true },
+    { id: 'add_5', name: '🍟 Porción de Papas Francesas', price: 6000, is_available: true },
+    { id: 'add_6', name: '🌽 Maíz Tierno Dulce', price: 3000, is_available: true },
+    { id: 'add_7', name: '🥫 Salsa Tártara / Piña', price: 1500, is_available: true },
+  ];
+
+  const handleAddAddition = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newAddName.trim() || !newAddPrice) return;
+    setSavingAdd(true);
     try {
-      await updateCategory({ ...cat, is_active: !cat.is_active });
+      const newItem: AdditionItem = {
+        id: 'add_' + Date.now(),
+        name: newAddName.trim(),
+        price: Number(newAddPrice),
+        is_available: true,
+      };
+      const updated = [...currentAdditions, newItem];
+      await updateSettings({ additions: updated });
+      setNewAddName('');
+      setNewAddPrice('');
+      showAlert({ title: 'Adición Creada', message: `Se agregó "${newItem.name}" al catálogo de adiciones.`, type: 'success' });
     } catch (err) {
-      alert('Error al actualizar categoría');
+      showAlert({ title: 'Error', message: 'No se pudo guardar la adición', type: 'error' });
+    } finally {
+      setSavingAdd(false);
+    }
+  };
+
+  const handleToggleAddition = async (id: string) => {
+    try {
+      const updated = currentAdditions.map(a => a.id === id ? { ...a, is_available: !a.is_available } : a);
+      await updateSettings({ additions: updated });
+    } catch (err) {
+      showAlert({ title: 'Error', message: 'No se pudo actualizar la disponibilidad', type: 'error' });
+    }
+  };
+
+  const handleDeleteAddition = async (id: string, name: string) => {
+    const ok = await showConfirm({
+      title: '¿Eliminar Adición?',
+      message: `¿Deseas eliminar la adición "${name}"?`,
+      confirmText: 'Sí, Eliminar',
+      cancelText: 'Cancelar',
+      isDanger: true,
+    });
+    if (ok) {
+      try {
+        const updated = currentAdditions.filter(a => a.id !== id);
+        await updateSettings({ additions: updated });
+        showAlert({ title: 'Eliminada', message: 'Adición eliminada correctamente', type: 'success' });
+      } catch (err) {
+        showAlert({ title: 'Error', message: 'No se pudo eliminar la adición', type: 'error' });
+      }
     }
   };
 
   return (
-    <div className="relative flex-1 flex flex-col h-full overflow-hidden">
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[var(--orange)] opacity-[0.03] rounded-full blur-[120px] pointer-events-none" />
-      <Topbar title="Menú Digital" subtitle="Gestión de productos, categorías y disponibilidad" />
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <Topbar title="Menú & Platillos" subtitle={`${products.length} platillos registrados en el sistema`} />
 
-      <div className="flex-1 overflow-y-auto p-5 lg:p-8 space-y-6 lg:space-y-8 z-10 relative">
-        <div className="flex flex-col gap-5 animate-fade-in-up">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-xl group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 transition-colors group-focus-within:text-[var(--orange)]" style={{ color: 'var(--text-muted)' }} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar platillos o bebidas..."
-                className="w-full text-sm font-semibold pl-12 pr-4 py-3.5 rounded-2xl border transition-all focus:outline-none focus:ring-2 focus:ring-[var(--orange)] shadow-sm hover:shadow-md"
-                style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
-            </div>
-
-            <div className="flex gap-2 shrink-0">
-              <button onClick={() => setShowCatModal(true)}
-                className="flex items-center gap-2 text-sm font-black px-4 py-3.5 rounded-xl border hover:bg-[var(--bg-input)] transition-all"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-                <FolderPlus className="h-4 w-4" /> Categorías
-              </button>
-              <button onClick={() => { setEditing(null); setShowForm(true); }}
-                className="flex items-center gap-2 text-sm font-black px-6 py-3.5 rounded-xl text-white shadow-[0_8px_20px_var(--orange-glow)] hover:scale-105 active:scale-95 transition-all"
-                style={{ background: 'var(--orange)' }}>
-                <Plus className="h-5 w-5" /> Nuevo Plato
-              </button>
-            </div>
-          </div>
-
-          {/* Category filter pills */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide w-full">
-            {['Todos', ...categories.filter(c => c.is_active).map(c => c.name)].map((c) => (
-              <button key={c} onClick={() => setFilter(c)}
-                className="text-xs font-black px-5 py-2.5 rounded-xl transition-all whitespace-nowrap border shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:shadow-md hover:-translate-y-0.5"
-                style={{
-                  background: filter === c ? 'var(--orange)' : 'var(--bg-input)',
-                  color: filter === c ? '#fff' : 'var(--text-muted)',
-                  borderColor: filter === c ? 'var(--orange)' : 'var(--border)'
-                }}>{c}</button>
-            ))}
-          </div>
-        </div>
-
+      <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6">
         {message && (
-          <div className={`p-4 rounded-2xl border backdrop-blur-md font-bold text-sm animate-fade-in-up ${message.includes('guardado') || message.includes('actualizado') ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
-            {message}
+          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-xs font-black animate-fade-in-up flex items-center justify-between">
+            <span>{message}</span>
+            <button onClick={() => setMessage(null)} className="text-emerald-500 hover:opacity-75">✕</button>
           </div>
         )}
 
-        {showForm && (
-          <form onSubmit={handleSave} className="card p-6 grid grid-cols-1 md:grid-cols-2 gap-5 animate-fade-in-up">
-            <p className="md:col-span-2 text-lg font-black">{editing ? 'Editar Producto' : 'Crear Nuevo Producto'}</p>
-            <input name="name" defaultValue={editing?.name} placeholder="Nombre del platillo" required
-              className="text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
-            <select name="category_id" defaultValue={editing?.category_id ?? categories[0]?.id ?? ''}
-              className="text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-              {categories.filter(c => c.is_active).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        {/* Action Controls Bar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[var(--text-muted)]" />
+            <input
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+              placeholder="Buscar platillo o ingrediente..."
+              className="w-full pl-11 pr-4 py-3 rounded-2xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)] transition-all"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
+            <button
+              onClick={() => setShowAdditionsModal(true)}
+              className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            >
+              <Layers className="h-4 w-4 text-[var(--orange)]" />
+              <span>Adiciones ({currentAdditions.length})</span>
+            </button>
+
+            <button
+              onClick={() => setShowCatModal(true)}
+              className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            >
+              <FolderPlus className="h-4 w-4 text-[var(--orange)]" />
+              <span>Categorías</span>
+            </button>
+
+            <button
+              onClick={startNewProduct}
+              className="px-5 py-3 rounded-2xl text-xs font-black text-white shadow-md transition-all hover:scale-[1.02] active:scale-95 flex items-center gap-2 cursor-pointer shrink-0"
+              style={{ background: 'var(--orange)' }}
+            >
+              <Plus className="h-4 w-4" />
+              <span>Nuevo Producto</span>
+            </button>
+
+            <select
+              value={pageSize}
+              onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+              className="px-3 py-3 rounded-2xl text-xs font-bold bg-[var(--bg-card)] border outline-none cursor-pointer text-[var(--text-primary)]"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <option value={8}>8 / pág</option>
+              <option value={12}>12 / pág</option>
+              <option value={24}>24 / pág</option>
             </select>
-            <input name="price" type="number" defaultValue={editing?.price} placeholder="Precio ($)" required
-              className="text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
-            <input name="stock" type="number" defaultValue={editing?.stock ?? 0} placeholder="Unidades (Opcional)"
-              className="text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
-            <input name="image_url" defaultValue={editing?.image_url} placeholder="URL de la imagen (Alta calidad)"
-              className="text-sm font-semibold px-4 py-3 rounded-xl border md:col-span-2 focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
-            <textarea name="description" defaultValue={editing?.description} placeholder="Descripción apetitosa..." rows={3}
-              className="text-sm font-semibold px-4 py-3 rounded-xl border md:col-span-2 focus:outline-none focus:ring-2 focus:ring-[var(--orange)]" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
-            <label className="flex items-center gap-3 text-sm font-black md:col-span-2 cursor-pointer p-3 rounded-xl border w-max" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
-              <input type="checkbox" name="is_available" defaultChecked={editing?.is_available ?? true} className="w-4 h-4 accent-[var(--orange)]" />
+          </div>
+        </div>
+
+        {/* Categories Bar */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+          {['Todos', ...categories.map((c) => c.name)].map((cat) => (
+            <button
+              key={cat}
+              onClick={() => { setFilter(cat); setCurrentPage(1); }}
+              className={`px-4 py-2 rounded-xl text-xs font-black transition-all shrink-0 cursor-pointer ${
+                filter === cat
+                  ? 'bg-[var(--orange)] text-white shadow-md'
+                  : 'bg-[var(--bg-card)] text-[var(--text-muted)] border hover:text-[var(--text-primary)]'
+              }`}
+              style={{ borderColor: filter === cat ? 'transparent' : 'var(--border)' }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Form Create/Edit Product */}
+        {showForm && (
+          <form key={editing?.id ?? 'new'} onSubmit={handleSave} className="card p-6 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up border shadow-xl" style={{ borderColor: 'var(--orange-glow)' }}>
+            <div className="md:col-span-2 flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-base font-black flex items-center gap-2">
+                <Tag className="w-5 h-5 text-[var(--orange)]" />
+                {editing ? `Editar "${editing.name}"` : 'Nuevo Producto / Platillo'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                ✕ Cerrar
+              </button>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Nombre del Platillo *
+              </label>
+              <input
+                type="text"
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="Ej: Salchipapa Salvaje, Hamburguesa Doble, Granizado de Milo..."
+                required
+                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Precio en COP *
+              </label>
+              <input
+                type="number"
+                value={formPrice}
+                onChange={(e) => setFormPrice(e.target.value)}
+                placeholder="Ej: 28000"
+                required
+                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Categoría *
+              </label>
+              <select
+                value={formCategory}
+                onChange={(e) => setFormCategory(e.target.value)}
+                required
+                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <ImageInputPicker
+                label="Imagen del Platillo (Foto de Referencia o Archivo Local)"
+                value={formImageUrl}
+                onChange={(url) => setFormImageUrl(url)}
+                placeholder="https://images.unsplash.com/..."
+                bucket="products"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                Descripción del Platillo
+              </label>
+              <textarea
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="Descripción apetitosa con ingredientes y detalles de preparación..."
+                rows={3}
+                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+            </div>
+
+            <label className="flex items-center gap-3 text-xs font-black md:col-span-2 cursor-pointer p-3 rounded-xl border w-max" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
+              <input
+                type="checkbox"
+                checked={formAvailable}
+                onChange={(e) => setFormAvailable(e.target.checked)}
+                className="w-4 h-4 accent-[var(--orange)]"
+              />
               Disponible para la venta
             </label>
+
             <div className="flex gap-3 md:col-span-2 pt-2">
-              <button type="submit" disabled={saving} className="text-sm font-black px-6 py-3 rounded-xl text-white disabled:opacity-60 shadow-md transition-transform active:scale-95" style={{ background: 'var(--orange)' }}>
+              <button
+                type="submit"
+                disabled={saving}
+                className="text-xs font-black px-6 py-3 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
+                style={{ background: 'var(--orange)' }}
+              >
                 {saving ? 'Guardando...' : editing ? 'Actualizar Producto' : 'Publicar Producto'}
               </button>
-              <button type="button" onClick={() => setShowForm(false)} className="text-sm font-black px-6 py-3 rounded-xl border hover:bg-[var(--bg-input)] transition-colors"
-                style={{ borderColor: 'var(--border)' }}>Cancelar</button>
+              <button
+                type="button"
+                onClick={() => setShowForm(false)}
+                className="text-xs font-black px-6 py-3 rounded-xl border hover:bg-[var(--bg-input)] cursor-pointer"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                Cancelar
+              </button>
             </div>
           </form>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in-up delay-100">
-          {filtered.map((product) => (
-            <div key={product.id} className="card overflow-hidden group hover:shadow-lg transition-all duration-300 flex flex-col">
-              <div className="relative h-44 overflow-hidden">
-                <img src={product.image_url} alt={product.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60" />
-                <span className="absolute top-3 left-3 bg-black/40 backdrop-blur-md text-white text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-white/20">
-                  {product.category}
-                </span>
-                <button onClick={async () => {
-                  setMessage(null);
-                  try { await updateProduct({ ...product, is_available: !product.is_available }); }
-                  catch (err) { setMessage(err instanceof Error ? err.message : 'Error al actualizar disponibilidad'); }
-                }}
-                  className="absolute top-3 right-3 p-1.5 rounded-xl bg-black/40 backdrop-blur-md border border-white/20 text-white hover:bg-black/60 transition-colors shadow-lg">
-                  {product.is_available ? <ToggleRight className="h-5 w-5 text-emerald-400" /> : <ToggleLeft className="h-5 w-5 text-rose-400" />}
-                </button>
-              </div>
-              <div className="p-5 flex flex-col flex-1">
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <p className="text-sm lg:text-base font-black leading-tight">{product.name}</p>
-                  <span className="text-sm lg:text-base font-black bg-[var(--orange-soft)] px-2.5 py-1 rounded-xl text-[var(--orange)] border border-[var(--orange-glow)] shadow-sm shrink-0">
-                    {formatCurrency(product.price)}
+        {/* Product Cards Grid */}
+        {paginated.length === 0 ? (
+          <div className="card p-14 text-center space-y-3">
+            <Utensils className="w-12 h-12 text-[var(--text-muted)] mx-auto opacity-50" />
+            <p className="text-sm font-black" style={{ color: 'var(--text-primary)' }}>No hay platillos en esta categoría</p>
+            <p className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Intenta cambiar el filtro o crea un nuevo producto</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in-up">
+            {paginated.map((product) => (
+              <div key={product.id} className="group relative flex flex-col rounded-3xl border overflow-hidden transition-all duration-300 hover:border-orange-500/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+                {/* Image Header with Gradient Overlay */}
+                <div className="relative h-48 overflow-hidden">
+                  <img src={product.image_url} alt={product.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                  
+                  {/* Category Pill */}
+                  <span className="absolute top-3 left-3 bg-black/50 backdrop-blur-md text-white text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-white/20">
+                    {product.category}
                   </span>
+
+                  {/* Toggle availability */}
+                  <button onClick={async () => {
+                    setMessage(null);
+                    try { await updateProduct({ ...product, is_available: !product.is_available }); }
+                    catch (err) { setMessage(err instanceof Error ? err.message : 'Error al actualizar'); }
+                  }}
+                    className="absolute top-3 right-3 p-1.5 rounded-full bg-black/50 backdrop-blur-md border border-white/20 text-white hover:bg-black/70 transition-all shadow-lg cursor-pointer">
+                    {product.is_available ? <ToggleRight className="h-5 w-5 text-emerald-400" /> : <ToggleLeft className="h-5 w-5 text-rose-400" />}
+                  </button>
+
+                  {/* Floating Price */}
+                  <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between">
+                    <span className="text-base font-black text-white drop-shadow-md bg-[var(--orange)] px-3 py-1 rounded-xl shadow-md">
+                      {formatCurrency(product.price)}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-[11px] lg:text-xs font-medium line-clamp-2 leading-relaxed mb-4" style={{ color: 'var(--text-muted)' }}>
-                  {product.description || 'Sin descripción detallada.'}
-                </p>
-                <div className="flex items-center justify-between pt-4 mt-auto border-t" style={{ borderColor: 'var(--border)' }}>
-                  <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg shadow-[0_0_12px_rgba(0,0,0,0.1)] border ${product.is_available ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' : 'bg-rose-500/10 text-rose-500 border-rose-500/30'}`}>
-                    {product.is_available ? '• Disponible' : '• Agotado'}
-                  </span>
-                  <div className="flex gap-2">
-                    <button onClick={() => { setEditing(product); setShowForm(true); }}
-                      className="p-2 rounded-xl bg-[var(--bg-input)] hover:bg-[var(--orange-soft)] hover:text-[var(--orange)] transition-colors border shadow-sm" style={{ borderColor: 'var(--border)' }}>
-                      <Edit2 className="h-4 w-4" />
-                    </button>
-                    <button onClick={async () => {
-                      if (confirm('¿Eliminar producto?')) {
-                        try { await deleteProduct(product.id); } catch (err) {}
-                      }
-                    }}
-                      className="p-2 rounded-xl bg-[var(--bg-input)] hover:bg-rose-100 hover:text-rose-600 transition-colors border shadow-sm" style={{ borderColor: 'var(--border)' }}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+
+                {/* Card Body */}
+                <div className="p-5 flex flex-col flex-1 space-y-3">
+                  <h3 className="text-base font-black leading-tight truncate" style={{ color: 'var(--text-primary)' }}>{product.name}</h3>
+                  <p className="text-xs font-medium line-clamp-2 leading-relaxed flex-1" style={{ color: 'var(--text-muted)' }}>
+                    {product.description || 'Sin descripción detallada.'}
+                  </p>
+
+                  <div className="flex items-center justify-between pt-3 mt-auto border-t" style={{ borderColor: 'var(--border)' }}>
+                    <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                      product.is_available ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                    }`}>
+                      {product.is_available ? '● Disponible' : '○ Agotado'}
+                    </span>
+
+                    <div className="flex gap-1.5">
+                      <button onClick={() => startEditProduct(product)}
+                        className="p-2 rounded-xl border transition-all hover:bg-[var(--bg-input)] cursor-pointer" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={async () => {
+                        const ok = await showConfirm({
+                          title: '¿Eliminar Producto?',
+                          message: `¿Estás seguro de que deseas eliminar "${product.name}" del menú?`,
+                          confirmText: 'Eliminar Plato',
+                          cancelText: 'Cancelar',
+                          isDanger: true,
+                        });
+                        if (ok) {
+                          try {
+                            await deleteProduct(product.id);
+                            showAlert({ title: 'Éxito', message: 'Producto eliminado del menú', type: 'success' });
+                          } catch (err) {
+                            showAlert({ title: 'Error', message: err instanceof Error ? err.message : 'Error al eliminar', type: 'error' });
+                          }
+                        }
+                      }}
+                        className="p-2 rounded-xl border border-rose-500/20 text-rose-500 transition-all hover:bg-rose-500/10 cursor-pointer">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
+              Mostrando {startIndex + 1}-{Math.min(startIndex + pageSize, filtered.length)} de {filtered.length} productos
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                disabled={safePage === 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="p-2 rounded-xl border bg-[var(--bg-card)] disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs font-black px-3 py-1 rounded-xl bg-[var(--orange)] text-white shadow-sm">
+                {safePage} / {totalPages}
+              </span>
+              <button
+                disabled={safePage === totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="p-2 rounded-xl border bg-[var(--bg-card)] disabled:opacity-30 disabled:cursor-not-allowed hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
 
-      {/* ====== Category Manager Modal ====== */}
-      {showCatModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onClick={() => { setShowCatModal(false); setEditingCat(null); setNewCatName(''); }}>
-          <div className="relative w-full max-w-md bg-[var(--bg-card)] rounded-3xl shadow-2xl p-6 flex flex-col gap-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-[var(--orange-soft)] text-[var(--orange)]">
-                  <Tag className="w-5 h-5" />
-                </div>
-                <p className="text-lg font-black text-[var(--text-primary)]">Gestión de Categorías</p>
-              </div>
-              <button onClick={() => { setShowCatModal(false); setEditingCat(null); setNewCatName(''); }}
-                className="p-2 rounded-xl hover:bg-[var(--bg-input)] text-[var(--text-muted)] transition-colors">
-                <X className="w-5 h-5" />
+      {/* Modal de Gestión de Adiciones */}
+      {showAdditionsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="card p-6 max-w-lg w-full animate-fade-in-up space-y-5 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-base font-black flex items-center gap-2">
+                <Layers className="w-5 h-5 text-[var(--orange)]" />
+                Gestionar Adiciones del Menú
+              </h3>
+              <button
+                onClick={() => setShowAdditionsModal(false)}
+                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                ✕ Cerrar
               </button>
             </div>
 
-            {/* Add / edit form */}
-            <div className="flex gap-2">
+            <p className="text-xs font-medium text-[var(--text-muted)]">
+              Crea o edita las adiciones que el cliente podrá añadir a sus platillos desde el bot de Telegram o la caja POS.
+            </p>
+
+            {/* Formulario de Nueva Adición */}
+            <form onSubmit={handleAddAddition} className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-black text-[var(--text-primary)] flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4 text-[var(--orange)]" /> Nueva Adición
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  placeholder="Nombre (ej: Extra Queso)"
+                  value={newAddName}
+                  onChange={(e) => setNewAddName(e.target.value)}
+                  required
+                  className="sm:col-span-2 text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+                <input
+                  type="number"
+                  placeholder="Precio COP"
+                  value={newAddPrice}
+                  onChange={(e) => setNewAddPrice(e.target.value)}
+                  required
+                  className="text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={savingAdd}
+                className="w-full text-xs font-black py-2.5 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
+                style={{ background: 'var(--orange)' }}
+              >
+                {savingAdd ? 'Guardando...' : '➕ Agregar al Menú de Adiciones'}
+              </button>
+            </form>
+
+            {/* Lista de Adiciones Existentes */}
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {currentAdditions.length === 0 ? (
+                <p className="text-xs font-bold text-center text-[var(--text-muted)] py-4">No hay adiciones configuradas.</p>
+              ) : (
+                currentAdditions.map((addition) => (
+                  <div
+                    key={addition.id}
+                    className="flex items-center justify-between p-3 rounded-xl border bg-[var(--bg-card)] hover:border-[var(--orange)] transition-colors"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleAddition(addition.id)}
+                        className="text-[var(--orange)] cursor-pointer"
+                        title={addition.is_available ? 'Disponible' : 'No disponible'}
+                      >
+                        {addition.is_available ? <ToggleRight className="w-5 h-5 text-emerald-400" /> : <ToggleLeft className="w-5 h-5 text-rose-400" />}
+                      </button>
+                      <div>
+                        <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{addition.name}</p>
+                        <p className="text-[10px] font-bold text-[var(--orange)]">+{formatCurrency(addition.price)}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteAddition(addition.id, addition.name)}
+                      className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Categorías */}
+      {showCatModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="card p-6 max-w-md w-full animate-fade-in-up space-y-4">
+            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-black flex items-center gap-2">
+                <FolderPlus className="w-4 h-4 text-[var(--orange)]" /> Administrar Categorías
+              </p>
+              <button
+                type="button"
+                onClick={() => { setShowCatModal(false); setEditingCat(null); setNewCatName(''); }}
+                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Formulario de Categoría */}
+            <form onSubmit={handleSaveCat} className="flex gap-2">
               <input
+                type="text"
+                placeholder={editingCat ? `Renombrar "${editingCat.name}"` : 'Nueva categoría...'}
                 value={newCatName}
-                onChange={e => setNewCatName(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSaveCategory(); }}}
-                placeholder={editingCat ? `Renombrar "${editingCat.name}"` : 'Nombre de nueva categoría...'}
-                className="flex-1 text-sm font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                onChange={(e) => setNewCatName(e.target.value)}
+                required
+                className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
                 style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               />
-              <button onClick={handleSaveCategory} disabled={savingCat || !newCatName.trim()}
-                className="px-4 py-3 rounded-xl text-white font-black text-sm disabled:opacity-50 transition-all active:scale-95"
-                style={{ background: 'var(--orange)' }}>
+              <button
+                type="submit"
+                disabled={savingCat}
+                className="px-4 py-2.5 rounded-xl text-white text-xs font-black shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                style={{ background: 'var(--orange)' }}
+              >
                 {savingCat ? '...' : editingCat ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
               </button>
               {editingCat && (
-                <button onClick={() => { setEditingCat(null); setNewCatName(''); }}
-                  className="px-3 py-3 rounded-xl border font-black text-sm transition-all"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                <button
+                  type="button"
+                  onClick={() => { setEditingCat(null); setNewCatName(''); }}
+                  className="px-3 py-2.5 rounded-xl border text-xs font-bold cursor-pointer"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                >
                   <X className="w-4 h-4" />
                 </button>
               )}
-            </div>
+            </form>
 
-            {/* Category list */}
-            <div className="divide-y divide-[var(--border)] rounded-2xl border border-[var(--border)] overflow-hidden">
-              {categories.length === 0 && (
-                <p className="text-center text-[var(--text-muted)] text-sm py-6">No hay categorías aún.</p>
-              )}
-              {categories.map(cat => (
-                <div key={cat.id} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--bg-input)] transition-colors">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${cat.is_active ? 'bg-emerald-500' : 'bg-rose-500'}`} />
-                  <p className={`flex-1 text-sm font-bold ${cat.is_active ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] line-through'}`}>
-                    {cat.name}
-                    <span className="ml-2 text-[10px] text-[var(--text-muted)]">
-                      ({products.filter(p => p.category_id === cat.id || p.category === cat.name).length} productos)
-                    </span>
-                  </p>
-                  <div className="flex gap-1.5 shrink-0">
-                    <button onClick={() => { setEditingCat(cat); setNewCatName(cat.name); }}
-                      className="p-1.5 rounded-lg hover:bg-[var(--orange-soft)] hover:text-[var(--orange)] transition-colors text-[var(--text-muted)]">
+            {/* Listado de Categorías */}
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {categories.map((cat) => (
+                <div
+                  key={cat.id}
+                  className="flex items-center justify-between p-3 rounded-xl border"
+                  style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}
+                >
+                  <span className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingCat(cat); setNewCatName(cat.name); }}
+                      className="p-1.5 rounded-lg border hover:bg-[var(--bg-card)] cursor-pointer"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleToggleCat(cat)}
-                      className={`p-1.5 rounded-lg transition-colors ${cat.is_active ? 'hover:bg-rose-100 hover:text-rose-500 text-emerald-500' : 'hover:bg-emerald-100 hover:text-emerald-600 text-rose-500'}`}>
-                      {cat.is_active ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteCat(cat)}
+                      className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createOrderInSupabase, type CreateOrderPayload } from '@/lib/orders/createOrder';
 import { createOrderViaN8n } from '@/lib/n8n/server';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapOrder } from '@/services/supabaseMapper';
 
 const ORDER_SELECT = `
@@ -25,18 +25,61 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'El pedido debe tener al menos un item' }, { status: 400 });
     }
 
+    // Resolve customer_id if it's a name (not a UUID)
+    if (body.order?.customer_id) {
+      const customerIdStr = String(body.order.customer_id).trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerIdStr);
+      if (!isUuid && customerIdStr) {
+        const tenantId = getTenantId(request);
+        const supabase = createAdminClient();
+        if (supabase) {
+          const { data: existingCustomer } = await supabase
+            .from('customers')
+            .select('id')
+            .eq('tenant_id', tenantId)
+            .eq('name', customerIdStr)
+            .maybeSingle();
+
+          if (existingCustomer) {
+            body.order.customer_id = existingCustomer.id;
+          } else {
+            const { data: newCustomerRow, error: createCustError } = await supabase
+              .from('customers')
+              .insert({
+                tenant_id: tenantId,
+                name: customerIdStr,
+              })
+              .select('id')
+              .single();
+            if (!createCustError && newCustomerRow) {
+              body.order.customer_id = newCustomerRow.id;
+            } else {
+              body.order.customer_id = undefined;
+            }
+          }
+        } else {
+          body.order.customer_id = undefined;
+        }
+      }
+    }
+
     try {
-      const n8nResult = await createOrderViaN8n(body);
-      const orderId = n8nResult?.order?.id ?? n8nResult?.order_id;
-      const order = orderId ? await loadOrderById(String(orderId)) : null;
-      return NextResponse.json({ success: true, source: 'n8n', order: order ?? n8nResult.order ?? n8nResult });
-    } catch (n8nErr) {
-      console.warn('[orders] n8n fallback:', n8nErr);
+      // 1. Insert directly into Supabase first for fast response
       const order = await createOrderInSupabase(body);
+
+      // 2. Fire n8n webhook asynchronously
+      createOrderViaN8n(body).catch((n8nErr) => {
+        console.warn('[orders] Asynchronous n8n webhook failed:', n8nErr);
+      });
+
       return NextResponse.json({ success: true, source: 'supabase', order });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error creando pedido en la base de datos';
+      return NextResponse.json({ error: message }, { status: 502 });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Error creando pedido';
-    return NextResponse.json({ error: message }, { status: 502 });
+    const message = err instanceof Error ? err.message : 'Error general creando pedido';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
+

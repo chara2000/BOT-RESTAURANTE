@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
-import { CheckCircle, XCircle, Image as ImageIcon, Clock, AlertCircle, RefreshCw, Layers, CreditCard } from 'lucide-react';
+import { CheckCircle, XCircle, Image as ImageIcon, Clock, AlertCircle, RefreshCw, Layers, CreditCard, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import type { Order, PaymentMethod } from '@/types';
 
@@ -14,6 +14,8 @@ export default function PagosPage() {
   const [processing, setProcessing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pos' | 'caja'>('pos');
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   // Filter orders to only the last 7 days (one week)
   const oneWeekAgo = Date.now() - 7 * 86400000;
@@ -24,6 +26,11 @@ export default function PagosPage() {
     (o) => selectedMethod === 'all' || o.payment_method === selectedMethod
   ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
+  const totalPages = Math.ceil(posOrders.length / pageSize) || 1;
+  const safePage = Math.min(currentPage, totalPages);
+  const startIndex = (safePage - 1) * pageSize;
+  const paginatedOrders = posOrders.slice(startIndex, startIndex + pageSize);
+
   // Filter pending transfers for validation
   const pendingTransfers = recentOrders.filter(
     (o) => o.payment_method === 'transfer' && o.status === 'pending'
@@ -31,8 +38,8 @@ export default function PagosPage() {
 
   const extractReceiptUrl = (notes?: string) => {
     if (!notes) return null;
-    const match = notes.match(/\[COMPROBANTE:\s(https:\/\/[^\]]+)\]/);
-    return match ? match[1] : null;
+    const match = notes.match(/\[COMPROBANTE:\s*([^\]]+)\]/i);
+    return match ? match[1].trim() : null;
   };
 
   const handleUpdatePaymentStatus = async (order: Order, action: 'approve' | 'reject') => {
@@ -162,9 +169,9 @@ export default function PagosPage() {
                 )}
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[500px]">
                 <table className="w-full text-left border-collapse">
-                  <thead>
+                  <thead className="sticky top-0 z-10 backdrop-blur-md">
                     <tr className="border-b text-[11px] uppercase tracking-wider font-black" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', background: 'var(--bg-input)' }}>
                       <th className="pb-3 pt-3 px-6">Pedido / Fecha</th>
                       <th className="pb-3 pt-3 px-6">Cliente</th>
@@ -176,14 +183,14 @@ export default function PagosPage() {
                     </tr>
                   </thead>
                   <tbody className="text-sm font-semibold divide-y" style={{ borderColor: 'var(--border)' }}>
-                    {posOrders.length === 0 ? (
+                    {paginatedOrders.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
                           Sin registros de pago de esta semana para el filtro seleccionado.
                         </td>
                       </tr>
                     ) : (
-                      posOrders.map((order) => {
+                      paginatedOrders.map((order) => {
                         const receiptUrl = extractReceiptUrl(order.notes);
                         const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order.id.slice(0, 6).toUpperCase()}`;
                         const isApproved = order.status === 'delivered' || order.status === 'confirmed' || order.status === 'ready' || order.status === 'shipping' || order.status === 'preparing';
@@ -193,24 +200,24 @@ export default function PagosPage() {
                         return (
                           <tr key={order.id} className="hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
                             <td className="py-4 px-6">
-                              <p className="font-black uppercase tracking-wider" style={{ color: 'var(--orange)' }}>{shortId}</p>
+                              <p className="font-black uppercase tracking-wider text-xs" style={{ color: 'var(--orange)' }}>{shortId}</p>
                               <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{new Date(order.created_at).toLocaleString('es-CO')}</p>
                             </td>
-                            <td className="py-4 px-6">{order.customer?.name ?? 'Cliente Mostrador'}</td>
-                            <td className="py-4 px-6 font-black">{formatCurrency(order.total)}</td>
-                            <td className="py-4 px-6 uppercase text-xs text-[var(--text-muted)] font-black">{PAYMENT_METHOD_LABELS[order.payment_method]}</td>
+                            <td className="py-4 px-6 text-xs">{order.customer?.name ?? 'Cliente Mostrador'}</td>
+                            <td className="py-4 px-6 font-black text-xs">{formatCurrency(order.total)}</td>
+                            <td className="py-4 px-6 uppercase text-[10px] text-[var(--text-muted)] font-black">{PAYMENT_METHOD_LABELS[order.payment_method]}</td>
                             <td className="py-4 px-6">
                               {isApproved ? (
-                                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">Aprobado</span>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Aprobado</span>
                               ) : isRejected ? (
-                                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20">Rechazado</span>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/30">Rechazado</span>
                               ) : (
-                                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-500 border border-amber-500/20">Pendiente</span>
+                                <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/30">Pendiente</span>
                               )}
                             </td>
                             <td className="py-4 px-6 text-center">
                               {receiptUrl ? (
-                                <button onClick={() => setSelectedReceipt(receiptUrl)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border hover:ring-2 ring-[var(--orange-soft)] transition-all text-xs font-bold cursor-pointer" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--orange)' }}>
+                                <button onClick={() => setSelectedReceipt(receiptUrl)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border hover:ring-2 ring-[var(--orange-soft)] transition-all text-xs font-bold cursor-pointer" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)', color: 'var(--orange)' }}>
                                   <ImageIcon className="w-3.5 h-3.5" /> Ver Foto
                                 </button>
                               ) : (
@@ -223,7 +230,7 @@ export default function PagosPage() {
                                   <button
                                     disabled={isProc}
                                     onClick={() => handleUpdatePaymentStatus(order, 'approve')}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 font-black text-xs cursor-pointer hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-black text-xs cursor-pointer hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
                                   >
                                     <CheckCircle className="w-3.5 h-3.5" />
                                     {isProc ? '...' : 'Aprobar'}
@@ -231,18 +238,18 @@ export default function PagosPage() {
                                   <button
                                     disabled={isProc}
                                     onClick={() => handleUpdatePaymentStatus(order, 'reject')}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-500 border border-rose-500/30 font-black text-xs cursor-pointer hover:bg-rose-500/20 transition-colors disabled:opacity-50"
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/30 font-black text-xs cursor-pointer hover:bg-rose-500/20 transition-colors disabled:opacity-50"
                                   >
                                     <XCircle className="w-3.5 h-3.5" />
                                     {isProc ? '...' : 'Rechazar'}
                                   </button>
                                 </div>
                               ) : isApproved ? (
-                                <span className="flex items-center gap-1.5 justify-end text-xs font-bold text-emerald-500">
+                                <span className="flex items-center gap-1.5 justify-end text-xs font-bold text-emerald-400">
                                   <CheckCircle className="w-3.5 h-3.5" /> Completado
                                 </span>
                               ) : isRejected ? (
-                                <span className="flex items-center gap-1.5 justify-end text-xs font-bold text-red-500">
+                                <span className="flex items-center gap-1.5 justify-end text-xs font-bold text-rose-400">
                                   <XCircle className="w-3.5 h-3.5" /> Rechazado
                                 </span>
                               ) : (
@@ -255,6 +262,34 @@ export default function PagosPage() {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Pagination Bar */}
+              <div className="flex items-center justify-between px-6 py-4 border-t bg-[var(--bg-input)]/50" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
+                  Mostrando {posOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, posOrders.length)} de {posOrders.length} pagos
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={safePage <= 1}
+                    className="p-2 rounded-xl border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-card)] transition-all cursor-pointer"
+                    style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-black px-3" style={{ color: 'var(--text-primary)' }}>
+                    Página {safePage} de {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={safePage >= totalPages}
+                    className="p-2 rounded-xl border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-card)] transition-all cursor-pointer"
+                    style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </div>
 

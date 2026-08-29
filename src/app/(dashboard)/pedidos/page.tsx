@@ -1,14 +1,23 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown } from 'lucide-react';
+import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer } from 'lucide-react';
+import { ridersService } from '@/services/api';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
+import { ThermalTicketModal } from '@/components/ThermalTicketModal';
+
+import { createOrderViaN8n } from '@/services/n8n';
 import { formatCurrency } from '@/lib/utils';
 import {
   ORDER_STATUS_COLUMNS, ORDER_STATUS_LABELS, type Order, type OrderStatus, type OrderType, type PaymentMethod, type Product
 } from '@/types';
+import { deliveryService } from '@/services/api';
+
+const ACTIVE_STATUS_COLUMNS: OrderStatus[] = [
+  'pending', 'confirmed', 'preparing', 'ready', 'shipping'
+];
 
 const COLUMN_COLORS: Record<OrderStatus, string> = {
   draft: '#94a3b8', pending: '#f59e0b', confirmed: '#3b82f6', preparing: '#8b5cf6',
@@ -47,11 +56,26 @@ function extractUserNotes(notes?: string): string {
     .trim();
 }
 
-function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => void }) {
+const DELIVERY_SUB_LABELS: Record<string, { label: string; color: string }> = {
+  searching:           { label: 'Buscando Repartidor', color: 'bg-slate-500/10 text-slate-500 border-slate-500/30' },
+  assigned:            { label: '🛵 Hacia el Negocio', color: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+  arrived_at_store:    { label: '🏪 En el Local', color: 'bg-orange-500/10 text-orange-500 border-orange-500/30' },
+  picked_up:           { label: '📦 Ruta al Cliente', color: 'bg-violet-500/10 text-violet-500 border-violet-500/30' },
+  arrived_at_customer: { label: '🔔 En la Puerta', color: 'bg-sky-500/10 text-sky-500 border-sky-500/30' },
+};
+
+function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
+  order: Order;
+  deliveryStatus?: string;
+  riderName?: string;
+  onOpenModal: () => void;
+  onPrint?: () => void;
+}) {
   const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
   const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
   const userNotes = extractUserNotes(order.notes);
   const hasUserNotes = userNotes.length > 0;
+  const subLabel = deliveryStatus ? DELIVERY_SUB_LABELS[deliveryStatus] : null;
 
   return (
     <div
@@ -63,6 +87,18 @@ function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => vo
           <span className="text-sm font-black tracking-wider drop-shadow-sm" style={{ color: 'var(--orange)' }}>
             {orderNumber}
           </span>
+          {onPrint && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPrint();
+              }}
+              title="Imprimir comanda térmica"
+              className="p-1 rounded-lg hover:bg-[var(--orange-soft)] text-[var(--text-muted)] hover:text-[var(--orange)] transition-colors"
+            >
+              <Printer className="w-3.5 h-3.5" />
+            </button>
+          )}
           {hasUserNotes && (
             <div className="relative flex items-center justify-center p-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
               <MessageSquare className="w-3.5 h-3.5" />
@@ -75,7 +111,17 @@ function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => vo
               style={{ background: 'var(--orange-soft)', color: 'var(--orange)', borderColor: 'var(--border)' }}>
           {getOrderTypeIcon(order.type)} {getOrderTypeLabel(order.type)}
         </span>
+
       </div>
+
+      {/* Sub-estado de entrega en tiempo real (solo en columna shipping) */}
+      {order.status === 'shipping' && subLabel && (
+        <div className={`flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1.5 rounded-lg border ${subLabel.color}`}>
+          <Navigation className="w-3 h-3" />
+          {subLabel.label}
+          {riderName && <span className="ml-1 opacity-70">· {riderName}</span>}
+        </div>
+      )}
 
       <div className="space-y-2.5 pt-1">
         {order.items.map((item) => (
@@ -124,17 +170,35 @@ function OrderCard({ order, onOpenModal }: { order: Order; onOpenModal: () => vo
   );
 }
 
+import { useUIModal } from '@/components/ui/UIModal';
+
 export default function PedidosPage() {
-  const { orders, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings } = useAppData();
+  const { showConfirm } = useUIModal();
+  const { orders, deliveries, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings, categories } = useAppData();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
+  const [dbRiders, setDbRiders] = useState<any[]>([]);
+
+  // Cargar repartidores propios del negocio desde Supabase
+  useEffect(() => {
+    ridersService.getAll()
+      .then(setDbRiders)
+      .catch((err) => console.error('[Kanban] Error fetching riders:', err));
+  }, []);
+
+  // Construir un mapa rápido: orderId -> { deliveryStatus, riderName } para badges en Kanban
+  const deliveryMap = new Map<string, { status: string; riderName: string | undefined }>(
+    deliveries.map((d) => [d.order_id, { status: d.status, riderName: d.rider_name }])
+  );
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // View state: 'kanban' o 'list'
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
 
-  // Filtros para la vista de lista
+  // Filtros
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterSearch, setFilterSearch] = useState<string>('');
 
   // Edit Order states
@@ -142,6 +206,7 @@ export default function PedidosPage() {
   const [editStatus, setEditStatus] = useState<OrderStatus>('pending');
   const [editType, setEditType] = useState<OrderType>('dine_in');
   const [editPayment, setEditPayment] = useState<PaymentMethod>('cash');
+  const [editAddress, setEditAddress] = useState('');
   const [editItems, setEditItems] = useState<Order['items']>([]);
 
 
@@ -153,14 +218,18 @@ export default function PedidosPage() {
   const [newNotes, setNewNotes] = useState('');
   const [newItems, setNewItems] = useState<{ product: Product; quantity: number }[]>([]);
 
-  const columns = ORDER_STATUS_COLUMNS.reduce((acc, status) => {
-    acc[status] = orders.filter((o) => o.status === status);
-    return acc;
-  }, {} as Record<OrderStatus, Order[]>);
-
-  const filteredOrders = orders.filter(o => {
-    if (filterStatus !== 'all' && o.status !== filterStatus) return false;
+  // Órdenes filtradas por tipo, categoría y búsqueda (aplica a Kanban y Lista)
+  const baseFilteredOrders = orders.filter(o => {
     if (filterType !== 'all' && o.type !== filterType) return false;
+    
+    if (filterCategory !== 'all') {
+      const hasCategory = o.items.some(item => 
+        item.product.category_id === filterCategory || 
+        item.product.category === filterCategory
+      );
+      if (!hasCategory) return false;
+    }
+
     if (filterSearch) {
       const searchLower = filterSearch.toLowerCase();
       const customerName = o.customer?.name.toLowerCase() || '';
@@ -168,6 +237,17 @@ export default function PedidosPage() {
       const notes = o.notes?.toLowerCase() || '';
       return customerName.includes(searchLower) || orderId.includes(searchLower) || notes.includes(searchLower);
     }
+    return true;
+  });
+
+  const columns = ORDER_STATUS_COLUMNS.reduce((acc, status) => {
+    acc[status] = baseFilteredOrders.filter((o) => o.status === status);
+    return acc;
+  }, {} as Record<OrderStatus, Order[]>);
+
+  // Lista adicionalmente filtra por estado
+  const filteredOrders = baseFilteredOrders.filter(o => {
+    if (filterStatus !== 'all' && o.status !== filterStatus) return false;
     return true;
   });
 
@@ -182,6 +262,7 @@ export default function PedidosPage() {
     setEditNotes(extractUserNotes(order.notes));
     setEditStatus(order.status);
     setEditType(order.type);
+    setEditAddress(order.delivery_address || '');
     setEditPayment(order.payment_method);
     setEditItems([...order.items]);
   };
@@ -209,6 +290,8 @@ export default function PedidosPage() {
         notes: newNotesFull,
         status: editStatus,
         total: newTotal,
+        type: editType,
+        delivery_address: editType === 'delivery' ? editAddress : undefined,
       });
       await updateOrderStatus(selectedOrder.id, editStatus);
       setSelectedOrder(null);
@@ -219,7 +302,14 @@ export default function PedidosPage() {
 
   const handleDeleteOrder = async () => {
     if (!selectedOrder) return;
-    if (confirm('¿Estás seguro de que deseas eliminar este pedido? Se descontará del flujo de caja si ya estaba confirmado.')) {
+    const ok = await showConfirm({
+      title: '¿Eliminar Pedido?',
+      message: '¿Estás seguro de que deseas eliminar este pedido? Se descontará del flujo de caja si ya estaba confirmado.',
+      confirmText: 'Sí, Eliminar',
+      cancelText: 'Cancelar',
+      isDanger: true,
+    });
+    if (ok) {
       try {
         await deleteOrder(selectedOrder.id);
         setSelectedOrder(null);
@@ -243,7 +333,7 @@ export default function PedidosPage() {
     setNewItems(prev => prev.map(item => item.product.id === pId ? { ...item, quantity: item.quantity - 1 } : item).filter(item => item.quantity > 0));
   };
 
-  const handleCreateOrderSubmit = (e: React.FormEvent) => {
+  const handleCreateOrderSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newItems.length === 0) {
       alert('Debes agregar al menos un producto');
@@ -259,33 +349,36 @@ export default function PedidosPage() {
     const delivery_fee = newType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0;
     const total = subtotal + delivery_fee;
 
-    const chosenCust = customers.find(c => c.id === newCustomer) || (newCustomer ? {
-      id: `c-${Date.now()}`, name: newCustomer, phone: 'Sin teléfono',
-      segment: 'new' as const, total_spent: 0, order_count: 0
-    } : undefined);
-
-    const orderData: Order = {
-      id: `o-${Date.now()}`,
-      customer: chosenCust,
-      type: newType,
-      status: 'pending',
-      payment_method: newPayment,
-      subtotal,
-      delivery_fee,
-      tips: 0,
-      total,
-      delivery_address: newType === 'delivery' ? newAddress : undefined,
-      notes: newNotes ? `[ID: ${shortId}] ${newNotes}` : `[ID: ${shortId}]`,
-      items: newItems.map((item, idx) => ({
-        id: `oi-${Date.now()}-${idx}`,
-        product: item.product,
+    const payload = {
+      order: {
+        type: newType,
+        payment_method: newPayment,
+        customer_id: newCustomer || undefined,
+        subtotal,
+        delivery_fee,
+        tips: 0,
+        total,
+        delivery_address: newType === 'delivery' ? newAddress : undefined,
+        notes: newNotes ? `[ID: ${shortId}] ${newNotes}` : `[ID: ${shortId}]`,
+      },
+      items: newItems.map((item) => ({
+        product_id: item.product.id,
         quantity: item.quantity,
-        unit_price: item.product.price
+        unit_price: item.product.price,
       })),
-      created_at: new Date().toISOString()
     };
 
-    addOrder(orderData);
+    try {
+      const result = await createOrderViaN8n(payload);
+      if (result.order) {
+        addOrder(result.order);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error creando el pedido en BD');
+      return;
+    }
+
     setShowCreateModal(false);
     setNewCustomer('');
     setNewType('dine_in');
@@ -316,16 +409,16 @@ export default function PedidosPage() {
           </button>
         </div>
 
-        {viewMode === 'list' && (
-          <div className="flex flex-wrap items-center gap-3">
-            <input 
-              type="text" 
-              placeholder="Buscar..." 
-              value={filterSearch} 
-              onChange={(e) => setFilterSearch(e.target.value)} 
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-[var(--bg-input)] border text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all w-full md:w-auto"
-              style={{ borderColor: 'var(--border)' }}
-            />
+        <div className="flex flex-wrap items-center gap-3">
+          <input 
+            type="text" 
+            placeholder="Buscar..." 
+            value={filterSearch} 
+            onChange={(e) => setFilterSearch(e.target.value)} 
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-[var(--bg-input)] border text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all w-full md:w-auto"
+            style={{ borderColor: 'var(--border)' }}
+          />
+          {viewMode === 'list' && (
             <select 
               value={filterStatus} 
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -335,35 +428,47 @@ export default function PedidosPage() {
               <option value="all">Todos los estados</option>
               {ORDER_STATUS_COLUMNS.map(s => <option key={s} value={s}>{ORDER_STATUS_LABELS[s]}</option>)}
             </select>
-            <select 
-              value={filterType} 
-              onChange={(e) => setFilterType(e.target.value)}
-              className="px-4 py-2 rounded-xl text-sm font-bold bg-[var(--bg-input)] border text-[var(--text-primary)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all cursor-pointer"
-              style={{ borderColor: 'var(--border)' }}
-            >
-              <option value="all">Todos los tipos</option>
-              <option value="dine_in">Mesa</option>
-              <option value="pickup">Para llevar</option>
-              <option value="delivery">Domicilio</option>
-            </select>
-          </div>
-        )}
+          )}
+          <select 
+            value={filterType} 
+            onChange={(e) => setFilterType(e.target.value)}
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-[var(--bg-input)] border text-[var(--text-primary)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all cursor-pointer"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <option value="all">Todos los tipos</option>
+            <option value="dine_in">Mesa</option>
+            <option value="pickup">Para llevar</option>
+            <option value="delivery">Domicilio</option>
+          </select>
+          <select 
+            value={filterCategory} 
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="px-4 py-2 rounded-xl text-sm font-bold bg-[var(--bg-input)] border text-[var(--text-primary)] focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all cursor-pointer"
+            style={{ borderColor: 'var(--border)' }}
+          >
+            <option value="all">Todas las categorías</option>
+            {categories.filter(c => c.is_active).sort((a,b) => a.sort_order - b.sort_order).map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      {/* Floating Action Button — bottom right */}
+      {/* Floating Action Button — bottom right, above mobile nav bar */}
       <button
         onClick={() => setShowCreateModal(true)}
-        className="fixed bottom-8 right-8 z-40 flex items-center gap-2 text-sm font-black px-5 py-3 rounded-2xl text-white shadow-[0_8px_24px_var(--orange-glow)] hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer"
+        className="fixed right-5 md:right-8 z-40 flex items-center gap-2 text-sm font-black px-5 py-3 rounded-2xl text-white shadow-[0_8px_24px_var(--orange-glow)] hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer fab-order-btn"
         style={{ background: 'var(--orange)' }}
       >
         <Plus className="w-4 h-4" />
-        Crear Pedido
+        <span className="hidden sm:inline">Crear Pedido</span>
+        <span className="sm:hidden">Nuevo</span>
       </button>
 
       {viewMode === 'kanban' ? (
         <div className="flex-1 overflow-x-auto p-5 lg:p-8 z-10 relative">
           <DragDropContext onDragEnd={onDragEnd}>
-            <div className="flex gap-6 min-w-max pb-4 h-full">
+            <div className="flex gap-4 sm:gap-6 overflow-x-auto pb-6 pt-2 px-1 min-h-[600px] snap-x snap-mandatory">
               {ORDER_STATUS_COLUMNS.map((status, idx) => (
                 <div key={status} className={`w-[300px] shrink-0 flex flex-col animate-fade-in-up`} style={{ animationDelay: `${idx * 100}ms` }}>
                   <div className="flex items-center gap-2.5 mb-4 px-2">
@@ -400,7 +505,13 @@ export default function PedidosPage() {
                                        : 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                                      zIndex: dragSnapshot.isDragging ? 50 : 1,
                                    }}>
-                                <OrderCard order={order} onOpenModal={() => handleOpenEdit(order)} />
+                                <OrderCard
+                                  order={order}
+                                  deliveryStatus={deliveryMap.get(order.id)?.status}
+                                  riderName={deliveryMap.get(order.id)?.riderName}
+                                  onOpenModal={() => handleOpenEdit(order)}
+                                  onPrint={() => setPrintingOrder(order)}
+                                />
                               </div>
                             )}
                           </Draggable>
@@ -575,6 +686,23 @@ export default function PedidosPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Delivery Address if delivery */}
+              {editType === 'delivery' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+                    <MapPin className="h-3 w-3" /> Dirección de Entrega
+                  </label>
+                  <input
+                    type="text"
+                    value={editAddress}
+                    onChange={(e) => setEditAddress(e.target.value)}
+                    placeholder="Ej. Calle 123 #45-67"
+                    className="w-full text-xs font-bold px-4 py-2.5 rounded-xl border focus:border-[var(--orange)] focus:ring-1 focus:ring-[var(--orange)] outline-none transition-all"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              )}
 
               {/* Notes */}
               <div className="space-y-1.5">
@@ -762,6 +890,14 @@ export default function PedidosPage() {
           </form>
         </div>
       )}
+      {printingOrder && (
+        <ThermalTicketModal
+          order={printingOrder}
+          settings={settings}
+          onClose={() => setPrintingOrder(null)}
+        />
+      )}
     </div>
   );
 }
+

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapProduct } from '@/services/supabaseMapper';
 
 const PRODUCT_SELECT = '*, categories(name)';
@@ -16,7 +15,7 @@ type ProductBody = {
   is_combo?: boolean;
 };
 
-async function resolveCategoryId(categoryName?: string, categoryId?: string) {
+async function resolveCategoryId(categoryName: string | undefined, categoryId: string | undefined, tenantId: string) {
   const supabase = createAdminClient();
   if (!supabase) throw new Error('Supabase no configurado');
 
@@ -27,7 +26,7 @@ async function resolveCategoryId(categoryName?: string, categoryId?: string) {
   const { data: existing, error: findError } = await supabase
     .from('categories')
     .select('id')
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
     .ilike('name', name)
     .maybeSingle();
 
@@ -36,7 +35,7 @@ async function resolveCategoryId(categoryName?: string, categoryId?: string) {
 
   const { data: created, error: createError } = await supabase
     .from('categories')
-    .insert({ tenant_id: DEMO_TENANT_ID, name, is_active: true })
+    .insert({ tenant_id: tenantId, name, is_active: true })
     .select('id')
     .single();
 
@@ -44,16 +43,19 @@ async function resolveCategoryId(categoryName?: string, categoryId?: string) {
   return String(created.id);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  const tenantId = getTenantId(request);
+
   const { data, error } = await supabase
     .from('products')
     .select(PRODUCT_SELECT)
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
+    .not('category_id', 'is', null)
     .order('name');
 
   if (error) {
@@ -65,6 +67,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const tenantId = getTenantId(request);
     const body = (await request.json()) as ProductBody;
     const name = body.name?.trim();
 
@@ -77,11 +80,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
     }
 
-    const category_id = await resolveCategoryId(body.category, body.category_id);
+    const category_id = await resolveCategoryId(body.category, body.category_id, tenantId);
     const { data, error } = await supabase
       .from('products')
       .insert({
-        tenant_id: DEMO_TENANT_ID,
+        tenant_id: tenantId,
         category_id,
         name,
         description: body.description ?? '',

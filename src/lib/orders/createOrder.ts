@@ -15,7 +15,7 @@ export interface CreateOrderPayload {
     delivery_address?: string;
     notes?: string;
   };
-  items: { product_id: string; quantity: number; unit_price: number }[];
+  items: { product_id: string; quantity: number; unit_price: number; notes?: string }[];
 }
 
 const ORDER_SELECT = `
@@ -58,6 +58,7 @@ export async function createOrderInSupabase(payload: CreateOrderPayload): Promis
     quantity: item.quantity,
     unit_price: item.unit_price,
     total_price: item.unit_price * item.quantity,
+    notes: item.notes ?? null,
   }));
 
   const { error: itemsError } = await supabase.from('order_items').insert(orderItems);

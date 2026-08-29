@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Minus, Plus, ShoppingCart, Trash2, Utensils, Tag, Info } from 'lucide-react';
+import { Minus, Plus, ShoppingCart, Trash2, Tag, Info } from 'lucide-react';
 import { useAppData } from '@/context/AppDataContext';
 import { createOrderViaN8n } from '@/services/n8n';
 import { formatCurrency } from '@/lib/utils';
@@ -10,6 +10,7 @@ import type { OrderType, PaymentMethod, Product } from '@/types';
 interface CartLine {
   product: Product;
   quantity: number;
+  notes?: string;
 }
 
 const PAYMENT_METHODS: PaymentMethod[] = ['cash', 'card', 'nequi', 'daviplata', 'wompi'];
@@ -20,7 +21,7 @@ const ORDER_TYPES: { value: OrderType; label: string; icon: string }[] = [
 ];
 
 export function PosSalePanel() {
-  const { products, customers, addOrder, updateOrderStatus, cashSession } = useAppData();
+  const { products, customers, addOrder, addCashTransaction, cashSession } = useAppData();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('dine_in');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -46,7 +47,7 @@ export function PosSalePanel() {
           l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l
         );
       }
-      return [...prev, { product, quantity: 1 }];
+      return [...prev, { product, quantity: 1, notes: '' }];
     });
   };
 
@@ -60,6 +61,14 @@ export function PosSalePanel() {
     );
   };
 
+  const updateItemNotes = (productId: string, itemNotes: string) => {
+    setCart((prev) =>
+      prev.map((l) =>
+        l.product.id === productId ? { ...l, notes: itemNotes } : l
+      )
+    );
+  };
+
   const clearCart = () => setCart([]);
 
   const handleCheckout = async () => {
@@ -67,14 +76,6 @@ export function PosSalePanel() {
     setLoading(true);
     setMessage(null);
     try {
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      let shortCode = '';
-      for (let i = 0; i < 4; i++) {
-        shortCode += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      const formattedShortId = `T-${shortCode}`;
-      const finalNotes = `[ID: ${formattedShortId}] ${notes}`.trim();
-
       const payload = {
         order: {
           type: orderType,
@@ -85,25 +86,22 @@ export function PosSalePanel() {
           tips: 0,
           total,
           delivery_address: orderType === 'delivery' ? deliveryAddress : undefined,
-          notes: finalNotes,
+          notes: notes || undefined,
         },
         items: cart.map((l) => ({
           product_id: l.product.id,
           quantity: l.quantity,
           unit_price: l.product.price,
+          notes: l.notes || undefined,
         })),
       };
 
       const result = await createOrderViaN8n(payload);
-      if (result.order) {
-        addOrder(result.order);
-        // Confirmar inmediatamente: updateOrderStatus registra el ingreso UNA sola vez
-        // (evita el doble conteo que ocurría con addCashTransaction separado)
-        await updateOrderStatus(result.order.id, 'confirmed');
-      }
+      if (result.order) addOrder(result.order);
+      await addCashTransaction('income', total, `Venta POS - ${cart.length} item(s)`);
       clearCart();
       setNotes('');
-      setMessage(`Pedido creado: N\u00b0${formattedShortId} ${formatCurrency(total)}`);
+      setMessage(`Pedido creado vía ${result.source ?? 'n8n'} · ${formatCurrency(total)}`);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Error al crear pedido');
     } finally {
@@ -112,47 +110,28 @@ export function PosSalePanel() {
   };
 
   return (
-    <div className="card flex flex-col bg-gradient-to-b from-[var(--bg-card)] to-[var(--bg-app)] border-0 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
-      <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-gradient-to-br from-[var(--orange)] to-orange-400 shadow-[0_0_15px_var(--orange-glow)] text-white">
-            <ShoppingCart className="h-5 w-5" />
-          </div>
-          <div>
-            <h3 className="font-black text-base text-[var(--text-primary)]">Terminal POS</h3>
-            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Módulo de Ventas</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {cashSession.status === 'open' ? (
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Caja Lista
-            </span>
-          ) : (
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.2)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-              Caja Cerrada
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 flex-1 divide-y lg:divide-y-0 lg:divide-x" style={{ borderColor: 'var(--border)' }}>
+    <div className="card rounded-2xl border overflow-hidden shadow-lg" style={{ borderColor: 'var(--border)' }}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x" style={{ borderColor: 'var(--border)' }}>
+        
         {/* Catálogo de Productos */}
-        <div className="lg:col-span-7 p-5 flex flex-col">
-          <div className="flex items-center gap-2 mb-3">
-            <Utensils className="h-4 w-4 text-[var(--orange)]" />
-            <h4 className="text-sm font-extrabold text-[var(--text-primary)]">Menú Disponible</h4>
+        <div className="lg:col-span-7 p-5 space-y-4 bg-[var(--bg-card)]">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-extrabold text-[var(--text-primary)] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--orange)]" /> Catálogo Rápido
+            </h3>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+              {available.length} disponibles
+            </span>
           </div>
-          <div className="flex-1 pb-4">
+
+          <div className="max-h-[520px] overflow-y-auto pr-1">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {available.map((p) => (
                 <button
                   key={p.id}
                   type="button"
                   onClick={() => addToCart(p)}
-                  className="group relative flex flex-col text-left p-4 rounded-2xl border transition-all duration-300 hover:shadow-[0_8px_20px_var(--orange-glow)] hover:-translate-y-1 bg-[var(--bg-input)]"
+                  className="group relative flex flex-col text-left p-4 rounded-2xl border transition-all duration-300 hover:shadow-[0_8px_20px_var(--orange-glow)] hover:-translate-y-1 bg-[var(--bg-input)] cursor-pointer"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-[var(--orange)] to-transparent opacity-0 group-hover:opacity-5 rounded-2xl transition-opacity" />
@@ -164,7 +143,7 @@ export function PosSalePanel() {
                     </div>
                   </div>
                   <div className="mt-4 inline-block px-3 py-1 rounded-lg bg-[var(--bg-card)] border shadow-sm group-hover:bg-[var(--orange)] group-hover:border-[var(--orange)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-                    <p className="text-xs font-black group-hover:text-white transition-colors text-[var(--orange)]">{formatCurrency(p.price)}</p>
+                    <p className="text-xs font-black group-hover:text-white transition-colors" style={{ color: 'var(--orange)' }}>{formatCurrency(p.price)}</p>
                   </div>
                 </button>
               ))}
@@ -182,33 +161,45 @@ export function PosSalePanel() {
                 <span className="bg-[var(--orange)] text-white text-[10px] px-2 py-0.5 rounded-full shadow-[0_0_8px_var(--orange-glow)]">{cart.length}</span>
               </h4>
               {cart.length > 0 && (
-                <button type="button" onClick={clearCart} className="text-[10px] font-bold text-rose-500 hover:text-rose-400 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-500/10 transition-colors">
+                <button type="button" onClick={clearCart} className="text-[10px] font-bold text-rose-500 hover:text-rose-400 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-rose-500/10 transition-colors cursor-pointer">
                   <Trash2 className="h-3 w-3" /> Vaciar
                 </button>
               )}
             </div>
 
-            <div className="flex-1 space-y-2.5 min-h-[150px]">
+            <div className="flex-1 space-y-2.5 min-h-[150px] max-h-[320px] overflow-y-auto">
               {cart.map((line) => (
-                <div key={line.product.id} className="flex items-center gap-3 p-3 rounded-xl border bg-[var(--bg-input)] hover:border-[var(--orange)] transition-colors group" style={{ borderColor: 'var(--border)' }}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[var(--text-primary)] truncate">{line.product.name}</p>
-                    <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--orange)' }}>{formatCurrency(line.product.price)} c/u</p>
+                <div key={line.product.id} className="flex flex-col gap-1.5 p-3 rounded-xl border bg-[var(--bg-input)] hover:border-[var(--orange)] transition-colors group" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-[var(--text-primary)] truncate">{line.product.name}</p>
+                      <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--orange)' }}>{formatCurrency(line.product.price)} c/u</p>
+                    </div>
+                    
+                    <div className="flex items-center gap-1 bg-[var(--bg-card)] rounded-lg p-1 border shadow-sm" style={{ borderColor: 'var(--border)' }}>
+                      <button type="button" onClick={() => updateQty(line.product.id, -1)} className="p-1.5 rounded-md hover:bg-rose-500/10 hover:text-rose-500 text-[var(--text-muted)] transition-colors cursor-pointer">
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="w-6 text-center text-xs font-black">{line.quantity}</span>
+                      <button type="button" onClick={() => updateQty(line.product.id, 1)} className="p-1.5 rounded-md hover:bg-emerald-500/10 hover:text-emerald-500 text-[var(--text-muted)] transition-colors cursor-pointer">
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                    
+                    <div className="w-20 text-right">
+                      <p className="text-xs font-black text-[var(--text-primary)]">{formatCurrency(line.product.price * line.quantity)}</p>
+                    </div>
                   </div>
-                  
-                  <div className="flex items-center gap-1 bg-[var(--bg-card)] rounded-lg p-1 border shadow-sm" style={{ borderColor: 'var(--border)' }}>
-                    <button type="button" onClick={() => updateQty(line.product.id, -1)} className="p-1.5 rounded-md hover:bg-rose-500/10 hover:text-rose-500 text-[var(--text-muted)] transition-colors">
-                      <Minus className="h-3 w-3" />
-                    </button>
-                    <span className="w-6 text-center text-xs font-black">{line.quantity}</span>
-                    <button type="button" onClick={() => updateQty(line.product.id, 1)} className="p-1.5 rounded-md hover:bg-emerald-500/10 hover:text-emerald-500 text-[var(--text-muted)] transition-colors">
-                      <Plus className="h-3 w-3" />
-                    </button>
-                  </div>
-                  
-                  <div className="w-20 text-right">
-                    <p className="text-xs font-black text-[var(--text-primary)]">{formatCurrency(line.product.price * line.quantity)}</p>
-                  </div>
+
+                  {/* Campo de adiciones / notas por platillo */}
+                  <input
+                    type="text"
+                    placeholder="➕ Adición / Sin cebolla / Salsa aparte..."
+                    value={line.notes || ''}
+                    onChange={(e) => updateItemNotes(line.product.id, e.target.value)}
+                    className="w-full text-[10px] font-semibold px-2 py-1 rounded-lg border focus:outline-none focus:ring-1 focus:ring-[var(--orange)]"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
                 </div>
               ))}
               {!cart.length && (
@@ -262,7 +253,7 @@ export function PosSalePanel() {
                   className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
               )}
 
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notas o instrucciones especiales"
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notas o instrucciones generales del pedido"
                 className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }} />
             </div>
           </div>
@@ -290,7 +281,7 @@ export function PosSalePanel() {
               type="button"
               disabled={!cart.length || loading || cashSession.status !== 'open'}
               onClick={handleCheckout}
-              className="group relative w-full flex items-center justify-center gap-2 text-sm font-black py-4 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-[0_8px_20px_var(--orange-glow)] overflow-hidden"
+              className="group relative w-full flex items-center justify-center gap-2 text-sm font-black py-4 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:scale-[1.02] active:scale-95 shadow-[0_8px_20px_var(--orange-glow)] overflow-hidden cursor-pointer"
               style={{ background: 'var(--orange)' }}
             >
               <div className="absolute inset-0 w-full h-full bg-white/20 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite]" />
@@ -311,11 +302,7 @@ export function PosSalePanel() {
               </div>
             )}
             {message && (
-              <p className={`mt-3 text-[10px] text-center font-black p-2.5 rounded-xl border ${
-                message.startsWith('Pedido creado')
-                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                  : 'bg-rose-500/10 text-rose-500 border-rose-500/20'
-              }`}>
+              <p className={`mt-3 text-[10px] text-center font-black p-2 rounded-lg border ${message.startsWith('Pedido') ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
                 {message}
               </p>
             )}

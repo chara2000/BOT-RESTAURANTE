@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/server';
-import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 
 export async function POST(request: Request) {
+  const tenantId = getTenantId(request);
   const body = await request.json();
   const supabase = createAdminClient();
   
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     .from('categories')
     .insert([
       {
-        tenant_id: DEMO_TENANT_ID,
+        tenant_id: tenantId,
         name: body.name,
         description: body.description,
         sort_order: body.sort_order ?? 0,

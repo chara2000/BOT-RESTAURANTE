@@ -44,7 +44,17 @@
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-html { font-family: var(--font-outfit, 'Outfit', system-ui, sans-serif); }
+*, ::before, ::after {
+  border-color: var(--border);
+}
+
+html {
+  font-family: var(--font-outfit, 'Outfit', system-ui, sans-serif);
+  /* In PWA mode with viewport-fit:cover, push content below the notch */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
 
 body {
   background-color: var(--bg-app);
@@ -148,3 +158,44 @@ body {
   z-index: 0;
 }
 
+/* ========================
+   PWA SAFE AREA UTILITIES
+   ======================== */
+
+/* FAB button — sits above mobile bottom nav + home indicator */
+/* iOS: uses safe-area-inset-bottom (e.g. 34px on iPhone X+)   */
+/* Android PWA: safe-area-inset-bottom is 0, so we force 80px  */
+.fab-order-btn {
+  bottom: max(calc(5rem + env(safe-area-inset-bottom, 0px)), 84px);
+}
+@media (min-width: 768px) {
+  .fab-order-btn {
+    bottom: 2rem;
+  }
+}
+
+/* Android PWA standalone — ensure extra bottom clearance */
+@media (display-mode: standalone) {
+  .fab-order-btn {
+    bottom: max(calc(5rem + env(safe-area-inset-bottom, 0px)), 90px);
+  }
+}
+
+/* Utility helpers */
+.pt-safe { padding-top: env(safe-area-inset-top, 0px); }
+.pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.pl-safe { padding-left: env(safe-area-inset-left, 0px); }
+.pr-safe { padding-right: env(safe-area-inset-right, 0px); }
+.mt-safe { margin-top: env(safe-area-inset-top, 0px); }
+.mb-safe { margin-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ========================
+   LEAFLET DARK MODE TILE FILTER
+   ======================== */
+.dark-mode-map {
+  filter: none;
+  transition: filter 0.5s ease;
+}
+.dark .dark-mode-map {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}

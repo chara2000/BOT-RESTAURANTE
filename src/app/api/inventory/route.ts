@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { DEMO_TENANT_ID, DEMO_BRANCH_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { DEMO_BRANCH_ID } from '@/lib/supabase/constants';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapInventory } from '@/services/supabaseMapper';
 
 export async function POST(request: Request) {
@@ -9,6 +9,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
+  const tenantId = getTenantId(request);
   const body = await request.json();
 
   if (!body.name || !body.unit) {
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
   const { data, error } = await supabase
     .from('inventory')
     .insert({
-      tenant_id: DEMO_TENANT_ID,
+      tenant_id: tenantId,
       branch_id: DEMO_BRANCH_ID,
       name: body.name,
       unit: body.unit,

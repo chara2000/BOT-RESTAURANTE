@@ -2,7 +2,7 @@
 
 export async function createOrderViaN8n(payload: {
   order: Record<string, unknown>;
-  items: { product_id: string; quantity: number; unit_price: number }[];
+  items: { product_id: string; quantity: number; unit_price: number; notes?: string }[];
 }) {
   const res = await fetch('/api/orders', {
     method: 'POST',

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { DEMO_BRANCH_ID, DEMO_TENANT_ID } from '@/lib/supabase/constants';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 
 async function ensureProfile(name: string) {
   const supabase = createAdminClient();
@@ -41,12 +41,13 @@ export async function POST(request: Request) {
     if (!supabase) return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
 
     const body = await request.json();
+    const tenantId = getTenantId(request);
     const openedBy = await ensureProfile(String(body.opened_by ?? 'ChefFlow'));
 
     const { data, error } = await supabase
       .from('cash_registers')
       .insert({
-        tenant_id: DEMO_TENANT_ID,
+        tenant_id: tenantId,
         branch_id: DEMO_BRANCH_ID,
         opened_by: openedBy,
         opening_balance: Number(body.opening_balance ?? 0),
@@ -68,6 +69,7 @@ export async function PATCH(request: Request) {
   if (!supabase) return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
 
   const body = await request.json();
+  const tenantId = getTenantId(request);
   const actualCash = Number(body.actual_cash ?? 0);
   const expected = Number(body.expected ?? actualCash);
 
@@ -81,7 +83,7 @@ export async function PATCH(request: Request) {
       closed_at: new Date().toISOString(),
     })
     .eq('id', body.id)
-    .eq('tenant_id', DEMO_TENANT_ID)
+    .eq('tenant_id', tenantId)
     .select('*')
     .single();
 

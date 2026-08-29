@@ -64,7 +64,11 @@ export interface Order {
   notes?: string;
   items: OrderItem[];
   created_at: string;
+  updated_at?: string;
   rider_id?: string;
+  delivery_pin?: string;
+  /** UUID de rastreo público — seguro para compartir con clientes */
+  tracking_token?: string;
 }
 
 export interface InventoryItem {
@@ -108,8 +112,9 @@ export interface CashTransaction {
 export interface DeliveryAssignment {
   order_id: string;
   order: Order;
+  rider_id?: string;
   rider_name?: string;
-  status: 'searching' | 'assigned' | 'picked_up' | 'delivered' | 'failed';
+  status: 'searching' | 'assigned' | 'arrived_at_store' | 'picked_up' | 'arrived_at_customer' | 'delivered' | 'failed';
   latitude: number;
   longitude: number;
   estimated_arrival?: string;
@@ -129,8 +134,29 @@ export interface DashboardStats {
   salesByDay: { day: string; amount: number }[];
 }
 
+export interface Tenant {
+  id: string;
+  name: string;
+  subdomain: string;
+  plan_type: 'starter' | 'pro' | 'enterprise';
+  is_active: boolean;
+  nit?: string;
+  logo_url?: string;
+  admin_email?: string;
+  admin_name?: string;
+  created_at?: string;
+}
+
+export interface AdditionItem {
+  id: string;
+  name: string;
+  price: number;
+  is_available: boolean;
+}
+
 export interface TenantSettings {
   restaurant_name: string;
+  logo_url?: string;
   delivery_fee: number;
   telegram_bot_token?: string;
   telegram_enabled: boolean;
@@ -138,8 +164,19 @@ export interface TenantSettings {
   whatsapp_phone?: string;
   ai_enabled: boolean;
   ai_model: string;
+  auto_assign_riders?: boolean;
+  allow_external_riders?: boolean;
   payment_methods: PaymentMethod[];
   business_hours: { day: string; open: string; close: string; closed: boolean }[];
+  // Adiciones configurables para platillos
+  additions?: AdditionItem[];
+  // Números de cuenta para pago digital
+  nequi_number?: string;
+  bancolombia_number?: string;
+  bancolombia_type?: string;
+  // Ubicación exacta del restaurante
+  restaurant_lat?: number;          // Latitud GPS del restaurante
+  restaurant_lng?: number;          // Longitud GPS del restaurante
   // Cobertura de domicilio
   coverage_city?: string;           // Nombre de la ciudad/municipio (ej: "Puerto Tejada")
   coverage_department?: string;     // Departamento (ej: "Cauca")

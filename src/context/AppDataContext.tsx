@@ -6,6 +6,8 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
+import { safeLocalStorage } from '@/lib/utils/safeStorage';
+import { useDashboardStats } from '@/hooks/useDashboardStats';
 import {
   cashService,
   categoriesService,
@@ -16,10 +18,11 @@ import {
   ordersService,
   productsService,
   settingsService,
+  ridersService,
 } from '@/services/api';
 import type {
   Category, CashSession, Customer, DashboardStats, DeliveryAssignment,
-  InventoryItem, Order, OrderStatus, Product, StockMovement, TenantSettings,
+  InventoryItem, Order, OrderStatus, OrderType, Product, StockMovement, TenantSettings,
 } from '@/types';
 import {
   initialCashSession, initialCustomers, initialInventory,
@@ -49,12 +52,14 @@ interface AppDataContextValue {
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   addOrder: (order: Order) => void;
   deleteOrder: (orderId: string) => Promise<void>;
-  updateOrderDetails: (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus }) => Promise<void>;
+  updateOrderDetails: (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number }) => Promise<void>;
   updateProduct: (product: Product) => Promise<Product | void>;
   addProduct: (product: Product) => Promise<Product | void>;
   deleteProduct: (id: string) => Promise<void>;
   addCategory: (category: Partial<Category>) => Promise<void>;
   updateCategory: (category: Category) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+
   updateInventory: (item: InventoryItem) => Promise<void>;
   addInventoryItem: (item: Omit<InventoryItem, 'id'>) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
@@ -62,8 +67,12 @@ interface AppDataContextValue {
   openCashRegister: (balance: number, openedBy: string) => Promise<void>;
   closeCashRegister: (actualCash: number) => Promise<void>;
   updateSettings: (settings: Partial<TenantSettings>) => Promise<void>;
-  assignRider: (orderId: string, riderName: string) => Promise<void>;
+  assignRider: (orderId: string, riderId: string, riderName: string) => Promise<void>;
   updateRiderPosition: (orderId: string, lat: number, lng: number) => Promise<void>;
+  selectedTenantId: string | null;
+  activeTenantId: string;
+  setSelectedTenantId: (id: string | null) => void;
+  allTenants: { id: string; name: string; subdomain: string; plan_type?: string }[];
   stats: DashboardStats;
   lowStockCount: number;
   activeOrdersCount: number;
@@ -75,25 +84,66 @@ const AppDataContext = createContext<AppDataContextValue | null>(null);
 function computeStats(orders: Order[], customers: Customer[], products: Product[]): DashboardStats {
   const today = new Date().toISOString().slice(0, 10);
   const delivered = orders.filter((o) => o.status === 'delivered');
-  const todayOrders = delivered.filter((o) => o.created_at.startsWith(today));
+  const validOrders = orders.filter((o) => !['cancelled', 'draft'].includes(o.status));
+  const todayOrders = validOrders.filter((o) => o.created_at.startsWith(today));
   const weekAgo = Date.now() - 7 * 86400000;
   const monthAgo = Date.now() - 30 * 86400000;
 
-  const weekOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= weekAgo);
-  const monthOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= monthAgo);
+  const weekOrders = validOrders.filter((o) => new Date(o.created_at).getTime() >= weekAgo);
+  const monthOrders = validOrders.filter((o) => new Date(o.created_at).getTime() >= monthAgo);
 
-  const sum = (list: Order[]) => list.reduce((a, o) => a + o.total, 0);
-  const active = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status));
+  const sum = (list: Order[]) => list.reduce((a, o) => a + (o.total || 0), 0);
+  const active = orders.filter((o) => !['delivered', 'cancelled', 'draft'].includes(o.status));
 
+  // Top products from real order items
   const productSales = new Map<string, { name: string; sold: number; revenue: number }>();
-  delivered.forEach((o) =>
-    o.items.forEach((i) => {
+  validOrders.forEach((o) =>
+    o.items?.forEach((i) => {
+      if (!i.product) return;
       const cur = productSales.get(i.product.id) ?? { name: i.product.name, sold: 0, revenue: 0 };
-      cur.sold += i.quantity;
-      cur.revenue += i.unit_price * i.quantity;
+      cur.sold += i.quantity || 1;
+      cur.revenue += (i.unit_price || 0) * (i.quantity || 1);
       productSales.set(i.product.id, cur);
     })
   );
+
+  // Dynamic sales by day of week (Lun-Dom) from last 7 days real orders
+  const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const dayMap = new Map<string, number>();
+  dayNames.forEach(d => dayMap.set(d, 0));
+  
+  weekOrders.forEach(o => {
+    try {
+      const d = new Date(o.created_at);
+      const dayName = dayNames[d.getDay()];
+      dayMap.set(dayName, (dayMap.get(dayName) || 0) + (o.total || 0));
+    } catch {}
+  });
+
+  const salesByDay = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map(d => ({
+    day: d,
+    amount: dayMap.get(d) || 0
+  }));
+
+  // Dynamic sales by hour (10h to 22h)
+  const hourSlots = ['10h', '12h', '14h', '16h', '18h', '20h', '22h'];
+  const hourMap = new Map<string, number>();
+  hourSlots.forEach(h => hourMap.set(h, 0));
+
+  todayOrders.forEach(o => {
+    try {
+      const h = new Date(o.created_at).getHours();
+      const slot = `${Math.floor(h / 2) * 2}h`;
+      if (hourMap.has(slot)) {
+        hourMap.set(slot, (hourMap.get(slot) || 0) + (o.total || 0));
+      }
+    } catch {}
+  });
+
+  const salesByHour = hourSlots.map(h => ({
+    hour: h,
+    amount: hourMap.get(h) || 0
+  }));
 
   return {
     salesToday: sum(todayOrders),
@@ -101,22 +151,12 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
     salesMonth: sum(monthOrders),
     activeOrders: active.length,
     deliveredOrders: delivered.length,
-    avgTicket: delivered.length ? sum(delivered) / delivered.length : 0,
+    avgTicket: validOrders.length ? sum(validOrders) / validOrders.length : 0,
     newCustomers: customers.filter((c) => c.segment === 'new').length,
     returningCustomers: customers.filter((c) => ['frequent', 'vip'].includes(c.segment)).length,
     topProducts: [...productSales.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
-    salesByHour: [
-      { hour: '10h', amount: 45000 }, { hour: '12h', amount: 128000 },
-      { hour: '14h', amount: 185000 }, { hour: '16h', amount: 92000 },
-      { hour: '18h', amount: 210000 }, { hour: '20h', amount: 165000 },
-      { hour: '22h', amount: 78000 },
-    ],
-    salesByDay: [
-      { day: 'Lun', amount: 420000 }, { day: 'Mar', amount: 580000 },
-      { day: 'Mié', amount: 490000 }, { day: 'Jue', amount: 720000 },
-      { day: 'Vie', amount: 890000 }, { day: 'Sáb', amount: 1100000 },
-      { day: 'Dom', amount: 650000 },
-    ],
+    salesByHour,
+    salesByDay,
   };
 }
 
@@ -144,10 +184,86 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         longitude: -75.5678 + i * 0.01,
       }))
   );
-  const [isLoading, setIsLoading] = useState(useSupabase);
+  const [selectedTenantId, setSelectedTenantIdState] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return safeLocalStorage.getItem('chefflow_selected_tenant_id') ?? DEMO_TENANT_ID;
+    }
+    return DEMO_TENANT_ID;
+  });
 
-  const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] =>
-    orderList
+  // The actual tenant used for ALL data queries:
+  // - super_admin → uses selectedTenantId (can switch)
+  // - everyone else → locked to their own profile's tenant_id
+  const [ownTenantId, setOwnTenantId] = useState<string>(DEMO_TENANT_ID);
+
+  // Load own tenant_id from profile when user is loaded
+  useEffect(() => {
+    if (!user) return;
+    const supabase = createClient();
+    if (!supabase) return;
+    supabase
+      .from('profiles')
+      .select('tenant_id')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.tenant_id) setOwnTenantId(data.tenant_id);
+      });
+  }, [user]);
+
+  // activeTenantId: super_admin can pick any tenant; all other roles are locked to own
+  const activeTenantId = (user?.role === 'super_admin' ? selectedTenantId : ownTenantId) || DEMO_TENANT_ID;
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && activeTenantId) {
+      safeLocalStorage.setItem('chefflow_selected_tenant_id', activeTenantId);
+    }
+  }, [activeTenantId]);
+
+  const [allTenants, setAllTenants] = useState<{ id: string; name: string; subdomain: string; plan_type?: string }[]>([
+    { id: 'a0000000-0000-4000-8000-000000000001', name: 'ChefFlow Restaurante', subdomain: 'chefflow', plan_type: 'pro' },
+    { id: 'a0000000-0000-4000-8000-000000000002', name: 'La Casona Gourmet', subdomain: 'lacasona', plan_type: 'pro' },
+    { id: 'a0000000-0000-4000-8000-000000000003', name: 'Burger & Shake House', subdomain: 'burgershake', plan_type: 'starter' },
+  ]);
+
+  const setSelectedTenantId = useCallback((id: string | null) => {
+    setSelectedTenantIdState(id);
+    if (typeof window !== 'undefined') {
+      if (id) {
+        safeLocalStorage.setItem('chefflow_selected_tenant_id', id);
+      } else {
+        safeLocalStorage.removeItem('chefflow_selected_tenant_id');
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    // Fetch all tenants from admin API endpoint to bypass client RLS and get all real restaurants
+    fetch('/api/tenants')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.tenants && Array.isArray(data.tenants) && data.tenants.length > 0) {
+          setAllTenants(data.tenants);
+        }
+      })
+      .catch(() => {
+        const supabase = createClient();
+        if (!supabase) return;
+        supabase.from('tenants').select('id, name, subdomain, plan_type').then(({ data }) => {
+          if (data && data.length > 0) {
+            setAllTenants(data);
+          }
+        });
+      });
+  }, []);
+
+  const [isLoading, setIsLoading] = useState(useSupabase);
+  const { data: serverStats } = useDashboardStats();
+
+  const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] => {
+    const lat = settings?.restaurant_lat ?? 3.2311;
+    const lng = settings?.restaurant_lng ?? -76.4167;
+    return orderList
       .filter((o) =>
         (o.type === 'delivery' ||
           (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
@@ -161,22 +277,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           : o.status === 'shipping'
           ? 'assigned'
           : 'searching') as DeliveryAssignment['status'],
-        latitude: 6.2088 + i * 0.005,
-        longitude: -75.5678 + i * 0.005,
-      })), []);
+        latitude: lat,
+        longitude: lng,
+      }));
+  }, [settings?.restaurant_lat, settings?.restaurant_lng]);
 
 
-  const syncFromSupabase = useCallback(async () => {
+
+  const syncFromSupabase = useCallback(async (overrideTenantId?: string, isBackground = false) => {
+    const tid = overrideTenantId || activeTenantId;
+    if (!isBackground) setIsLoading(true);
     try {
-      const data = await loadDashboardData();
+      const data = await loadDashboardData(tid, user?.id);
       if (!data) return;
-      if (data.categories) setCategories(data.categories);
-      setOrders(data.orders);
-      setProducts(data.products);
-      setCustomers(data.customers);
-      setInventory(data.inventory);
+      setCategories(data.categories || []);
+      setOrders(data.orders || []);
+      setProducts(data.products || []);
+      setCustomers(data.customers || []);
+      setInventory(data.inventory || []);
       if (data.stockMovements) setStockMovements(data.stockMovements);
-      setDeliveries(data.deliveries?.length ? data.deliveries : buildDeliveries(data.orders));
+      setDeliveries(data.deliveries?.length ? data.deliveries : buildDeliveries(data.orders || []));
       if (data.cashSession) {
         setCashSession(data.cashSession);
       } else {
@@ -192,117 +312,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
       setDataSource('supabase');
     } finally {
-      setIsLoading(false);
+      if (!isBackground) setIsLoading(false);
     }
-  }, [buildDeliveries]);
+  }, [activeTenantId, buildDeliveries]);
 
+  // Real-time order synchronization listener & 6s polling fallback
   useEffect(() => {
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
-    if (!isSupabaseConfigured()) return;
-    let active = true;
-
-    // Ref or local variable to hold a clean, unlocked audio context
-    let unlockedAudioCtx: AudioContext | null = null;
-    const initAudio = () => {
-      if (unlockedAudioCtx) return;
-      try {
-        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioCtxClass) {
-          unlockedAudioCtx = new AudioCtxClass();
-          // Immediately try to resume
-          unlockedAudioCtx.resume();
-        }
-      } catch (e) {
-        console.warn('Failed to initialize AudioContext on gesture:', e);
-      }
+    const handleOrderEvent = () => {
+      syncFromSupabase(undefined, true);
     };
+    window.addEventListener('new_order', handleOrderEvent);
+    window.addEventListener('order_updated', handleOrderEvent);
 
-    // Listen to common user interaction gestures
-    if (typeof window !== 'undefined') {
-      window.addEventListener('click', initAudio, { once: true });
-      window.addEventListener('touchstart', initAudio, { once: true });
-      window.addEventListener('keydown', initAudio, { once: true });
-    }
-
-    syncFromSupabase().catch(logSupabaseError);
-
-    const supabase = createClient();
-    if (!supabase) return () => { active = false; };
-
-    function playNotificationSound() {
-      if (typeof window === 'undefined') return;
-      try {
-        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioCtxClass) return;
-
-        // Use the unlocked context if available, otherwise create a new one
-        const ctx = unlockedAudioCtx || new AudioCtxClass();
-
-        ctx.resume().then(() => {
-          // Play 3 ding tones in sequence: high → low → high
-          const tones = [1046, 784, 1046]; // C6, G5, C6
-          tones.forEach((freq, i) => {
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = freq;
-
-            const startAt = ctx.currentTime + i * 0.22;
-            gain.gain.setValueAtTime(0, startAt);
-            gain.gain.linearRampToValueAtTime(0.8, startAt + 0.02); // fast attack
-            gain.gain.exponentialRampToValueAtTime(0.001, startAt + 0.4); // decay
-
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start(startAt);
-            osc.stop(startAt + 0.4);
-          });
-        }).catch(err => {
-          console.warn('Audio resume failed:', err);
-          // Fallback to HTML5 Audio element using a browser-friendly sound if needed
-          try {
-            const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-600.wav');
-            audio.volume = 0.8;
-            audio.play().catch(e => console.warn('HTML5 Audio play failed:', e));
-          } catch (e) {}
-        });
-      } catch (err) {
-        console.warn('Audio bell failed', err);
-      }
-    }
-
-    const channel = supabase
-      .channel('chefflow-dashboard')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
-        (payload) => {
-          if (active) {
-            syncFromSupabase().catch(logSupabaseError);
-            if (payload.eventType === 'INSERT') playNotificationSound();
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'products', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
-        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'categories', filter: `tenant_id=eq.${DEMO_TENANT_ID}` },
-        () => { if (active) syncFromSupabase().catch(logSupabaseError); }
-      )
-      .subscribe();
+    const pollingTimer = setInterval(() => {
+      syncFromSupabase(undefined, true);
+    }, 6000);
 
     return () => {
-      active = false;
-      supabase.removeChannel(channel);
+      window.removeEventListener('new_order', handleOrderEvent);
+      window.removeEventListener('order_updated', handleOrderEvent);
+      clearInterval(pollingTimer);
     };
-  }, [syncFromSupabase, user]);
+  }, [syncFromSupabase]);
+
+
 
   const updateOrderStatus = useCallback(async (orderId: string, status: OrderStatus) => {
     const prevOrder = orders.find((o) => o.id === orderId);
@@ -315,68 +348,31 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       )
     );
 
-    if (prevOrder) {
-      const shortId = prevOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] ?? `#${orderId.slice(0, 6).toUpperCase()}`;
-      const wasAlreadyIncome = prevOrder.status === 'confirmed' || prevOrder.status === 'delivered';
-      const isNewIncome = status === 'confirmed' || status === 'delivered';
-
-      if (isNewIncome && !wasAlreadyIncome) {
-        if (cashSession.status === 'open') {
-          if (dataSource === 'supabase' && cashSession.id) {
-            try {
-              await cashService.addTransaction(cashSession.id, 'income', prevOrder.total, `Pedido ${shortId} - ${status === 'confirmed' ? 'Confirmado' : 'Entregado'}`);
-            } catch (_) {}
-          }
-          setCashSession((prev) => ({
-            ...prev,
-            transactions: [{ id: `t${Date.now()}`, type: 'income', amount: prevOrder.total, description: `Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
-          }));
-        }
-      } else if (status === 'cancelled' && wasAlreadyIncome) {
-        if (cashSession.status === 'open') {
-          if (dataSource === 'supabase' && cashSession.id) {
-            try {
-              await cashService.addTransaction(cashSession.id, 'expense', prevOrder.total, `Cancelación Pedido ${shortId}`);
-            } catch (_) {}
-          }
-          setCashSession((prev) => ({
-            ...prev,
-            transactions: [{ id: `t${Date.now()}`, type: 'expense', amount: prevOrder.total, description: `Cancelación Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
-          }));
-        }
-      }
-    }
-
     if (dataSource === 'supabase') {
       try {
         await ordersService.updateStatus(orderId, status);
+        
+        // Lógica de Auto-Asignación
+        if (status === 'ready' && prevOrder?.type === 'delivery' && settings.auto_assign_riders) {
+          const riders = await ridersService.getAll();
+          const availableRider = riders.find(r => r.is_available);
+          if (availableRider) {
+            await assignRider(orderId, availableRider.id, availableRider.full_name);
+            console.log(`[Auto-Assign] Pedido ${orderId} auto-asignado a ${availableRider.full_name}`);
+          }
+        }
       } catch (err) {
         logSupabaseError(err);
         await syncFromSupabase();
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase, orders, cashSession]);
+  }, [dataSource, syncFromSupabase, orders, settings.auto_assign_riders]);
 
   const deleteOrder = useCallback(async (orderId: string) => {
     const prevOrder = orders.find((o) => o.id === orderId);
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
     setDeliveries((prev) => prev.filter((d) => d.order_id !== orderId));
-
-    if (prevOrder && (prevOrder.status === 'confirmed' || prevOrder.status === 'delivered')) {
-      const shortId = prevOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] ?? `#${orderId.slice(0, 6).toUpperCase()}`;
-      if (cashSession.status === 'open') {
-        if (dataSource === 'supabase' && cashSession.id) {
-          try {
-            await cashService.addTransaction(cashSession.id, 'expense', prevOrder.total, `Eliminación Pedido ${shortId}`);
-          } catch (_) {}
-        }
-        setCashSession((prev) => ({
-          ...prev,
-          transactions: [{ id: `t${Date.now()}`, type: 'expense', amount: prevOrder.total, description: `Eliminación Pedido ${shortId}`, created_at: new Date().toISOString() }, ...prev.transactions],
-        }));
-      }
-    }
 
     if (dataSource === 'supabase') {
       try {
@@ -390,9 +386,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase, orders, cashSession]);
+  }, [dataSource, syncFromSupabase, orders]);
 
-  const updateOrderDetails = useCallback(async (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus }) => {
+  const updateOrderDetails = useCallback(async (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number }) => {
     const prevOrder = orders.find((o) => o.id === orderId);
     if (!prevOrder) return;
 
@@ -406,6 +402,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             notes: updates.notes ?? prevOrder.notes,
             total: updates.total ?? prevOrder.total,
             status: updates.status ?? prevOrder.status,
+            type: updates.type ?? prevOrder.type,
+            delivery_address: updates.delivery_address ?? prevOrder.delivery_address,
+            delivery_fee: updates.delivery_fee ?? prevOrder.delivery_fee,
             updated_at: new Date().toISOString()
           }).eq('id', orderId);
           if (error) throw error;
@@ -420,13 +419,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const addOrder = useCallback((order: Order) => {
     setOrders((prev) => [order, ...prev]);
-    if (order.type === 'delivery') {
+    if (
+      order.type === 'delivery' ||
+      (order.delivery_address && order.delivery_address !== 'Para Recoger en el local')
+    ) {
+      const lat = settings?.restaurant_lat ?? 3.2311;
+      const lng = settings?.restaurant_lng ?? -76.4167;
       setDeliveries((prev) => [
         ...prev,
-        { order_id: order.id, order, status: 'searching', latitude: 6.2088, longitude: -75.5678 },
+        { order_id: order.id, order, status: 'searching', latitude: lat, longitude: lng },
       ]);
     }
-  }, []);
+  }, [settings?.restaurant_lat, settings?.restaurant_lng]);
 
   const updateProduct = useCallback(async (product: Product) => {
     setProducts((prev) => prev.map((p) => (p.id === product.id ? product : p)));
@@ -497,6 +501,21 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       }
     }
   }, [dataSource, syncFromSupabase]);
+
+  const deleteCategory = useCallback(async (id: string) => {
+    const previous = categories;
+    setCategories((prev) => prev.filter((c) => c.id !== id));
+    if (dataSource === 'supabase') {
+      try {
+        await categoriesService.remove(id);
+      } catch (err) {
+        logSupabaseError(err);
+        setCategories(previous);
+        throw err;
+      }
+    }
+  }, [dataSource, categories]);
+
 
   const updateInventory = useCallback(async (item: InventoryItem) => {
     const prevItem = inventory.find((i) => i.id === item.id);
@@ -672,13 +691,13 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [dataSource, syncFromSupabase]);
 
-  const assignRider = useCallback(async (orderId: string, riderName: string) => {
+  const assignRider = useCallback(async (orderId: string, riderId: string, riderName: string) => {
     setDeliveries((prev) =>
-      prev.map((d) => (d.order_id === orderId ? { ...d, rider_name: riderName, status: 'assigned' } : d))
+      prev.map((d) => (d.order_id === orderId ? { ...d, rider_id: riderId, rider_name: riderName, status: 'assigned' } : d))
     );
     if (dataSource === 'supabase') {
       try {
-        await deliveryService.update(orderId, { rider_name: riderName, status: 'assigned' });
+        await deliveryService.update(orderId, { rider_id: riderId, rider_name: riderName, status: 'assigned' });
       } catch (err) {
         logSupabaseError(err);
         await syncFromSupabase();
@@ -700,24 +719,194 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [dataSource]);
 
-  const stats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
+  // Audio & Realtime postgres listeners - Multi-Tenancy Dynamic Re-sub
+  useEffect(() => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+    // Use activeTenantId computed from user role (already defined above)
+    const tid = activeTenantId;
+    if (!isSupabaseConfigured()) return;
+    let active = true;
+
+    // Ref or local variable to hold a clean, unlocked audio context
+    let unlockedAudioCtx: AudioContext | null = null;
+    const resumeAudio = () => {
+      try {
+        if (unlockedAudioCtx) {
+          if (unlockedAudioCtx.state === 'suspended') {
+            unlockedAudioCtx.resume().catch(() => {});
+          }
+          return;
+        }
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtxClass) {
+          const ctx = new AudioCtxClass();
+          if (ctx.state === 'running') {
+            unlockedAudioCtx = ctx;
+          } else {
+            ctx.resume().then(() => {
+              unlockedAudioCtx = ctx;
+            }).catch(() => {});
+          }
+        }
+      } catch {
+        // Ignore audio initialization before user gesture
+      }
+    };
+
+    // Listen to common user interaction gestures
+    if (typeof window !== 'undefined') {
+      window.addEventListener('click', resumeAudio, { once: true });
+      window.addEventListener('touchstart', resumeAudio, { once: true });
+      window.addEventListener('keydown', resumeAudio, { once: true });
+      window.addEventListener('mousedown', resumeAudio, { once: true });
+    }
+
+    // Re-fetch data for the newly selected tenant
+    syncFromSupabase(tid).catch(logSupabaseError);
+
+    const supabase = createClient();
+    if (!supabase) return () => { 
+      active = false; 
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('click', resumeAudio);
+        window.removeEventListener('touchstart', resumeAudio);
+        window.removeEventListener('keydown', resumeAudio);
+        window.removeEventListener('mousedown', resumeAudio);
+      }
+    };
+
+    function playNotificationSound() {
+      if (typeof window === 'undefined' || !unlockedAudioCtx || unlockedAudioCtx.state !== 'running') return;
+      try {
+        const ctx = unlockedAudioCtx;
+
+        const repeats = [0, 0.3, 0.6, 0.9];
+        repeats.forEach((delay) => {
+          const frequencies = [1174.66, 1567.98]; // D6 & G6 piercing bell frequencies
+          frequencies.forEach((freq, idx) => {
+            try {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.type = idx === 0 ? 'sine' : 'triangle';
+              osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+              gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+              gain.gain.linearRampToValueAtTime(0.8, ctx.currentTime + delay + 0.02);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.25);
+
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.start(ctx.currentTime + delay);
+              osc.stop(ctx.currentTime + delay + 0.25);
+            } catch {
+              // Ignore audio creation before gesture
+            }
+          });
+        });
+      } catch {
+        // Ignore audio context autoplay warnings
+      }
+    }
+
+
+    function handleAlarmTrigger() {
+      resumeAudio();
+      playNotificationSound();
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('play_alarm_sound', handleAlarmTrigger);
+    }
+
+    const channel = supabase
+      .channel(`chefflow-dashboard-${tid}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${tid}` },
+        (payload) => {
+          if (active) {
+            syncFromSupabase(tid).catch(logSupabaseError);
+            if (payload.eventType === 'INSERT') {
+              resumeAudio();
+              playNotificationSound();
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'products', filter: `tenant_id=eq.${tid}` },
+        () => { if (active) syncFromSupabase(tid).catch(logSupabaseError); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'categories', filter: `tenant_id=eq.${tid}` },
+        () => { if (active) syncFromSupabase(tid).catch(logSupabaseError); }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'delivery_details' },
+        (payload) => {
+          if (!active) return;
+          if (payload.eventType === 'UPDATE') {
+            const row = payload.new as any;
+            setDeliveries((prev) =>
+              prev.map((d) =>
+                d.order_id === row.order_id
+                  ? {
+                      ...d,
+                      latitude: row.latitude != null ? Number(row.latitude) : d.latitude,
+                      longitude: row.longitude != null ? Number(row.longitude) : d.longitude,
+                      status: row.status as any,
+                    }
+                  : d
+              )
+            );
+          } else {
+            syncFromSupabase(tid).catch(logSupabaseError);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('click', resumeAudio);
+        window.removeEventListener('touchstart', resumeAudio);
+        window.removeEventListener('keydown', resumeAudio);
+        window.removeEventListener('mousedown', resumeAudio);
+      }
+      if (unlockedAudioCtx) {
+        unlockedAudioCtx.close().catch(() => {});
+      }
+    };
+  }, [user, activeTenantId, syncFromSupabase]);
+
+  const localStats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
+  const stats = serverStats ?? localStats;
   const lowStockCount = inventory.filter((i) => i.stock <= i.min_stock).length;
   const activeOrdersCount = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length;
 
   const value = useMemo(
     () => ({
       categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
+      selectedTenantId, activeTenantId, setSelectedTenantId, allTenants,
     }),
     [
       categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
-      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, updateInventory,
+      updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
+      selectedTenantId, activeTenantId, setSelectedTenantId, allTenants,
     ]
   );
 

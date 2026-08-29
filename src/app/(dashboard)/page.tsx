@@ -11,19 +11,7 @@ import { formatCompact, formatCurrency } from '@/lib/utils';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
-const CATEGORY_COLORS = ['#ff6b35', '#38bdf8', '#a78bfa', '#94a3b8'];
-const CATEGORY_DATA = [
-  { label: 'Mariscos', pct: '30%', color: CATEGORY_COLORS[0] },
-  { label: 'Bebidas', pct: '25%', color: CATEGORY_COLORS[1] },
-  { label: 'Postres', pct: '25%', color: CATEGORY_COLORS[2] },
-  { label: 'Pastas', pct: '20%', color: CATEGORY_COLORS[3] },
-];
-
-const TRENDING_DISHES = [
-  { name: 'Pollo a la Parrilla', cat: 'Aves', rating: 4.9, sold: 350, price: 32000, img: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&q=80' },
-  { name: 'Tarta Cítrica de Sol', cat: 'Postres', rating: 4.8, sold: 400, price: 18000, img: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&q=80' },
-  { name: 'Ensalada de Camarones', cat: 'Mariscos', rating: 4.7, sold: 270, price: 28000, img: 'https://images.unsplash.com/photo-1551504734-5ee1c4a1479b?w=400&q=80' },
-];
+const CATEGORY_COLORS = ['#ff6b35', '#38bdf8', '#a78bfa', '#10b981', '#f59e0b', '#ec4899'];
 
 const STATUS_STYLES: Record<string, string> = {
   pending: 'bg-amber-500/10 text-amber-500 border border-amber-500/30 shadow-[0_0_12px_rgba(245,158,11,0.25)]',
@@ -40,7 +28,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const { dark } = useTheme();
-  const { orders, stats, deliveries, settings } = useAppData();
+  const { orders, stats, deliveries, settings, categories, products } = useAppData();
   
   const isPuertoTejada = settings?.coverage_city?.toLowerCase().includes('puerto tejada') || false;
   const defaultCenter: [number, number] = isPuertoTejada ? [3.2311, -76.4167] : [6.2088, -75.5678];
@@ -53,6 +41,42 @@ export default function DashboardPage() {
   const recentOrders = orders.slice(0, 5);
   const totalCart = orderList.reduce((a, o) => a + o.total, 0);
 
+  // Dynamic Category Breakdown from real orders
+  const categoryCounts = new Map<string, number>();
+  orders.forEach((o) => {
+    o.items?.forEach((item) => {
+      const catName = item.product?.category || 'General';
+      categoryCounts.set(catName, (categoryCounts.get(catName) || 0) + item.quantity);
+    });
+  });
+
+  const totalItemsSold = Array.from(categoryCounts.values()).reduce((a, b) => a + b, 0) || 1;
+  const dynamicCategories = categories.length > 0 
+    ? categories.slice(0, 4).map((c, i) => {
+        const count = categoryCounts.get(c.name) || 0;
+        const pct = Math.round((count / totalItemsSold) * 100);
+        return {
+          label: c.name,
+          pct: `${pct}%`,
+          color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+        };
+      })
+    : [
+        { label: 'General', pct: '100%', color: CATEGORY_COLORS[0] },
+      ];
+
+  // Dynamic Order Type Distribution (Mesa, Para Llevar, Domicilio)
+  const totalOrdersCount = orders.length || 1;
+  const dineInCount = orders.filter(o => o.type === 'dine_in').length;
+  const pickupCount = orders.filter(o => o.type === 'pickup').length;
+  const deliveryCount = orders.filter(o => o.type === 'delivery').length;
+
+  const orderTypesData = [
+    { label: 'Servicio en Mesa', pct: Math.round((dineInCount / totalOrdersCount) * 100), qty: dineInCount, color: 'var(--orange)' },
+    { label: 'Para Llevar', pct: Math.round((pickupCount / totalOrdersCount) * 100), qty: pickupCount, color: '#94a3b8' },
+    { label: 'Domicilios', pct: Math.round((deliveryCount / totalOrdersCount) * 100), qty: deliveryCount, color: '#38bdf8' },
+  ];
+
   useEffect(() => {
     if (!gpsRunning || !activeDelivery) return;
     const id = setInterval(() => {
@@ -63,7 +87,7 @@ export default function DashboardPage() {
 
   const barData = stats.salesByDay.map((d, i) => ({
     day: d.day,
-    val: Math.round(d.amount / 5000),
+    val: Math.min(Math.round((d.amount || 0) / 5000), 200),
     highlight: i === 3,
   }));
 
@@ -73,7 +97,7 @@ export default function DashboardPage() {
       <div className="absolute top-0 right-0 w-[300px] h-[300px] md:w-[500px] md:h-[500px] bg-[var(--orange)] opacity-[0.03] rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-0 left-0 w-[400px] h-[400px] md:w-[600px] md:h-[600px] bg-blue-500 opacity-[0.02] rounded-full blur-[140px] pointer-events-none" />
       
-      <Topbar title="Visión General" subtitle="Métricas en tiempo real de tu restaurante" />
+      <Topbar title="Visión General" subtitle={`Métricas en tiempo real · ${settings.restaurant_name || 'Restaurante'}`} />
       
       <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-8 z-10 relative">
         <div className="max-w-7xl mx-auto">
@@ -143,18 +167,18 @@ export default function DashboardPage() {
 
                 <div className="card p-5 lg:p-6 lg:col-span-2 flex flex-col">
                   <p style={{ color: 'var(--text-muted)' }} className="text-[10px] font-bold uppercase tracking-widest mb-4 lg:mb-6 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[var(--orange)]"></span> Categorías Principales
+                    <span className="w-2 h-2 rounded-full bg-[var(--orange)]"></span> Categorías del Menú
                   </p>
                   <div className="flex justify-center mb-6 lg:mb-8 relative">
                     <div className="absolute inset-0 bg-[var(--orange)] opacity-5 blur-[40px] rounded-full"></div>
                     <svg className="w-28 h-28 lg:w-36 lg:h-36 drop-shadow-lg" viewBox="0 0 36 36">
-                      {CATEGORY_DATA.map((c, i) => {
+                      {dynamicCategories.map((c, i) => {
                         const offsets = [0, -26.4, -48.4, -70.4];
                         const dashes = ['26.4 57.5', '22 62', '22 62', '17.6 66.4'];
                         return (
                           <circle key={c.label} cx="18" cy="18" r="14" fill="transparent"
                                   stroke={c.color} strokeWidth="4.5"
-                                  strokeDasharray={dashes[i]} strokeDashoffset={offsets[i]} 
+                                  strokeDasharray={dashes[i % dashes.length]} strokeDashoffset={offsets[i % offsets.length]} 
                                   className="transition-all duration-500 hover:stroke-w-6 cursor-pointer" />
                         );
                       })}
@@ -162,7 +186,7 @@ export default function DashboardPage() {
                     </svg>
                   </div>
                   <div className="space-y-3 mt-auto">
-                    {CATEGORY_DATA.map((c) => (
+                    {dynamicCategories.map((c) => (
                       <div key={c.label} className="flex items-center justify-between text-xs font-bold p-1.5 lg:p-2 rounded-lg hover:bg-[var(--bg-input)] transition-colors">
                         <div className="flex items-center gap-3">
                           <span className="h-3 w-3 rounded-full shrink-0 shadow-sm" style={{ background: c.color }} />
@@ -188,7 +212,7 @@ export default function DashboardPage() {
                           </div>
                         )}
                         <div style={{
-                          height: `${(bar.val / 200) * 100}%`,
+                          height: `${Math.max((bar.val / 200) * 100, 8)}%`,
                           background: bar.highlight ? 'linear-gradient(180deg, var(--orange) 0%, #ff8a4c 100%)' : 'var(--bg-input)',
                           borderRadius: '0.5rem lg:0.75rem', width: '100%', transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
                         }} className={`group-hover:scale-y-105 origin-bottom ${!bar.highlight ? 'group-hover:bg-slate-200 dark:group-hover:bg-slate-700' : 'shadow-[0_4px_12px_var(--orange-glow)]'}`} />
@@ -201,18 +225,14 @@ export default function DashboardPage() {
                 <div className="card p-5 lg:p-6 lg:col-span-2 flex flex-col">
                   <p style={{ color: 'var(--text-muted)' }} className="text-[10px] font-bold uppercase tracking-widest mb-4 lg:mb-6">Distribución de Pedidos</p>
                   <div className="space-y-4 lg:space-y-5 flex-1 flex flex-col justify-center">
-                    {[
-                      { label: 'Servicio en Mesa', pct: 45, qty: 900, color: 'var(--orange)' },
-                      { label: 'Para Llevar', pct: 30, qty: 600, color: '#94a3b8' },
-                      { label: 'Domicilios IA', pct: 25, qty: 500, color: '#38bdf8' },
-                    ].map((t) => (
+                    {orderTypesData.map((t) => (
                       <div key={t.label} className="space-y-2">
                         <div className="flex items-center justify-between text-[11px] lg:text-xs font-bold">
                           <span style={{ color: 'var(--text-primary)' }}>{t.label} <span style={{ color: 'var(--text-muted)' }} className="font-medium ml-1">({t.pct}%)</span></span>
                           <span className="font-black bg-[var(--bg-input)] px-2 py-0.5 rounded-md">{t.qty}</span>
                         </div>
                         <div className="h-1.5 lg:h-2 rounded-full w-full overflow-hidden" style={{ background: 'var(--bg-input)' }}>
-                          <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${t.pct}%`, background: t.color, boxShadow: `0 0 8px ${t.color}` }} />
+                          <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${Math.max(t.pct, 4)}%`, background: t.color, boxShadow: `0 0 8px ${t.color}` }} />
                         </div>
                       </div>
                     ))}
@@ -315,13 +335,28 @@ export default function DashboardPage() {
               <div className="card p-5 lg:p-6">
                 <div className="flex items-center justify-between pb-3 lg:pb-4 border-b mb-4 lg:mb-5" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-sm font-black tracking-wide">Platos Estrella</p>
-                  <span className="bg-[var(--orange-soft)] text-[var(--orange)] text-[9px] lg:text-[10px] font-black uppercase tracking-wider px-2.5 lg:px-3 py-1 lg:py-1.5 rounded-xl border border-[var(--orange-glow)]">Top Ventas</span>
+                  <span className="bg-[var(--orange-soft)] text-[var(--orange)] text-[9px] lg:text-[10px] font-black uppercase tracking-wider px-2.5 lg:px-3 py-1 lg:py-1.5 rounded-xl border border-[var(--orange-glow)]">Top Menú</span>
                 </div>
                 <div className="space-y-4 lg:space-y-6">
-                  {(stats.topProducts.length ? stats.topProducts.map((p, i) => ({
-                    name: p.name, cat: 'Favorito', rating: 4.8, sold: p.sold, price: p.revenue / p.sold,
-                    img: TRENDING_DISHES[i % 3].img,
-                  })) : TRENDING_DISHES).slice(0, 3).map((d, i) => (
+                  {((stats.topProducts.length > 0
+                    ? stats.topProducts.map((p) => {
+                        const matchingProd = products.find(prod => prod.id === p.name || prod.name === p.name);
+                        return {
+                          name: p.name,
+                          cat: matchingProd?.category || 'Favorito',
+                          sold: p.sold,
+                          price: p.revenue > 0 && p.sold > 0 ? p.revenue / p.sold : matchingProd?.price || 0,
+                          img: matchingProd?.image_url || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80',
+                        };
+                      })
+                    : products.slice(0, 3).map((p) => ({
+                        name: p.name,
+                        cat: p.category || 'Especial',
+                        sold: 0,
+                        price: p.price,
+                        img: p.image_url || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&q=80',
+                      }))
+                  ).slice(0, 3)).map((d, i) => (
                     <div key={i} className="group relative">
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent rounded-2xl z-10 pointer-events-none" />
                       <img src={d.img} alt={d.name} className="w-full h-28 lg:h-32 object-cover rounded-2xl shadow-md group-hover:shadow-xl transition-all duration-500 group-hover:scale-[1.02]" />
@@ -337,8 +372,8 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[9px] lg:text-[10px] font-bold text-white/90 mt-1">
-                          <span className="flex items-center gap-1 drop-shadow-sm">⭐ {d.rating}</span>
-                          <span className="drop-shadow-sm">{d.sold} pedidos semanales</span>
+                          <span className="flex items-center gap-1 drop-shadow-sm">⭐ 4.9</span>
+                          <span className="drop-shadow-sm">{d.sold > 0 ? `${d.sold} pedidos` : 'Disponible en carta'}</span>
                         </div>
                       </div>
                     </div>

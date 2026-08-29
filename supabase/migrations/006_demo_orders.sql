@@ -1,4 +1,21 @@
 -- Pedidos demo para tenant ChefFlow (Kanban + domicilios + reportes)
+INSERT INTO customers (id, tenant_id, name, phone, segment)
+VALUES
+  ('d1000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'Juan Perez', '3001234567', 'new'),
+  ('d1000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', 'Maria Lopez', '3007654321', 'frequent')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO categories (id, tenant_id, name, sort_order)
+VALUES
+  ('c1000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'Comida Rápida', 1)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO products (id, tenant_id, category_id, name, price)
+VALUES
+  ('f1000000-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'Hamburguesa', 32000),
+  ('f1000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'Pizza', 42000)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO orders (id, tenant_id, branch_id, customer_id, type, status, payment_method, subtotal, delivery_fee, tips, total, delivery_address, notes, created_at)
 VALUES
   ('a1000001-0000-4000-8000-000000000001', 'a0000000-0000-4000-8000-000000000001', 'b0000000-0000-4000-8000-000000000001', 'd1000000-0000-4000-8000-000000000001', 'delivery', 'pending', 'nequi', 74000, 5000, 3000, 82000, 'Calle 10A #34-56, El Poblado', 'Sin cebolla en la hamburguesa', now() - interval '2 hours'),

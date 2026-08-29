@@ -32,7 +32,7 @@ export function PosSalePanel() {
   const [customerDisplayName, setCustomerDisplayName] = useState('Consumidor Final (Sin asignar)');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [customerSearchText, setCustomerSearchText] = useState('');
-  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
   const [newCustAddress, setNewCustAddress] = useState('');
@@ -51,7 +51,6 @@ export function PosSalePanel() {
     function handleClickOutside(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setIsCustomerDropdownOpen(false);
-        setIsCreatingCustomer(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -144,6 +143,14 @@ export function PosSalePanel() {
     setCustomerSearchText('');
   };
 
+  const handleOpenNewCustomerModal = () => {
+    setNewCustName(customerSearchText.trim());
+    setNewCustPhone('');
+    setNewCustAddress('');
+    setIsCustomerDropdownOpen(false);
+    setIsNewCustomerModalOpen(true);
+  };
+
   const handleSaveNewCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCustName.trim()) return;
@@ -160,8 +167,7 @@ export function PosSalePanel() {
       if (created.address_default) {
         setDeliveryAddress(created.address_default);
       }
-      setIsCreatingCustomer(false);
-      setIsCustomerDropdownOpen(false);
+      setIsNewCustomerModalOpen(false);
       setNewCustName('');
       setNewCustPhone('');
       setNewCustAddress('');
@@ -170,8 +176,7 @@ export function PosSalePanel() {
       // Fallback to quick name if DB create fails
       handleSelectQuickName(newCustName.trim());
       if (newCustAddress.trim()) setDeliveryAddress(newCustAddress.trim());
-      setIsCreatingCustomer(false);
-      setIsCustomerDropdownOpen(false);
+      setIsNewCustomerModalOpen(false);
     } finally {
       setIsSavingCustomer(false);
     }
@@ -377,10 +382,7 @@ export function PosSalePanel() {
                 {/* Dropdown trigger button */}
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsCustomerDropdownOpen(!isCustomerDropdownOpen);
-                    setIsCreatingCustomer(false);
-                  }}
+                  onClick={() => setIsCustomerDropdownOpen(!isCustomerDropdownOpen)}
                   className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border flex items-center justify-between transition-colors text-left cursor-pointer hover:border-[var(--orange)]"
                   style={{ background: 'var(--bg-input)', borderColor: isCustomerDropdownOpen ? 'var(--orange)' : 'var(--border)', color: 'var(--text-primary)' }}
                 >
@@ -396,165 +398,86 @@ export function PosSalePanel() {
                   <div className="absolute left-0 right-0 top-full mt-1.5 z-50 rounded-2xl border shadow-2xl animate-fade-in-up p-3 space-y-2.5"
                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
                     
-                    {!isCreatingCustomer ? (
-                      <>
-                        {/* Search input */}
-                        <div className="relative">
-                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
-                          <input
-                            type="text"
-                            autoFocus
-                            value={customerSearchText}
-                            onChange={(e) => setCustomerSearchText(e.target.value)}
-                            placeholder="Buscar por nombre o teléfono..."
-                            className="w-full pl-9 pr-8 py-2 rounded-xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                            style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                          {customerSearchText && (
-                            <button
-                              type="button"
-                              onClick={() => setCustomerSearchText('')}
-                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                    {/* Search input */}
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={customerSearchText}
+                        onChange={(e) => setCustomerSearchText(e.target.value)}
+                        placeholder="Buscar por nombre o teléfono..."
+                        className="w-full pl-9 pr-8 py-2 rounded-xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                        style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      />
+                      {customerSearchText && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomerSearchText('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
 
-                        {/* Customer List */}
-                        <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                          {/* Option 1: Consumidor final */}
-                          <button
-                            type="button"
-                            onClick={handleClearCustomer}
-                            className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-between hover:bg-[var(--bg-input)]"
-                            style={{ color: !customerId ? 'var(--orange)' : 'var(--text-primary)' }}
-                          >
-                            <span>👤 Consumidor Final (Sin asignar)</span>
-                            {!customerId && <Check className="w-3.5 h-3.5 text-[var(--orange)]" />}
-                          </button>
+                    {/* Customer List */}
+                    <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+                      {/* Option 1: Consumidor final */}
+                      <button
+                        type="button"
+                        onClick={handleClearCustomer}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-between hover:bg-[var(--bg-input)] cursor-pointer"
+                        style={{ color: !customerId ? 'var(--orange)' : 'var(--text-primary)' }}
+                      >
+                        <span>👤 Consumidor Final (Sin asignar)</span>
+                        {!customerId && <Check className="w-3.5 h-3.5 text-[var(--orange)]" />}
+                      </button>
 
-                          {/* Filtered existing customers */}
-                          {filteredCustomers.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => handleSelectExistingCustomer(c)}
-                              className="w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between hover:bg-[var(--bg-input)] group"
-                              style={{ color: customerId === c.id ? 'var(--orange)' : 'var(--text-primary)' }}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <p className="font-black truncate">{c.name}</p>
-                                <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5">
-                                  {c.phone && <span><Phone className="w-2.5 h-2.5 inline" /> {c.phone}</span>}
-                                  {c.address_default && <span className="truncate">· {c.address_default}</span>}
-                                </p>
-                              </div>
-                              {customerId === c.id && <Check className="w-3.5 h-3.5 text-[var(--orange)] shrink-0 ml-2" />}
-                            </button>
-                          ))}
+                      {/* Filtered existing customers */}
+                      {filteredCustomers.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => handleSelectExistingCustomer(c)}
+                          className="w-full text-left px-3 py-2 rounded-xl text-xs transition-colors flex items-center justify-between hover:bg-[var(--bg-input)] group cursor-pointer"
+                          style={{ color: customerId === c.id ? 'var(--orange)' : 'var(--text-primary)' }}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-black truncate">{c.name}</p>
+                            <p className="text-[10px] text-[var(--text-muted)] flex items-center gap-1.5 mt-0.5">
+                              {c.phone && <span><Phone className="w-2.5 h-2.5 inline" /> {c.phone}</span>}
+                              {c.address_default && <span className="truncate">· {c.address_default}</span>}
+                            </p>
+                          </div>
+                          {customerId === c.id && <Check className="w-3.5 h-3.5 text-[var(--orange)] shrink-0 ml-2" />}
+                        </button>
+                      ))}
 
-                          {/* Quick use typed name if not matching */}
-                          {customerSearchText.trim() && !filteredCustomers.some(c => c.name.toLowerCase() === customerSearchText.trim().toLowerCase()) && (
-                            <button
-                              type="button"
-                              onClick={() => handleSelectQuickName(customerSearchText)}
-                              className="w-full text-left p-2.5 rounded-xl border border-dashed text-xs font-bold text-[var(--orange)] hover:bg-[var(--orange-soft)] transition-colors flex items-center gap-2"
-                              style={{ borderColor: 'var(--orange)' }}
-                            >
-                              <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                              <span className="truncate">Usar como cliente rápido: <strong>&quot;{customerSearchText.trim()}&quot;</strong></span>
-                            </button>
-                          )}
-                        </div>
+                      {/* Quick use typed name if not matching */}
+                      {customerSearchText.trim() && !filteredCustomers.some(c => c.name.toLowerCase() === customerSearchText.trim().toLowerCase()) && (
+                        <button
+                          type="button"
+                          onClick={() => handleSelectQuickName(customerSearchText)}
+                          className="w-full text-left p-2.5 rounded-xl border border-dashed text-xs font-bold text-[var(--orange)] hover:bg-[var(--orange-soft)] transition-colors flex items-center gap-2 cursor-pointer"
+                          style={{ borderColor: 'var(--orange)' }}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">Usar como cliente rápido: <strong>&quot;{customerSearchText.trim()}&quot;</strong></span>
+                        </button>
+                      )}
+                    </div>
 
-                        {/* Action: Create new detailed customer */}
-                        <div className="border-t pt-2" style={{ borderColor: 'var(--border)' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsCreatingCustomer(true);
-                              setNewCustName(customerSearchText.trim());
-                            }}
-                            className="w-full py-2 px-3 rounded-xl bg-[var(--orange)] text-white text-xs font-black flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
-                          >
-                            <UserPlus className="w-3.5 h-3.5" /> + Registrar Nuevo Cliente
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      /* Inline New Customer Creation Form */
-                      <form onSubmit={handleSaveNewCustomer} className="space-y-2.5">
-                        <div className="flex items-center justify-between border-b pb-2" style={{ borderColor: 'var(--border)' }}>
-                          <span className="text-xs font-black text-[var(--text-primary)] flex items-center gap-1.5">
-                            <UserPlus className="w-3.5 h-3.5 text-[var(--orange)]" /> Nuevo Cliente
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setIsCreatingCustomer(false)}
-                            className="text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                          >
-                            Volver
-                          </button>
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Nombre *</label>
-                          <input
-                            type="text"
-                            required
-                            autoFocus
-                            value={newCustName}
-                            onChange={(e) => setNewCustName(e.target.value)}
-                            placeholder="Nombre del cliente..."
-                            className="w-full px-3 py-1.5 rounded-lg text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                            style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Teléfono (Opcional)</label>
-                          <input
-                            type="tel"
-                            value={newCustPhone}
-                            onChange={(e) => setNewCustPhone(e.target.value)}
-                            placeholder="Ej. 3123456789"
-                            className="w-full px-3 py-1.5 rounded-lg text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                            style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Dirección (Opcional)</label>
-                          <input
-                            type="text"
-                            value={newCustAddress}
-                            onChange={(e) => setNewCustAddress(e.target.value)}
-                            placeholder="Ej. Calle 10 # 5-20"
-                            className="w-full px-3 py-1.5 rounded-lg text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                            style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                          />
-                        </div>
-
-                        <div className="flex gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => setIsCreatingCustomer(false)}
-                            className="flex-1 py-1.5 rounded-lg border text-xs font-bold hover:bg-[var(--bg-input)]"
-                            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            type="submit"
-                            disabled={isSavingCustomer || !newCustName.trim()}
-                            className="flex-1 py-1.5 rounded-lg bg-[var(--orange)] text-white text-xs font-black hover:opacity-90 disabled:opacity-50"
-                          >
-                            {isSavingCustomer ? 'Guardando...' : 'Guardar y Asignar'}
-                          </button>
-                        </div>
-                      </form>
-                    )}
+                    {/* Action: Create new detailed customer in dedicated modal */}
+                    <div className="border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={handleOpenNewCustomerModal}
+                        className="w-full py-2 px-3 rounded-xl bg-[var(--orange)] text-white text-xs font-black flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity cursor-pointer shadow-sm"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> + Registrar Nuevo Cliente
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -636,7 +559,106 @@ export function PosSalePanel() {
           </div>
         </div>
       </div>
+
+      {/* Modal Registrar Nuevo Cliente */}
+      {isNewCustomerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div
+            className="w-full max-w-md rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col overflow-hidden"
+            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+          >
+            {/* Header */}
+            <div className="flex justify-between items-center border-b px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--orange-soft)] text-[var(--orange)]">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[var(--text-primary)]">
+                    Registrar Nuevo Cliente
+                  </h3>
+                  <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                    Guarda el cliente y vincúlalo a la venta en caja POS
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewCustomerModalOpen(false)}
+                className="p-2 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveNewCustomer} className="p-6 space-y-3.5">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                  Nombre Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newCustName}
+                  onChange={(e) => setNewCustName(e.target.value)}
+                  placeholder="Ej: Carlos Gómez / Mesa 4..."
+                  className="w-full text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                  Teléfono / WhatsApp (Opcional)
+                </label>
+                <input
+                  type="tel"
+                  value={newCustPhone}
+                  onChange={(e) => setNewCustPhone(e.target.value)}
+                  placeholder="Ej: 3123456789"
+                  className="w-full text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                  Dirección de Entrega (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={newCustAddress}
+                  onChange={(e) => setNewCustAddress(e.target.value)}
+                  placeholder="Ej: Calle 45 # 12-30 Apto 201"
+                  className="w-full text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsNewCustomerModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border text-xs font-black hover:bg-[var(--bg-input)] cursor-pointer transition-colors"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCustomer || !newCustName.trim()}
+                  className="flex-1 py-2.5 rounded-xl text-white text-xs font-black shadow-md hover:scale-[1.02] active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  style={{ background: 'var(--orange)' }}
+                >
+                  {isSavingCustomer ? 'Guardando...' : 'Guardar y Asignar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-

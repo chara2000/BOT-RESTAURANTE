@@ -126,6 +126,28 @@ export const customersService = {
       .single();
     return data ? mapCustomer(data as Record<string, unknown>) : null;
   },
+
+  async create(customer: { name: string; phone?: string; email?: string; address_default?: string }, tenantId?: string): Promise<Customer> {
+    const supabase = createClient();
+    if (!supabase) throw new Error('Supabase no configurado');
+    const tid = tenantId || getActiveTenantId();
+    const { data, error } = await supabase
+      .from('customers')
+      .insert({
+        tenant_id: tid,
+        name: customer.name.trim(),
+        phone: customer.phone?.trim() || '0000000000',
+        email: customer.email?.trim() || null,
+        address_default: customer.address_default?.trim() || null,
+        segment: 'new',
+        total_spent: 0,
+        order_count: 0,
+      })
+      .select('*')
+      .single();
+    if (error) throw error;
+    return mapCustomer(data as Record<string, unknown>);
+  },
 };
 
 export const inventoryService = {

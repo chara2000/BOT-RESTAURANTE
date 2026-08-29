@@ -8,8 +8,8 @@ import {
   sanitizeUsername,
 } from '@/lib/bot/guards/MessageGuard';
 
-// Legacy fallback: uses the global env var bot + demo tenant
-const LEGACY_TENANT_ID = process.env.LEGACY_TENANT_ID || 'a0000000-0000-4000-8000-000000000001';
+// Telegram global bot token is pinned strictly to ChefFlow restaurant
+const CHEFFLOW_TENANT_ID = 'a0000000-0000-4000-8000-000000000001';
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     await bot.telegram.answerCbQuery(cbId).catch(() => {});
 
     try {
-      const response = await processCallback(chatId, data, username, LEGACY_TENANT_ID, {
+      const response = await processCallback(chatId, data, username, CHEFFLOW_TENANT_ID, {
         botToken: process.env.TELEGRAM_BOT_TOKEN,
         adminChatId: process.env.ADMIN_CHAT_ID,
       });
@@ -206,7 +206,7 @@ export async function POST(req: NextRequest) {
 
     // ── Procesar mensaje en el agente ─────────────────────────────────────
     try {
-      const response = await processMessage(chatId, rawText, username, LEGACY_TENANT_ID, {
+      const response = await processMessage(chatId, rawText, username, CHEFFLOW_TENANT_ID, {
         isPhoto,
         photoId: uploadedPhotoUrl,
         location,

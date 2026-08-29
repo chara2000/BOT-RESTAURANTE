@@ -42,15 +42,43 @@ export const ordersService = {
     return (data ?? []).map((row) => mapOrder(row as Record<string, unknown>));
   },
 
-  async updateStatus(orderId: string, status: string) {
+  async updateStatus(orderId: string, status: string, tenantId?: string) {
+    const tid = tenantId || getActiveTenantId();
     const res = await fetch(`/api/orders/${orderId}/status`, {
       method: 'PATCH',
-      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
       body: JSON.stringify({ status }),
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => '');
+      throw new Error(`Error ${res.status}: ${errText || 'No se pudo actualizar el estado del pedido'}`);
+    }
+    return res.json();
+  },
+
+  async update(orderId: string, updates: Record<string, unknown>, items?: any[], tenantId?: string) {
+    const tid = tenantId || getActiveTenantId();
+    const res = await fetch(`/api/orders/${orderId}`, {
+      method: 'PATCH',
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
+      body: JSON.stringify({ ...updates, items }),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
       throw new Error(`Error ${res.status}: ${errText || 'No se pudo actualizar el pedido'}`);
+    }
+    return res.json();
+  },
+
+  async delete(orderId: string, tenantId?: string) {
+    const tid = tenantId || getActiveTenantId();
+    const res = await fetch(`/api/orders/${orderId}`, {
+      method: 'DELETE',
+      headers: getHeaders(undefined, tid),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Error ${res.status}: ${errText || 'No se pudo eliminar el pedido'}`);
     }
     return res.json();
   },

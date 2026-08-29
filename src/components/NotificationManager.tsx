@@ -24,15 +24,13 @@ export function NotificationManager() {
       const order = customEvent.detail;
       const orderNum = order?.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order?.id?.slice(0, 6)?.toUpperCase() || 'NUEVO'}`;
 
-      if (user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'kitchen' || user?.role === 'operator') {
+      if (!user?.role || user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'kitchen' || user?.role === 'operator') {
         sileo.show({
           title: '🔔 ¡Nuevo Pedido Entrante!',
           description: `${orderNum} · ${order?.customer?.name || 'Cliente'} (${order?.type === 'delivery' ? '🛵 Domicilio' : order?.type === 'pickup' ? '🛍️ Para Llevar' : '🍽️ Mesa'})`,
           type: 'info',
         });
-      }
-
-      if (user?.role === 'delivery' && order?.type === 'delivery') {
+      } else if (user?.role === 'delivery' && order?.type === 'delivery') {
         sileo.show({
           title: '🛵 ¡Nuevo Domicilio en Cola!',
           description: `Pedido ${orderNum} listo para ser asignado.`,

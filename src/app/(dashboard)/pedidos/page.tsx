@@ -310,34 +310,18 @@ export default function PedidosPage() {
       const newDeliveryFee = editType === 'delivery' ? (settings.delivery_fee !== undefined ? settings.delivery_fee : 5000) : 0;
       const newTotal = newSubtotal + newDeliveryFee;
 
-      await updateOrderDetails(selectedOrder.id, {
-        notes: newNotesFull,
-        status: editStatus,
-        total: newTotal,
-        type: editType,
-        delivery_address: editType === 'delivery' ? editAddress : undefined,
-      });
+      await updateOrderDetails(
+        selectedOrder.id,
+        {
+          notes: newNotesFull,
+          status: editStatus,
+          total: newTotal,
+          type: editType,
+          delivery_address: editType === 'delivery' ? editAddress : undefined,
+        },
+        editItems
+      );
       await updateOrderStatus(selectedOrder.id, editStatus);
-
-      // Persist order_items changes to Supabase
-      try {
-        const { createClient } = await import('@/lib/supabase/client');
-        const supabase = createClient();
-        if (supabase && editItems.length > 0) {
-          // Delete old items then re-insert
-          await supabase.from('order_items').delete().eq('order_id', selectedOrder.id);
-          const itemRows = editItems.map(item => ({
-            order_id: selectedOrder.id,
-            product_id: item.product.id,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            notes: item.notes || null,
-          }));
-          await supabase.from('order_items').insert(itemRows);
-        }
-      } catch (itemErr) {
-        console.warn('[EditOrder] order_items update failed:', itemErr);
-      }
 
       setSelectedOrder(null);
       setEditProductSearch('');
@@ -945,31 +929,14 @@ export default function PedidosPage() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Método de Pago</label>
-                  <div className="relative">
-                    <select value={newPayment} onChange={(e) => setNewPayment(e.target.value as PaymentMethod)}
-                      className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none appearance-none pr-7"
-                      style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-                      <option value="cash">Efectivo</option>
-                      <option value="card">Tarjeta</option>
-                      <option value="nequi">Nequi</option>
-                      <option value="daviplata">Daviplata</option>
-                      <option value="wompi">Wompi</option>
-                    </select>
-                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Notas Especiales</label>
-                  <input
-                    type="text" value={newNotes} onChange={(e) => setNewNotes(e.target.value)}
-                    placeholder="Sin cebolla, salsas aparte..."
-                    className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none"
-                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                  />
-                </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Notas Especiales (Opcional)</label>
+                <input
+                  type="text" value={newNotes} onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="Sin cebolla, salsas aparte, piso 3..."
+                  className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
               </div>
 
               {/* Product Selector */}

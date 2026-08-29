@@ -23,6 +23,7 @@ import type {
   Category, CashSession, Customer, DashboardStats, DeliveryAssignment,
   InventoryItem, Order, OrderStatus, OrderType, Product, StockMovement, TenantSettings,
 } from '@/types';
+import { formatCurrency } from '@/lib/utils';
 import {
   initialCashSession, initialCustomers, initialInventory,
   initialOrders, initialProducts, initialSettings, initialStockMovements,
@@ -51,7 +52,7 @@ interface AppDataContextValue {
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
   addOrder: (order: Order) => void;
   deleteOrder: (orderId: string) => Promise<void>;
-  updateOrderDetails: (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number }) => Promise<void>;
+  updateOrderDetails: (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number }, items?: any[]) => Promise<void>;
   updateProduct: (product: Product) => Promise<Product | void>;
   addProduct: (product: Product) => Promise<Product | void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -346,16 +347,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       )
     );
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('show_toast', {
+        detail: { title: 'Estado de Pedido Actualizado', message: `El pedido fue marcado como ${status}`, type: 'success' }
+      }));
+    }
+
     if (dataSource === 'supabase') {
       try {
-        await ordersService.updateStatus(orderId, status);
+        await ordersService.updateStatus(orderId, status, selectedTenantId || undefined);
         
         // Lógica de Auto-Asignación
         if (status === 'ready' && prevOrder?.type === 'delivery' && settings.auto_assign_riders) {
-          const riders = await ridersService.getAll();
+          const riders = await ridersService.getAll(selectedTenantId || undefined);
           const availableRider = riders.find(r => r.is_available);
           if (availableRider) {
-            await assignRider(orderId, availableRider.id, availableRider.full_name);
+            await deliveryService.update(orderId, { rider_id: availableRider.id, rider_name: availableRider.full_name, status: 'assigned' });
             console.log(`[Auto-Assign] Pedido ${orderId} auto-asignado a ${availableRider.full_name}`);
           }
         }
@@ -365,47 +372,51 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase, orders, settings.auto_assign_riders]);
+  }, [dataSource, syncFromSupabase, orders, selectedTenantId, settings.auto_assign_riders]);
 
   const deleteOrder = useCallback(async (orderId: string) => {
     const prevOrder = orders.find((o) => o.id === orderId);
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
     setDeliveries((prev) => prev.filter((d) => d.order_id !== orderId));
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('show_toast', {
+        detail: { title: 'Pedido Eliminado', message: 'El pedido fue eliminado del sistema correctamente', type: 'warning' }
+      }));
+    }
+
     if (dataSource === 'supabase') {
       try {
-        const supabase = createClient();
-        if (supabase) {
-          await supabase.from('orders').delete().eq('id', orderId);
-        }
+        await ordersService.delete(orderId, selectedTenantId || undefined);
       } catch (err) {
         logSupabaseError(err);
         await syncFromSupabase();
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase, orders]);
+  }, [dataSource, syncFromSupabase, orders, selectedTenantId]);
 
-  const updateOrderDetails = useCallback(async (orderId: string, updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number }) => {
+  const updateOrderDetails = useCallback(async (
+    orderId: string,
+    updates: { notes?: string; total?: number; status?: OrderStatus; type?: OrderType; delivery_address?: string; delivery_fee?: number },
+    items?: any[]
+  ) => {
     const prevOrder = orders.find((o) => o.id === orderId);
     if (!prevOrder) return;
 
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updates } : o)));
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updates, ...(items ? { items } : {}) } : o)));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('show_toast', {
+        detail: { title: 'Pedido Actualizado', message: 'Los cambios del pedido fueron guardados', type: 'success' }
+      }));
+    }
 
     if (dataSource === 'supabase') {
       try {
-        const supabase = createClient();
-        if (supabase) {
-          const { error } = await supabase.from('orders').update({
-            notes: updates.notes ?? prevOrder.notes,
-            total: updates.total ?? prevOrder.total,
-            status: updates.status ?? prevOrder.status,
-            type: updates.type ?? prevOrder.type,
-            delivery_address: updates.delivery_address ?? prevOrder.delivery_address,
-            delivery_fee: updates.delivery_fee ?? prevOrder.delivery_fee,
-            updated_at: new Date().toISOString()
-          }).eq('id', orderId);
-          if (error) throw error;
+        const result = await ordersService.update(orderId, updates, items, selectedTenantId || undefined);
+        if (result?.order) {
+          setOrders((prev) => prev.map((o) => (o.id === orderId ? result.order : o)));
         }
       } catch (err) {
         logSupabaseError(err);
@@ -413,7 +424,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase, orders]);
+  }, [dataSource, syncFromSupabase, orders, selectedTenantId]);
 
   const addOrder = useCallback((order: Order) => {
     setOrders((prev) => [order, ...prev.filter((o) => o.id !== order.id)]);
@@ -436,6 +447,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         { order_id: order.id, order, status: 'searching', latitude: lat, longitude: lng },
         ...prev.filter((d) => d.order_id !== order.id),
       ]);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('new_order', { detail: order }));
+      window.dispatchEvent(new CustomEvent('show_toast', {
+        detail: {
+          title: '🔔 ¡Nuevo Pedido Creado!',
+          message: `Pedido #${order.id.slice(0, 6).toUpperCase()} (${formatCurrency(order.total)}) agregado con éxito`,
+          type: 'order',
+        }
+      }));
     }
   }, [settings?.restaurant_lat, settings?.restaurant_lng]);
 

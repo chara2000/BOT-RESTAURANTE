@@ -14,16 +14,22 @@ export default function PedidosDisponiblesPage() {
   const [takingOrderId, setTakingOrderId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Solo pedidos de domicilio que están listos y sin asignación activa
-  const assignedOrderIds = new Set(
+  // Pedidos disponibles: pedidos a domicilio listos o en curso que NO tienen repartidor asignado
+  const activeAssignedOrderIds = new Set(
     deliveries
-      .filter(d => ['assigned', 'on_the_way', 'searching'].includes(d.status ?? ''))
+      .filter(d => Boolean(d.rider_id) && d.status !== 'searching')
       .map(d => d.order_id)
       .filter(Boolean)
   );
-  const poolOrders = orders.filter(
-    (o) => o.status === 'ready' && o.type === 'delivery' && !assignedOrderIds.has(o.id)
-  );
+
+  const poolOrders = orders.filter((o) => {
+    const isDelivery = o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local');
+    if (!isDelivery) return false;
+    if (['delivered', 'cancelled', 'draft'].includes(o.status)) return false;
+    if (o.rider_id) return false;
+    if (activeAssignedOrderIds.has(o.id)) return false;
+    return true;
+  });
 
   const handleTakeOrder = async (orderId: string) => {
     if (!user) return;
@@ -36,6 +42,12 @@ export default function PedidosDisponiblesPage() {
       // 2. Cambiar estado a shipping
       await updateStatus({ orderId, status: 'shipping' });
       
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('show_toast', {
+          detail: { title: '🛵 ¡Pedido Tomado!', message: 'El pedido fue asignado a tu ruta con éxito', type: 'delivery' }
+        }));
+      }
+
       // Redirect to active orders
       window.location.href = '/mis-pedidos';
     } catch (err) {

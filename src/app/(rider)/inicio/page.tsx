@@ -47,9 +47,21 @@ export default function RiderHomePage() {
   const digitalPaymentsToday = todayDeliveries
     .filter(d => d.status === 'delivered' && d.order?.payment_method !== 'cash')
     .reduce((sum, d) => sum + (d.order?.total || 0), 0);
-  // Pedidos en pool = ready + delivery + sin assignment activo
-  const assignedOrderIds = new Set(deliveries.map(d => d.order_id).filter(Boolean));
-  const poolCount = orders.filter(o => o.status === 'ready' && o.type === 'delivery' && !assignedOrderIds.has(o.id)).length;
+  // Pedidos en pool = pedidos a domicilio disponibles sin repartidor asignado
+  const activeAssignedOrderIds = new Set(
+    deliveries
+      .filter(d => Boolean(d.rider_id) && d.status !== 'searching')
+      .map(d => d.order_id)
+      .filter(Boolean)
+  );
+  const poolCount = orders.filter((o) => {
+    const isDelivery = o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local');
+    if (!isDelivery) return false;
+    if (['delivered', 'cancelled', 'draft'].includes(o.status)) return false;
+    if (o.rider_id) return false;
+    if (activeAssignedOrderIds.has(o.id)) return false;
+    return true;
+  }).length;
 
   const STATS = [
     {

@@ -10,8 +10,6 @@ export function useRealtimeOrders() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user) return;
-
     const supabase = createClient();
     if (!supabase) return;
     

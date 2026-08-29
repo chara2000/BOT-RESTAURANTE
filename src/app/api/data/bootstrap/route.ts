@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const targetTenantId = searchParams.get('tenant_id') || DEMO_TENANT_ID;
+  const targetTenantId = searchParams.get('tenant_id') || request.headers.get('x-tenant-id') || DEMO_TENANT_ID;
 
   // Fetch orders first to get order IDs for delivery details filtering
   const ordersRes = await supabase

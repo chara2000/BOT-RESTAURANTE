@@ -63,9 +63,11 @@ export async function POST(request: Request) {
       }
     }
 
+    const tenantId = getTenantId(request);
+
     try {
-      // 1. Insert directly into Supabase first for fast response
-      const order = await createOrderInSupabase(body);
+      // 1. Insert directly into Supabase first for fast response with proper tenant_id
+      const order = await createOrderInSupabase(body, tenantId);
 
       // 2. Fire n8n webhook asynchronously
       createOrderViaN8n(body).catch((n8nErr) => {

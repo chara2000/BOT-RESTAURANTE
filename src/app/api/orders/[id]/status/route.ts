@@ -24,16 +24,20 @@ export async function PATCH(
   // Obtener estado previo antes de actualizar
   const { data: prevData } = await supabase
     .from('orders')
-    .select('status')
+    .select('status, tenant_id')
     .eq('id', id)
-    .eq('tenant_id', tenantId)
-    .single();
+    .maybeSingle();
+
+  if (!prevData) {
+    return NextResponse.json({ error: 'Order not found' }, { status: 404 });
+  }
+
+  const effectiveTenantId = prevData.tenant_id || tenantId;
 
   const { data, error } = await supabase
     .from('orders')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id)
-    .eq('tenant_id', tenantId)
     .select('id, status, notes, delivery_pin, customer_id, customers(telegram_chat_id)');
 
   if (error) {
@@ -51,7 +55,7 @@ export async function PATCH(
   // Insertar evento en order_events para el timeline
   await supabase.from('order_events').insert({
     order_id: id,
-    tenant_id: tenantId,
+    tenant_id: effectiveTenantId,
     event_type: 'status_change',
     from_value: prevData?.status ?? null,
     to_value: status,

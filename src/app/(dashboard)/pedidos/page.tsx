@@ -174,7 +174,7 @@ import { useUIModal } from '@/components/ui/UIModal';
 
 export default function PedidosPage() {
   const { showConfirm } = useUIModal();
-  const { orders, deliveries, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings, categories } = useAppData();
+  const { orders, deliveries, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings, categories, activeTenantId } = useAppData();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
   const [dbRiders, setDbRiders] = useState<any[]>([]);
@@ -376,6 +376,7 @@ export default function PedidosPage() {
 
     const payload = {
       order: {
+        tenant_id: activeTenantId,
         type: newType,
         payment_method: newPayment,
         customer_id: newCustomer || undefined,

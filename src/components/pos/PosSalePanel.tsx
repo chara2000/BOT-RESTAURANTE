@@ -21,7 +21,7 @@ const ORDER_TYPES: { value: OrderType; label: string; icon: string }[] = [
 ];
 
 export function PosSalePanel() {
-  const { products, customers, addOrder, addCashTransaction, cashSession } = useAppData();
+  const { products, customers, addOrder, addCashTransaction, cashSession, activeTenantId } = useAppData();
   const [cart, setCart] = useState<CartLine[]>([]);
   const [orderType, setOrderType] = useState<OrderType>('dine_in');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -89,6 +89,7 @@ export function PosSalePanel() {
     try {
       const payload = {
         order: {
+          tenant_id: activeTenantId,
           type: orderType,
           payment_method: paymentMethod,
           customer_id: customerId || undefined,

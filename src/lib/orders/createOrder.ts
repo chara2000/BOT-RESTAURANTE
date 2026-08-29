@@ -5,6 +5,8 @@ import type { Order, OrderType, PaymentMethod } from '@/types';
 
 export interface CreateOrderPayload {
   order: {
+    tenant_id?: string;
+    branch_id?: string;
     type: OrderType;
     payment_method: PaymentMethod;
     customer_id?: string;
@@ -24,18 +26,33 @@ const ORDER_SELECT = `
   order_items(*, products(*, categories(name)))
 `;
 
-export async function createOrderInSupabase(payload: CreateOrderPayload): Promise<Order> {
+export async function createOrderInSupabase(payload: CreateOrderPayload, explicitTenantId?: string): Promise<Order> {
   const supabase = createAdminClient();
   if (!supabase) throw new Error('Supabase no configurado');
 
   const { order, items } = payload;
+  const targetTenantId = order.tenant_id || explicitTenantId || DEMO_TENANT_ID;
   const deliveryFee = order.type === 'delivery' ? (order.delivery_fee || 5000) : 0;
+
+  // Resolve branch for this tenant
+  let branchId = order.branch_id || DEMO_BRANCH_ID;
+  if (!order.branch_id && targetTenantId) {
+    try {
+      const { data: branch } = await supabase
+        .from('branches')
+        .select('id')
+        .eq('tenant_id', targetTenantId)
+        .limit(1)
+        .maybeSingle();
+      if (branch?.id) branchId = branch.id;
+    } catch {}
+  }
 
   const { data: orderRow, error: orderError } = await supabase
     .from('orders')
     .insert({
-      tenant_id: DEMO_TENANT_ID,
-      branch_id: DEMO_BRANCH_ID,
+      tenant_id: targetTenantId,
+      branch_id: branchId,
       customer_id: order.customer_id ?? null,
       type: order.type,
       status: 'pending',
@@ -82,3 +99,4 @@ export async function createOrderInSupabase(payload: CreateOrderPayload): Promis
   if (fetchError || !fullOrder) throw new Error(fetchError?.message ?? 'Error cargando pedido');
   return mapOrder(fullOrder as Record<string, unknown>);
 }
+

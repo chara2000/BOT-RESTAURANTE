@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { DEMO_BRANCH_ID, DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import { createAdminClient } from '@/lib/supabase/server';
 
-async function ensureRiderProfile(name: string) {
+async function ensureRiderProfile(name: string, tenantId: string = DEMO_TENANT_ID) {
   const supabase = createAdminClient();
   if (!supabase) throw new Error('Supabase no configurado');
 
@@ -21,7 +21,7 @@ async function ensureRiderProfile(name: string) {
 
   const { error } = await supabase.from('profiles').insert({
     id: created.data.user.id,
-    tenant_id: DEMO_TENANT_ID,
+    tenant_id: tenantId,
     branch_id: DEMO_BRANCH_ID,
     email,
     name,
@@ -44,6 +44,15 @@ export async function PATCH(
     const body = await request.json();
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     
+    // Get existing delivery details and order to determine tenant
+    const { data: existingOrder } = await supabase
+      .from('orders')
+      .select('tenant_id')
+      .eq('id', orderId)
+      .maybeSingle();
+
+    const tenantId = existingOrder?.tenant_id || DEMO_TENANT_ID;
+
     // Get existing delivery details to check previous assignment
     const { data: existingDelivery } = await supabase
       .from('delivery_details')
@@ -64,19 +73,21 @@ export async function PATCH(
         patch.status = 'searching';
       }
     } else if (body.rider_name) {
-      patch.rider_id = await ensureRiderProfile(String(body.rider_name));
+      patch.rider_id = await ensureRiderProfile(String(body.rider_name), tenantId);
       patch.status = body.status ?? 'assigned';
     }
 
-    if (body.status) patch.status = body.status;
-    if (body.latitude !== undefined) patch.latitude = Number(body.latitude);
-    if (body.longitude !== undefined) patch.longitude = Number(body.longitude);
+    if (body.status) {
+      patch.status = body.status;
+    }
+    if (body.latitude !== undefined) patch.latitude = body.latitude;
+    if (body.longitude !== undefined) patch.longitude = body.longitude;
     if (body.estimated_arrival !== undefined) patch.estimated_arrival = body.estimated_arrival;
 
-    // Save to delivery_details
     const { data, error } = await supabase
       .from('delivery_details')
-      .upsert({ order_id: orderId, ...patch }, { onConflict: 'order_id' })
+      .update(patch)
+      .eq('order_id', orderId)
       .select('*, profiles(name)')
       .single();
 
@@ -88,25 +99,18 @@ export async function PATCH(
       .update({ rider_id: patch.rider_id ?? null, updated_at: new Date().toISOString() })
       .eq('id', orderId);
 
-    // Si cambió el repartidor, registrarlo en rider_assignments y order_events
-    if (patch.hasOwnProperty('rider_id') && patch.rider_id !== prevRiderId) {
-      let newRiderName = null;
-      if (patch.rider_id) {
-        const { data: newRiderProf } = await supabase
-          .from('profiles')
-          .select('name')
-          .eq('id', patch.rider_id)
-          .maybeSingle();
-        newRiderName = newRiderProf?.name || 'Repartidor';
-      }
+    // Auditar cambios de repartidor si hubo modificación de rider_id
+    if (patch.rider_id !== undefined && patch.rider_id !== prevRiderId) {
+      const newRiderName = (data?.profiles as any)?.name || body.rider_name || 'Desconocido';
 
-      // Log in rider_assignments
+      // Log in rider_assignments audit table
       await supabase.from('rider_assignments').insert({
         order_id: orderId,
-        prev_rider_id: prevRiderId || null,
-        prev_rider_name: prevRiderName || null,
+        tenant_id: tenantId,
+        previous_rider_id: prevRiderId || null,
         new_rider_id: patch.rider_id || null,
-        new_rider_name: newRiderName,
+        previous_rider_name: prevRiderName || null,
+        new_rider_name: newRiderName || null,
         changed_by_name: body.actor_name || 'Admin',
         reason: body.reason || 'Reasignacion'
       });
@@ -114,7 +118,7 @@ export async function PATCH(
       // Log in order_events
       await supabase.from('order_events').insert({
         order_id: orderId,
-        tenant_id: DEMO_TENANT_ID,
+        tenant_id: tenantId,
         event_type: patch.rider_id ? 'rider_assigned' : 'rider_removed',
         from_value: prevRiderName || null,
         to_value: newRiderName || null,
@@ -127,7 +131,7 @@ export async function PATCH(
     if (body.status && body.status !== existingDelivery?.status) {
       await supabase.from('order_events').insert({
         order_id: orderId,
-        tenant_id: DEMO_TENANT_ID,
+        tenant_id: tenantId,
         event_type: 'delivery_status_change',
         from_value: existingDelivery?.status || 'searching',
         to_value: body.status,

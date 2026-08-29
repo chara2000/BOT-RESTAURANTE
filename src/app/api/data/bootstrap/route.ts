@@ -7,7 +7,7 @@ import { createAdminClient } from '@/lib/supabase/server';
 import {
   mapCustomer, mapInventory, mapOrder, mapProduct, mapSettings,
 } from '@/services/supabaseMapper';
-import type { CashSession, DeliveryAssignment } from '@/types';
+import type { CashSession, DeliveryAssignment, Order } from '@/types';
 
 const ORDER_SELECT = `
   *,
@@ -33,17 +33,21 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const targetTenantId = searchParams.get('tenant_id') || DEMO_TENANT_ID;
 
-  const [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes] = await Promise.all([
+  // Fetch orders first to get order IDs for delivery details filtering
+  const ordersRes = await supabase
+    .from('orders')
+    .select(ORDER_SELECT)
+    .eq('tenant_id', targetTenantId)
+    .order('created_at', { ascending: false });
+
+  const orderIds = (ordersRes.data ?? []).map((o: any) => String(o.id));
+
+  const [categoriesRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes] = await Promise.all([
     supabase
       .from('categories')
       .select('*')
       .eq('tenant_id', targetTenantId)
       .order('sort_order', { ascending: true }),
-    supabase
-      .from('orders')
-      .select(ORDER_SELECT)
-      .eq('tenant_id', targetTenantId)
-      .order('created_at', { ascending: false }),
     supabase
       .from('products')
       .select('*, categories(name)')
@@ -80,7 +84,7 @@ export async function GET(request: Request) {
     supabase
       .from('delivery_details')
       .select('*, profiles(name)')
-      .in('order_id', ordersRes.data?.map((o: any) => o.id) ?? [])
+      .in('order_id', orderIds.length > 0 ? orderIds : ['00000000-0000-0000-0000-000000000000'])
       .order('updated_at', { ascending: false }),
     supabase
       .from('stock_movements')
@@ -97,7 +101,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: errors.join('; ') }, { status: 500 });
   }
 
-  const orders = (ordersRes.data ?? []).map((row) => mapOrder(row as Record<string, unknown>));
+  const orders: Order[] = (ordersRes.data ?? []).map((row: any) => mapOrder(row as Record<string, unknown>));
 
   // If a rider is fetching the data, load extra pool orders from other tenants
   // that have allow_external_riders enabled
@@ -141,10 +145,10 @@ export async function GET(request: Request) {
         .or(queryParts.join(','));
         
       if (sharedOrdersRes && sharedOrdersRes.length > 0) {
-        const sharedOrders = sharedOrdersRes.map((row) => mapOrder(row as Record<string, unknown>));
+        const sharedOrders = sharedOrdersRes.map((row: any) => mapOrder(row as Record<string, unknown>));
         // Add to orders list, avoiding duplicates
-        const ownOrderIds = new Set(orders.map(o => o.id));
-        sharedOrders.forEach((o) => {
+        const ownOrderIds = new Set(orders.map((o: Order) => o.id));
+        sharedOrders.forEach((o: Order) => {
           if (!ownOrderIds.has(o.id)) {
             orders.push(o);
           }
@@ -155,7 +159,7 @@ export async function GET(request: Request) {
     console.error('[Bootstrap] Failed to merge shared pool orders:', err);
   }
 
-  const ordersById = new Map(orders.map((order) => [order.id, order]));
+  const ordersById = new Map<string, Order>(orders.map((order: Order) => [order.id, order]));
   const cashRow = cashRes.data as (Record<string, unknown> & { cash_transactions?: Record<string, unknown>[] }) | null;
   const cashSession: CashSession | null = cashRow ? {
     id: String(cashRow.id),
@@ -197,12 +201,12 @@ export async function GET(request: Request) {
   // Mezclar delivery_details y pedidos a domicilio activos
   const finalDeliveries: DeliveryAssignment[] = orders
     .filter(
-      (o) =>
+      (o: Order) =>
         (o.type === 'delivery' || (o.delivery_address && o.delivery_address !== 'Para Recoger en el local')) &&
         !['cancelled', 'draft'].includes(o.status)
     )
-    .map((o, i) => {
-      const existing = deliveries.find((d) => d.order_id === o.id);
+    .map((o: Order, i: number) => {
+      const existing = deliveries.find((d: DeliveryAssignment) => d.order_id === o.id);
       if (existing) {
         existing.order = o;
         return existing;

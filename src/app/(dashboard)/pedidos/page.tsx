@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer } from 'lucide-react';
+import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search } from 'lucide-react';
 import { ridersService } from '@/services/api';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
@@ -217,6 +217,8 @@ export default function PedidosPage() {
   const [newAddress, setNewAddress] = useState('');
   const [newNotes, setNewNotes] = useState('');
   const [newItems, setNewItems] = useState<{ product: Product; quantity: number }[]>([]);
+  const [newProductSearch, setNewProductSearch] = useState('');
+  const [editProductSearch, setEditProductSearch] = useState('');
 
   // Órdenes filtradas por tipo, categoría y búsqueda (aplica a Kanban y Lista)
   const baseFilteredOrders = orders.filter(o => {
@@ -294,11 +296,34 @@ export default function PedidosPage() {
         delivery_address: editType === 'delivery' ? editAddress : undefined,
       });
       await updateOrderStatus(selectedOrder.id, editStatus);
+
+      // Persist order_items changes to Supabase
+      try {
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        if (supabase && editItems.length > 0) {
+          // Delete old items then re-insert
+          await supabase.from('order_items').delete().eq('order_id', selectedOrder.id);
+          const itemRows = editItems.map(item => ({
+            order_id: selectedOrder.id,
+            product_id: item.product.id,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            notes: item.notes || null,
+          }));
+          await supabase.from('order_items').insert(itemRows);
+        }
+      } catch (itemErr) {
+        console.warn('[EditOrder] order_items update failed:', itemErr);
+      }
+
       setSelectedOrder(null);
+      setEditProductSearch('');
     } catch (e) {
       console.error(e);
     }
   };
+
 
   const handleDeleteOrder = async () => {
     if (!selectedOrder) return;
@@ -601,7 +626,7 @@ export default function PedidosPage() {
                   {new Date(selectedOrder.created_at).toLocaleString('es-CO')}
                 </p>
               </div>
-              <button onClick={() => setSelectedOrder(null)} className="p-2 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer transition-colors">
+              <button onClick={() => { setSelectedOrder(null); setEditProductSearch(''); }} className="p-2 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer transition-colors">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -641,6 +666,61 @@ export default function PedidosPage() {
                   {editItems.length === 0 && (
                     <p className="text-xs text-center py-4" style={{ color: 'var(--text-muted)' }}>Sin productos — el pedido será eliminado si guardas vacío.</p>
                   )}
+                </div>
+              </div>
+
+              {/* Add products to existing order */}
+              <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Agregar productos</p>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <input
+                    value={editProductSearch}
+                    onChange={(e) => setEditProductSearch(e.target.value)}
+                    placeholder="Buscar platillo..."
+                    className="w-full pl-9 pr-4 py-2 rounded-xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)] transition-all"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                  {products.filter(p => p.is_available && (
+                    !editProductSearch.trim() ||
+                    p.name.toLowerCase().includes(editProductSearch.toLowerCase()) ||
+                    (p.category ?? '').toLowerCase().includes(editProductSearch.toLowerCase())
+                  )).map(p => {
+                    const existingIdx = editItems.findIndex(i => i.product.id === p.id);
+                    const qty = existingIdx >= 0 ? editItems[existingIdx].quantity : 0;
+                    return (
+                      <div key={p.id}
+                        className="flex justify-between items-center p-2 rounded-xl border bg-[var(--bg-input)] transition-colors"
+                        style={{ borderColor: qty > 0 ? 'var(--orange)' : 'var(--border)' }}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-black truncate text-[var(--text-primary)]">{p.name}</p>
+                          <p className="text-[9px] font-bold" style={{ color: 'var(--orange)' }}>{formatCurrency(p.price)}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0 ml-1.5">
+                          {qty > 0 && (
+                            <button type="button"
+                              onClick={() => setEditItems(prev => prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0))}
+                              className="w-5 h-5 rounded-md flex items-center justify-center bg-rose-500/10 text-rose-500 font-bold hover:bg-rose-500/20 text-[10px] transition-colors">-
+                            </button>
+                          )}
+                          {qty > 0 && <span className="text-xs font-black w-4 text-center text-[var(--text-primary)]">{qty}</span>}
+                          <button type="button"
+                            onClick={() => {
+                              if (existingIdx >= 0) {
+                                setEditItems(prev => prev.map(i => i.product.id === p.id ? { ...i, quantity: i.quantity + 1 } : i));
+                              } else {
+                                setEditItems(prev => [...prev, { id: p.id, product: p, quantity: 1, unit_price: p.price }]);
+                              }
+                            }}
+                            className="w-5 h-5 rounded-md flex items-center justify-center bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500/20 text-[10px] transition-colors">+
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -842,8 +922,23 @@ export default function PedidosPage() {
               {/* Product Selector */}
               <div className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
                 <p className="text-xs font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Seleccionar Productos</p>
+                {/* Product search */}
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <input
+                    value={newProductSearch}
+                    onChange={(e) => setNewProductSearch(e.target.value)}
+                    placeholder="Buscar platillo o categoría..."
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)] transition-all"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
-                  {products.filter(p => p.is_available).map(p => {
+                  {products.filter(p => p.is_available && (
+                    !newProductSearch.trim() ||
+                    p.name.toLowerCase().includes(newProductSearch.toLowerCase()) ||
+                    (p.category ?? '').toLowerCase().includes(newProductSearch.toLowerCase())
+                  )).map(p => {
                     const count = newItems.find(item => item.product.id === p.id)?.quantity ?? 0;
                     return (
                       <div key={p.id} className="flex justify-between items-center p-2.5 rounded-xl border bg-[var(--bg-input)] transition-colors hover:border-[var(--orange)]" style={{ borderColor: count > 0 ? 'var(--orange)' : 'var(--border)' }}>

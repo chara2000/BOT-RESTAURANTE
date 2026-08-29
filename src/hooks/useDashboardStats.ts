@@ -14,9 +14,14 @@ export function useDashboardStats(tenantId?: string) {
         p_tenant_id: activeTid
       });
       
-      if (error) throw error;
+      // Silently return null if RPC fails (e.g. empty tenant with no orders)
+      if (error) {
+        console.warn('[DashboardStats] RPC error (non-critical):', error.message);
+        return null;
+      }
       return data;
     },
     refetchInterval: 60000, // Refresh every minute
+    retry: false, // Don't retry on 400 errors
   });
 }

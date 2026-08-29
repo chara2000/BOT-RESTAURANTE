@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Minus, Plus, ShoppingCart, Trash2, Tag, Info } from 'lucide-react';
+import { Minus, Plus, ShoppingCart, Trash2, Tag, Info, Search } from 'lucide-react';
 import { useAppData } from '@/context/AppDataContext';
 import { createOrderViaN8n } from '@/services/n8n';
 import { formatCurrency } from '@/lib/utils';
@@ -31,7 +31,18 @@ export function PosSalePanel() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const [posSearch, setPosSearch] = useState('');
+
   const available = products.filter((p) => p.is_available);
+  const filteredAvailable = useMemo(
+    () => posSearch.trim()
+      ? available.filter(p =>
+          p.name.toLowerCase().includes(posSearch.toLowerCase()) ||
+          (p.category ?? '').toLowerCase().includes(posSearch.toLowerCase())
+        )
+      : available,
+    [available, posSearch]
+  );
   const subtotal = useMemo(
     () => cart.reduce((sum, line) => sum + line.product.price * line.quantity, 0),
     [cart]
@@ -124,9 +135,23 @@ export function PosSalePanel() {
             </span>
           </div>
 
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--text-muted)]" />
+            <input
+              value={posSearch}
+              onChange={(e) => setPosSearch(e.target.value)}
+              placeholder="Buscar platillo o categoría..."
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl text-xs font-semibold border outline-none focus:ring-2 focus:ring-[var(--orange)] transition-all"
+              style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+
           <div className="max-h-[520px] overflow-y-auto pr-1">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {available.map((p) => (
+              {filteredAvailable.length === 0 ? (
+                <p className="col-span-3 text-center py-8 text-xs font-bold" style={{ color: 'var(--text-muted)' }}>Sin resultados para &quot;{posSearch}&quot;</p>
+              ) : filteredAvailable.map((p) => (
                 <button
                   key={p.id}
                   type="button"

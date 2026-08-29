@@ -298,123 +298,145 @@ export default function MenuPage() {
           ))}
         </div>
 
-        {/* Form Create/Edit Product */}
+        {/* Create / Edit Product Modal */}
         {showForm && (
-          <form key={editing?.id ?? 'new'} onSubmit={handleSave} className="card p-6 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in-up border shadow-xl" style={{ borderColor: 'var(--orange-glow)' }}>
-            <div className="md:col-span-2 flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
-              <h3 className="text-base font-black flex items-center gap-2">
-                <Tag className="w-5 h-5 text-[var(--orange)]" />
-                {editing ? `Editar "${editing.name}"` : 'Nuevo Producto / Platillo'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-              >
-                ✕ Cerrar
-              </button>
-            </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div
+              className="w-full max-w-2xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh] overflow-hidden"
+              style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+            >
+              {/* Modal Header */}
+              <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--orange-soft)] text-[var(--orange)]">
+                    <Utensils className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-[var(--text-primary)]">
+                      {editing ? `Editar "${editing.name}"` : 'Nuevo Producto / Platillo'}
+                    </h3>
+                    <p className="text-xs font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {editing ? 'Modifica los datos, precio, categoría o foto del platillo' : 'Agrega un nuevo platillo a la carta de tu restaurante'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="p-2 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Nombre del Platillo *
-              </label>
-              <input
-                type="text"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Ej: Salchipapa Salvaje, Hamburguesa Doble, Granizado de Milo..."
-                required
-                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-            </div>
-            
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Precio en COP *
-              </label>
-              <input
-                type="number"
-                value={formPrice}
-                onChange={(e) => setFormPrice(e.target.value)}
-                placeholder="Ej: 28000"
-                required
-                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-            </div>
+              {/* Modal Body / Scrollable Form Content */}
+              <form id="product-form" onSubmit={handleSave} className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                      Nombre del Platillo *
+                    </label>
+                    <input
+                      type="text"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      placeholder="Ej: Salchipapa Salvaje, Hamburguesa Doble, Granizado de Milo..."
+                      required
+                      className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                      style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                      Precio en COP *
+                    </label>
+                    <input
+                      type="number"
+                      value={formPrice}
+                      onChange={(e) => setFormPrice(e.target.value)}
+                      placeholder="Ej: 28000"
+                      required
+                      className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                      style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+                </div>
 
-            <div className="md:col-span-2">
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Categoría *
-              </label>
-              <select
-                value={formCategory}
-                onChange={(e) => setFormCategory(e.target.value)}
-                required
-                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                    Categoría *
+                  </label>
+                  <select
+                    value={formCategory}
+                    onChange={(e) => setFormCategory(e.target.value)}
+                    required
+                    className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)] cursor-pointer"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  >
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="md:col-span-2">
-              <ImageInputPicker
-                label="Imagen del Platillo (Foto de Referencia o Archivo Local)"
-                value={formImageUrl}
-                onChange={(url) => setFormImageUrl(url)}
-                placeholder="https://images.unsplash.com/..."
-                bucket="products"
-              />
-            </div>
+                <div>
+                  <ImageInputPicker
+                    label="Imagen del Platillo (Foto de Referencia o Archivo Local)"
+                    value={formImageUrl}
+                    onChange={(url) => setFormImageUrl(url)}
+                    placeholder="https://images.unsplash.com/..."
+                    bucket="products"
+                  />
+                </div>
 
-            <div className="md:col-span-2">
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                Descripción del Platillo
-              </label>
-              <textarea
-                value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                placeholder="Descripción apetitosa con ingredientes y detalles de preparación..."
-                rows={3}
-                className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-            </div>
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                    Descripción del Platillo
+                  </label>
+                  <textarea
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="Descripción apetitosa con ingredientes y detalles de preparación..."
+                    rows={3}
+                    className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)] resize-none"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
 
-            <label className="flex items-center gap-3 text-xs font-black md:col-span-2 cursor-pointer p-3 rounded-xl border w-max" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
-              <input
-                type="checkbox"
-                checked={formAvailable}
-                onChange={(e) => setFormAvailable(e.target.checked)}
-                className="w-4 h-4 accent-[var(--orange)]"
-              />
-              Disponible para la venta
-            </label>
+                <label className="flex items-center gap-3 text-xs font-black cursor-pointer p-3.5 rounded-xl border" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
+                  <input
+                    type="checkbox"
+                    checked={formAvailable}
+                    onChange={(e) => setFormAvailable(e.target.checked)}
+                    className="w-4 h-4 accent-[var(--orange)]"
+                  />
+                  <span>Disponible para la venta en el menú y pedidos</span>
+                </label>
+              </form>
 
-            <div className="flex gap-3 md:col-span-2 pt-2">
-              <button
-                type="submit"
-                disabled={saving}
-                className="text-xs font-black px-6 py-3 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
-                style={{ background: 'var(--orange)' }}
-              >
-                {saving ? 'Guardando...' : editing ? 'Actualizar Producto' : 'Publicar Producto'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="text-xs font-black px-6 py-3 rounded-xl border hover:bg-[var(--bg-input)] cursor-pointer"
-                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              >
-                Cancelar
-              </button>
+              {/* Modal Footer */}
+              <div className="flex justify-end items-center gap-3 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="text-xs font-black px-5 py-2.5 rounded-xl border hover:bg-[var(--bg-input)] cursor-pointer transition-colors"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  form="product-form"
+                  disabled={saving}
+                  className="text-xs font-black px-6 py-2.5 rounded-xl text-white shadow-[0_4px_12px_var(--orange-glow)] hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  style={{ background: 'var(--orange)' }}
+                >
+                  {saving ? 'Guardando...' : editing ? 'Guardar Cambios' : 'Publicar Producto'}
+                </button>
+              </div>
             </div>
-          </form>
+          </div>
         )}
 
         {/* Product Cards Grid */}

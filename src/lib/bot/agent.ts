@@ -39,6 +39,10 @@ export interface BotSession {
   location?: { latitude: number; longitude: number };
   pendingRatingOrderId?: string; // ID del pedido que el cliente va a calificar
   pendingRiderName?: string;     // Nombre del repartidor que va a calificar
+  lastActivityTimestamp?: number; // Marca de tiempo de la última interacción
+  reminder1Sent?: boolean;       // Recordatorio intermedio (3.5 - 6 min)
+  reminder2Sent?: boolean;       // Recordatorio de advertencia (7 - 9 min)
+  tenantId?: string;
 }
 
 export interface BotResponse {
@@ -57,43 +61,84 @@ function sessionKey(tenantId: string, chatId: number): string {
   return `${tenantId}:${chatId}`;
 }
 
+const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 Minutos
+
 async function getSession(chatId: number, username: string, tenantId: string): Promise<BotSession> {
   const key = sessionKey(tenantId, chatId);
+  let session: BotSession | null = null;
 
   // 1. Usar memoria global si existe
   if (globalSessions[key]) {
-    globalSessions[key].customerName = username || globalSessions[key].customerName;
-    return globalSessions[key];
-  }
+    session = globalSessions[key];
+    session.customerName = username || session.customerName;
+  } else {
+    // 2. Intentar leer de chat_messages
+    try {
+      const { data: legacy } = await supabase
+        .from('chat_messages')
+        .select('metadata')
+        .eq('content', 'SESSION_STATE')
+        .eq('tenant_id', tenantId)
+        .eq('metadata->>chatId', chatId.toString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-  // 2. Intentar leer de chat_messages
-  try {
-    const { data: legacy } = await supabase
-      .from('chat_messages')
-      .select('metadata')
-      .eq('content', 'SESSION_STATE')
-      .eq('tenant_id', tenantId)
-      .eq('metadata->>chatId', chatId.toString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (legacy?.metadata) {
-      globalSessions[key] = legacy.metadata as BotSession;
-      globalSessions[key].customerName = username || globalSessions[key].customerName;
-      return globalSessions[key];
+      if (legacy?.metadata) {
+        session = legacy.metadata as BotSession;
+        session.customerName = username || session.customerName;
+        globalSessions[key] = session;
+      }
+    } catch (e) {
+      // Ignorar si no existe registro
     }
-  } catch (e) {
-    // Ignorar si no existe registro
   }
 
-  const newSession: BotSession = { chatId, state: 'idle', cart: [], customerName: username };
-  globalSessions[key] = newSession;
-  return newSession;
+  const now = Date.now();
+
+  if (!session) {
+    session = {
+      chatId,
+      state: 'idle',
+      cart: [],
+      customerName: username,
+      lastActivityTimestamp: now,
+      tenantId,
+      reminder1Sent: false,
+      reminder2Sent: false,
+    };
+    globalSessions[key] = session;
+    return session;
+  }
+
+  // 3. Comprobar si la sesión previa expiró por inactividad (> 10 minutos)
+  if (session.lastActivityTimestamp && (now - session.lastActivityTimestamp > INACTIVITY_TIMEOUT_MS)) {
+    const hadActiveProcess = session.state !== 'idle' || (session.cart && session.cart.length > 0);
+    session.state = 'idle';
+    session.cart = [];
+    session.selectedProduct = undefined;
+    session.pendingItem = undefined;
+    session.paymentMethod = undefined;
+    session.changeAmount = undefined;
+    session.pendingCancelOrderId = undefined;
+    session.reminder1Sent = false;
+    session.reminder2Sent = false;
+    if (hadActiveProcess) {
+      (session as any).wasExpiredDueToInactivity = true;
+    }
+  }
+
+  session.lastActivityTimestamp = now;
+  session.tenantId = tenantId;
+  return session;
 }
 
 async function saveSession(session: BotSession, tenantId: string): Promise<void> {
   const key = sessionKey(tenantId, session.chatId);
+  session.tenantId = tenantId;
+  if (!session.lastActivityTimestamp) {
+    session.lastActivityTimestamp = Date.now();
+  }
   // 1. Guardar en memoria siempre
   globalSessions[key] = session;
 
@@ -1197,11 +1242,37 @@ export async function processMessage(
   botCredentials?: { botToken?: string; adminChatId?: string }
 ): Promise<BotResponse> {
   if (text.trim() === '/start') {
-    const freshSession: BotSession = { chatId, state: 'idle', cart: [], customerName: username };
+    const freshSession: BotSession = {
+      chatId,
+      state: 'idle',
+      cart: [],
+      customerName: username,
+      lastActivityTimestamp: Date.now(),
+      tenantId,
+      reminder1Sent: false,
+      reminder2Sent: false,
+    };
     await saveSession(freshSession, tenantId);
   }
 
   const session = await getSession(chatId, username, tenantId);
+
+  // Si la sesión expiró por superar los 10 minutos de inactividad
+  if ((session as any).wasExpiredDueToInactivity) {
+    delete (session as any).wasExpiredDueToInactivity;
+    if (text.trim() !== '/start') {
+      return {
+        text: `⏰ *Tu sesión anterior ha expirado por inactividad (más de 10 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
+            [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
+            [{ text: '🙋 Hablar con el Encargado', callback_data: 'contact_manager' }],
+          ],
+        },
+      };
+    }
+  }
 
   // Verificar horario de atención antes de procesar el mensaje
   const tenantSettings = await getTenantSettings(tenantId);
@@ -1481,6 +1552,24 @@ export async function processCallback(
   botCredentials?: { botToken?: string; adminChatId?: string }
 ): Promise<BotResponse> {
   const session = await getSession(chatId, username, tenantId);
+
+  // Si la sesión expiró por superar los 10 minutos de inactividad
+  if ((session as any).wasExpiredDueToInactivity) {
+    delete (session as any).wasExpiredDueToInactivity;
+    if (callbackData !== 'menu' && !callbackData.startsWith('cat:')) {
+      return {
+        text: `⏰ *Tu sesión anterior ha expirado por inactividad (más de 10 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
+            [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
+            [{ text: '🙋 Hablar con el Encargado', callback_data: 'contact_manager' }],
+          ],
+        },
+      };
+    }
+  }
+
   const response = await handleProcessCallback(session, callbackData, tenantId, botCredentials);
   await saveSession(session, tenantId);
   return response;
@@ -1655,6 +1744,147 @@ async function handleProcessCallback(
     return askItemNoteScreen(session, qty, prodId, tenantId);
   }
 
-
   return welcomeScreen();
+}
+
+/**
+ * Escanea todas las sesiones activas en el bot y envía recordatorios automáticos
+ * por inactividad (3.5 min, 7 min) o libera carritos y cierra sesión a los 10 min.
+ */
+export async function checkInactivityAndSendReminders(defaultBotToken?: string): Promise<{ checked: number; remindersSent: number; expired: number }> {
+  const now = Date.now();
+  const REMINDER_1_MS = 3.5 * 60 * 1000; // 3.5 min
+  const REMINDER_2_MS = 7 * 60 * 1000;   // 7 min
+  const TIMEOUT_MS = 10 * 60 * 1000;     // 10 min
+
+  let remindersSent = 0;
+  let expired = 0;
+  let checked = 0;
+
+  for (const [key, session] of Object.entries(globalSessions)) {
+    if (!session || !session.lastActivityTimestamp) continue;
+    const hasPendingOrder = (session.cart && session.cart.length > 0) || session.state !== 'idle';
+    if (!hasPendingOrder) continue;
+
+    checked++;
+    const elapsed = now - session.lastActivityTimestamp;
+    const tenantId = session.tenantId || key.split(':')[0] || 'a0000000-0000-4000-8000-000000000001';
+
+    let token = defaultBotToken || process.env.TELEGRAM_BOT_TOKEN;
+    try {
+      const { data: tSettings } = await supabase
+        .from('tenant_settings')
+        .select('telegram_bot_token')
+        .eq('tenant_id', tenantId)
+        .single();
+      if (tSettings?.telegram_bot_token) {
+        token = tSettings.telegram_bot_token;
+      }
+    } catch (e) {
+      // Usar token general por defecto
+    }
+
+    if (!token) continue;
+    const botInstance = new Telegraf(token);
+
+    // 1. Primer Recordatorio (3.5 - 6.9 minutos)
+    if (elapsed >= REMINDER_1_MS && elapsed < REMINDER_2_MS && !session.reminder1Sent) {
+      session.reminder1Sent = true;
+      try {
+        const name = session.customerName ? ` ${session.customerName}` : '';
+        const itemCount = (session.cart || []).reduce((acc, i) => acc + i.quantity, 0);
+        const subtotal = (session.cart || []).reduce((acc, i) => acc + i.unit_price * i.quantity, 0);
+        const cartInfo = (session.cart && session.cart.length > 0)
+          ? `\n\n🛍️ *Tienes ${itemCount} producto(s) en tu pedido:* $${subtotal.toLocaleString('es-CO')}`
+          : '';
+
+        await botInstance.telegram.sendMessage(
+          session.chatId,
+          `🔔 *¡Hola${name}!* Notamos que tu pedido está en pausa.${cartInfo}\n\n¿Deseas concluir tu orden antes de que expire la sesión? Nuestros cocineros están listos para preparar tus platillos. 🍳`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🛒 Ver Carrito y Concluir Pedido', callback_data: 'cart' }],
+                [{ text: '🍽️ Continuar Viendo Menú', callback_data: 'menu' }],
+                [{ text: '❌ Cancelar y Empezar de Nuevo', callback_data: 'clear_cart' }],
+              ],
+            },
+          }
+        );
+        remindersSent++;
+        await saveSession(session, tenantId);
+      } catch (err) {
+        console.warn(`[Inactivity Reminder 1] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+      }
+    }
+    // 2. Segundo Recordatorio Urgente (7 - 9.9 minutos)
+    else if (elapsed >= REMINDER_2_MS && elapsed < TIMEOUT_MS && !session.reminder2Sent) {
+      session.reminder2Sent = true;
+      try {
+        await botInstance.telegram.sendMessage(
+          session.chatId,
+          `⏳ *¡Tu pedido está a punto de vencer!*\n\nTu sesión se cerrará automáticamente en *3 minutos* por inactividad. ¿Deseas confirmar tu orden ahora? 👇`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🛒 Finalizar Mi Pedido Ahora', callback_data: 'cart' }],
+                [{ text: '❌ Descartar Pedido', callback_data: 'clear_cart' }],
+              ],
+            },
+          }
+        );
+        remindersSent++;
+        await saveSession(session, tenantId);
+      } catch (err) {
+        console.warn(`[Inactivity Reminder 2] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+      }
+    }
+    // 3. Expiración Definitiva (> 10 minutos)
+    else if (elapsed >= TIMEOUT_MS) {
+      session.state = 'idle';
+      session.cart = [];
+      session.selectedProduct = undefined;
+      session.pendingItem = undefined;
+      session.paymentMethod = undefined;
+      session.reminder1Sent = false;
+      session.reminder2Sent = false;
+      session.lastActivityTimestamp = now;
+      expired++;
+
+      try {
+        await botInstance.telegram.sendMessage(
+          session.chatId,
+          `⏰ *Tu sesión ha expirado por inactividad (+10 min).*\n\nHemos liberado tu carrito. Cuando desees ordenar nuevamente, simplemente presiona el botón abajo o escribe */start*. ¡Con gusto te atenderemos!`,
+          {
+            parse_mode: 'Markdown',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: '🍽️ Ver Menú Principal', callback_data: 'menu' }],
+              ],
+            },
+          }
+        );
+        await saveSession(session, tenantId);
+      } catch (err) {
+        console.warn(`[Inactivity Expiry] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+      }
+    }
+  }
+
+  return { checked, remindersSent, expired };
+}
+
+// Iniciar worker periódico de inactividad de forma segura
+if (typeof setInterval !== 'undefined') {
+  if (!(globalThis as any).__botInactivityInterval) {
+    (globalThis as any).__botInactivityInterval = setInterval(async () => {
+      try {
+        await checkInactivityAndSendReminders();
+      } catch (e) {
+        console.warn('[Bot Inactivity Worker Error]:', e);
+      }
+    }, 45_000);
+  }
 }

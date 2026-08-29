@@ -95,6 +95,7 @@ export function registerServiceWorker(): void {
         .register('/sw.js')
         .then((registration) => {
           console.log('[SW] Registered successfully scope:', registration.scope);
+          registration.update().catch(() => {});
         })
         .catch((err) => {
           console.warn('[SW] Registration failed:', err);

@@ -1,17 +1,18 @@
 /**
- * ChefFlow PWA Service Worker v4
- * - NEVER caches /manifest.webmanifest (served by Next.js, must always be fresh)
- * - NEVER caches Auth, API, or Supabase endpoints
- * - Filters unsupported request schemes
+ * ChefFlow PWA Service Worker v7
+ * - Fully compatible with Next.js App Router & Server Components (RSC)
+ * - NEVER intercepts RSC (_rsc query/headers), APIs, Supabase, or dynamic routes
+ * - Guaranteed valid Response returns (no undefined promises)
+ * - Cache invalidation and clean offline fallback
  */
 
-const CACHE_NAME = 'chefflow-static-v5';
+const CACHE_NAME = 'chefflow-pwa-v7';
 const PRECACHE_ASSETS = [
   '/',
   '/favicon.svg',
 ];
 
-// Install
+// Install: precache essential shell assets
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE_NAME).then(function (cache) {
@@ -22,7 +23,7 @@ self.addEventListener('install', function (event) {
   );
 });
 
-// Activate — clean old caches
+// Activate: delete all previous obsolete caches
 self.addEventListener('activate', function (event) {
   event.waitUntil(
     caches.keys().then(function (keys) {
@@ -35,66 +36,101 @@ self.addEventListener('activate', function (event) {
   );
 });
 
-// Fetch
+// Fetch handler
 self.addEventListener('fetch', function (event) {
+  var req = event.request;
+  if (!req || req.method !== 'GET') {
+    return;
+  }
+
   var url;
   try {
-    url = new URL(event.request.url);
+    url = new URL(req.url);
   } catch (e) {
     return;
   }
 
-  // 1. Only handle http/https
+  // 1. Only handle standard HTTP/HTTPS protocols
   if (!url.protocol || !url.protocol.startsWith('http')) {
     return;
   }
 
-  // 2. ALWAYS bypass: manifest (must be served fresh by Next.js), API, Auth, Supabase
+  // 2. ALWAYS BYPASS:
+  // - Dynamic APIs, Auth, Login, Next.js Server Actions, Supabase, external APIs
+  // - Next.js RSC router requests (?_rsc=... or RSC headers)
+  // - Web Manifest files (must always be freshly generated)
+  var isRSC = url.searchParams.has('_rsc') || req.headers.get('RSC') === '1' || req.headers.has('Next-Router-State-Tree');
   if (
+    isRSC ||
     url.pathname === '/manifest.webmanifest' ||
     url.pathname === '/manifest.json' ||
     url.pathname.startsWith('/api') ||
     url.pathname.startsWith('/auth') ||
     url.pathname.startsWith('/login') ||
     url.hostname.includes('supabase.co') ||
-    event.request.method !== 'GET'
+    url.hostname !== self.location.hostname
   ) {
-    return; // fall through to browser default (network)
+    return; // Fall through to standard browser network fetch
   }
 
-  // 3. Network first for navigation (HTML)
-  if (event.request.mode === 'navigate') {
+  // 3. Navigation requests (Full page HTML load) -> Network First with offline fallback
+  var isNavigation = req.mode === 'navigate' || (req.headers.get('accept') && req.headers.get('accept').includes('text/html'));
+  if (isNavigation) {
     event.respondWith(
-      fetch(event.request).catch(function () {
-        return caches.match(event.request).then(function (res) {
-          if (res) return res;
-          return caches.match('/').then(function (fallback) {
-            return fallback || new Response('<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Offline</title></head><body style="font-family:sans-serif;text-align:center;padding:50px;background:#f8fafc;color:#0f172a"><h2>Conexión no disponible</h2><p>Por favor verifica tu conexión a internet e intenta de nuevo.</p></body></html>', {
-              status: 503,
-              headers: { 'Content-Type': 'text/html' }
+      fetch(req)
+        .then(function (networkResponse) {
+          if (networkResponse && networkResponse.status === 200) {
+            var copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then(function (cache) {
+              cache.put(req, copy).catch(function () {});
+            });
+          }
+          return networkResponse;
+        })
+        .catch(function () {
+          return caches.match(req).then(function (cached) {
+            if (cached) return cached;
+            return caches.match('/').then(function (root) {
+              if (root) return root;
+              return new Response(
+                '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>ChefFlow Offline</title><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#f8fafc;text-align:center;padding:20px}h2{font-size:22px;margin-bottom:8px}p{color:#94a3b8;font-size:14px}button{margin-top:16px;padding:10px 22px;background:#f97316;color:white;border:none;border-radius:12px;font-weight:bold;cursor:pointer;box-shadow:0 4px 14px rgba(249,115,22,0.4)}</style></head><body><div><h2>Conexión no disponible</h2><p>Verifica tu conexión a internet para continuar usando ChefFlow.</p><button onclick="window.location.reload()">Reintentar</button></div></body></html>',
+                {
+                  status: 200,
+                  headers: { 'Content-Type': 'text/html; charset=utf-8' }
+                }
+              );
             });
           });
-        });
+        })
+    );
+    return;
+  }
+
+  // 4. Static Assets (/_next/static/*, images, fonts, icons) -> Stale While Revalidate
+  var isStaticAsset = url.pathname.startsWith('/_next/static/') || /\.(?:png|jpg|jpeg|svg|webp|gif|ico|woff|woff2|ttf|css|js)$/i.test(url.pathname);
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.match(req).then(function (cachedResponse) {
+        var fetchPromise = fetch(req)
+          .then(function (networkResponse) {
+            if (networkResponse && networkResponse.status === 200) {
+              var responseToCache = networkResponse.clone();
+              caches.open(CACHE_NAME).then(function (cache) {
+                cache.put(req, responseToCache).catch(function () {});
+              });
+            }
+            return networkResponse;
+          })
+          .catch(function () {
+            if (cachedResponse) return cachedResponse;
+            return new Response('', { status: 408, statusText: 'Request timeout' });
+          });
+
+        return cachedResponse || fetchPromise;
       })
     );
     return;
   }
 
-  // 4. Stale-while-revalidate for static assets only
-  event.respondWith(
-    caches.match(event.request).then(function (cachedResponse) {
-      var fetchPromise = fetch(event.request).then(function (networkResponse) {
-        if (networkResponse && networkResponse.status === 200 && url.protocol.startsWith('http')) {
-          var responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then(function (cache) {
-            cache.put(event.request, responseToCache).catch(function () {});
-          });
-        }
-        return networkResponse;
-      }).catch(function () {
-        return cachedResponse;
-      });
-      return cachedResponse || fetchPromise;
-    })
-  );
+  // 5. Default fallback: do not call event.respondWith to let standard network handle it
 });

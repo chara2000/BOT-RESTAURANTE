@@ -7,7 +7,6 @@ import { useAuth } from '@/context/AuthContext';
 import { createClient } from '@/lib/supabase/client';
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
 import { safeLocalStorage } from '@/lib/utils/safeStorage';
-import { useDashboardStats } from '@/hooks/useDashboardStats';
 import {
   cashService,
   categoriesService,
@@ -258,7 +257,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [isLoading, setIsLoading] = useState(useSupabase);
-  const { data: serverStats } = useDashboardStats();
 
   const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] => {
     const lat = settings?.restaurant_lat ?? 3.2311;
@@ -886,8 +884,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, [user, activeTenantId, syncFromSupabase]);
 
-  const localStats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
-  const stats = serverStats ?? localStats;
+  const stats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
   const lowStockCount = inventory.filter((i) => i.stock <= i.min_stock).length;
   const activeOrdersCount = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length;
 

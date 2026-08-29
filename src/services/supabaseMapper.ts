@@ -1,41 +1,49 @@
 import type { Customer, InventoryItem, Order, OrderItem, Product, TenantSettings } from '@/types';
 
 export function mapProduct(row: Record<string, unknown>): Product {
-  const categories = row.categories as { name?: string } | null;
+  let r = row;
+  if (Array.isArray(r)) r = r[0] || {};
+  const categories = (r.categories || (r as any).category) as { name?: string } | string | null;
+  const categoryName = typeof categories === 'string' ? categories : (categories?.name ?? 'General');
+
   return {
-    id: String(row.id),
-    name: String(row.name),
-    category: categories?.name ?? 'General',
-    category_id: row.category_id ? String(row.category_id) : undefined,
-    price: Number(row.price),
-    description: String(row.description ?? ''),
-    image_url: String(row.image_url ?? ''),
-    is_available: Boolean(row.is_available ?? true),
-    is_combo: Boolean(row.is_combo ?? false),
+    id: String(r.id ?? ''),
+    name: String(r.name ?? 'Producto'),
+    category: categoryName,
+    category_id: r.category_id ? String(r.category_id) : undefined,
+    price: Number(r.price ?? 0),
+    description: String(r.description ?? ''),
+    image_url: String(r.image_url ?? ''),
+    is_available: Boolean(r.is_available ?? true),
+    is_combo: Boolean(r.is_combo ?? false),
   };
 }
 
 export function mapCustomer(row: Record<string, unknown>): Customer {
+  let cust = row;
+  if (Array.isArray(cust)) cust = cust[0] || {};
   return {
-    id: String(row.id),
-    name: String(row.name),
-    phone: String(row.phone ?? ''),
-    email: row.email ? String(row.email) : undefined,
-    telegram_chat_id: row.telegram_chat_id ? String(row.telegram_chat_id) : undefined,
-    segment: (row.segment as Customer['segment']) ?? 'new',
-    total_spent: Number(row.total_spent ?? 0),
-    order_count: Number(row.order_count ?? 0),
-    address_default: row.address_default ? String(row.address_default) : undefined,
+    id: String(cust.id ?? ''),
+    name: String(cust.name ?? 'Cliente'),
+    phone: String(cust.phone ?? ''),
+    email: cust.email ? String(cust.email) : undefined,
+    telegram_chat_id: cust.telegram_chat_id ? String(cust.telegram_chat_id) : undefined,
+    segment: (cust.segment as Customer['segment']) ?? 'new',
+    total_spent: Number(cust.total_spent ?? 0),
+    order_count: Number(cust.order_count ?? 0),
+    address_default: cust.address_default ? String(cust.address_default) : undefined,
   };
 }
 
 export function mapOrderItem(row: Record<string, unknown>): OrderItem {
-  const productRow = row.products as Record<string, unknown> | null;
+  let productRow = (row.products || (row as any).product) as Record<string, unknown> | null;
+  if (Array.isArray(productRow)) productRow = productRow[0] || null;
+
   const product: Product = productRow
     ? mapProduct(productRow)
     : {
-        id: String(row.product_id ?? 'unknown'),
-        name: 'Producto',
+        id: String(row.product_id ?? (row as any).id ?? 'unknown'),
+        name: String((row as any).product_name || (row as any).name || 'Producto'),
         category: 'General',
         price: Number(row.unit_price ?? 0),
         description: '',
@@ -44,17 +52,19 @@ export function mapOrderItem(row: Record<string, unknown>): OrderItem {
       };
 
   return {
-    id: String(row.id),
+    id: String(row.id ?? row.product_id ?? Math.random().toString()),
     product,
-    quantity: Number(row.quantity),
-    unit_price: Number(row.unit_price),
+    quantity: Number(row.quantity ?? 1),
+    unit_price: Number(row.unit_price ?? product.price ?? 0),
     notes: row.notes ? String(row.notes) : undefined,
   };
 }
 
 export function mapOrder(row: Record<string, unknown>): Order {
-  const customerRow = row.customers as Record<string, unknown> | null;
-  const items = (row.order_items as Record<string, unknown>[] | null) ?? [];
+  let customerRow = row.customers as Record<string, unknown> | null;
+  if (Array.isArray(customerRow)) customerRow = customerRow[0] || null;
+
+  const items = (row.order_items as Record<string, unknown>[] | null) ?? (row.items as Record<string, unknown>[] | null) ?? [];
 
   return {
     id: String(row.id),
@@ -62,14 +72,14 @@ export function mapOrder(row: Record<string, unknown>): Order {
     type: row.type as Order['type'],
     status: row.status as Order['status'],
     payment_method: row.payment_method as Order['payment_method'],
-    subtotal: Number(row.subtotal),
-    delivery_fee: Number(row.delivery_fee),
-    tips: Number(row.tips),
-    total: Number(row.total),
+    subtotal: Number(row.subtotal ?? 0),
+    delivery_fee: Number(row.delivery_fee ?? 0),
+    tips: Number(row.tips ?? 0),
+    total: Number(row.total ?? 0),
     delivery_address: row.delivery_address ? String(row.delivery_address) : undefined,
     notes: row.notes ? String(row.notes) : undefined,
-    items: items.map(mapOrderItem),
-    created_at: String(row.created_at),
+    items: Array.isArray(items) ? items.map(mapOrderItem) : [],
+    created_at: String(row.created_at || new Date().toISOString()),
     updated_at: row.updated_at ? String(row.updated_at) : undefined,
     tracking_token: row.tracking_token ? String(row.tracking_token) : undefined,
     delivery_pin: row.delivery_pin ? String(row.delivery_pin) : undefined,

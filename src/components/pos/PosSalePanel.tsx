@@ -30,6 +30,7 @@ export function PosSalePanel() {
   // Customer selection states
   const [customerId, setCustomerId] = useState('');
   const [customerDisplayName, setCustomerDisplayName] = useState('Consumidor Final (Sin asignar)');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState(false);
   const [customerSearchText, setCustomerSearchText] = useState('');
   const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
@@ -120,6 +121,7 @@ export function PosSalePanel() {
   const handleSelectExistingCustomer = (c: Customer) => {
     setCustomerId(c.id);
     setCustomerDisplayName(c.name);
+    setCustomerPhone(c.phone || '');
     if (c.address_default && (orderType === 'delivery' || !deliveryAddress)) {
       setDeliveryAddress(c.address_default);
     }
@@ -132,6 +134,7 @@ export function PosSalePanel() {
     if (!trimmed) return;
     setCustomerId(trimmed);
     setCustomerDisplayName(trimmed);
+    setCustomerPhone('');
     setIsCustomerDropdownOpen(false);
     setCustomerSearchText('');
   };
@@ -139,6 +142,7 @@ export function PosSalePanel() {
   const handleClearCustomer = () => {
     setCustomerId('');
     setCustomerDisplayName('Consumidor Final (Sin asignar)');
+    setCustomerPhone('');
     setIsCustomerDropdownOpen(false);
     setCustomerSearchText('');
   };
@@ -164,6 +168,7 @@ export function PosSalePanel() {
 
       setCustomerId(created.id);
       setCustomerDisplayName(created.name);
+      setCustomerPhone(created.phone || newCustPhone.trim() || '');
       if (created.address_default) {
         setDeliveryAddress(created.address_default);
       }
@@ -175,6 +180,7 @@ export function PosSalePanel() {
     } catch (err) {
       // Fallback to quick name if DB create fails
       handleSelectQuickName(newCustName.trim());
+      setCustomerPhone(newCustPhone.trim());
       if (newCustAddress.trim()) setDeliveryAddress(newCustAddress.trim());
       setIsNewCustomerModalOpen(false);
     } finally {
@@ -187,12 +193,15 @@ export function PosSalePanel() {
     setLoading(true);
     setMessage(null);
     try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId);
       const payload = {
         order: {
           tenant_id: activeTenantId,
           type: orderType,
           payment_method: paymentMethod,
-          customer_id: customerId || undefined,
+          customer_id: isUuid ? customerId : undefined,
+          customer_name: customerDisplayName !== 'Consumidor Final (Sin asignar)' ? customerDisplayName : undefined,
+          customer_phone: customerPhone || undefined,
           subtotal,
           delivery_fee: deliveryFee,
           tips: 0,

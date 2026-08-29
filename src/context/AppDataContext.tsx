@@ -416,7 +416,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [dataSource, syncFromSupabase, orders]);
 
   const addOrder = useCallback((order: Order) => {
-    setOrders((prev) => [order, ...prev]);
+    setOrders((prev) => [order, ...prev.filter((o) => o.id !== order.id)]);
+    if (order.customer && order.customer.name) {
+      setCustomers((prev) => {
+        const exists = prev.some((c) => c.id === order.customer?.id || (order.customer?.name && c.name.toLowerCase() === order.customer.name.toLowerCase()));
+        if (!exists && order.customer) {
+          return [order.customer, ...prev];
+        }
+        return prev;
+      });
+    }
     if (
       order.type === 'delivery' ||
       (order.delivery_address && order.delivery_address !== 'Para Recoger en el local')
@@ -424,8 +433,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const lat = settings?.restaurant_lat ?? 3.2311;
       const lng = settings?.restaurant_lng ?? -76.4167;
       setDeliveries((prev) => [
-        ...prev,
         { order_id: order.id, order, status: 'searching', latitude: lat, longitude: lng },
+        ...prev.filter((d) => d.order_id !== order.id),
       ]);
     }
   }, [settings?.restaurant_lat, settings?.restaurant_lng]);

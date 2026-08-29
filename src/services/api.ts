@@ -104,16 +104,13 @@ export const productsService = {
 
 export const customersService = {
   async getAll(tenantId?: string): Promise<Customer[]> {
-    const supabase = createClient();
-    if (!supabase) return [];
     const tid = tenantId || getActiveTenantId();
-    const { data, error } = await supabase
-      .from('customers')
-      .select('*')
-      .eq('tenant_id', tid)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data ?? []).map((row) => mapCustomer(row as Record<string, unknown>));
+    const res = await fetch(`/api/customers${tid ? `?tenant_id=${encodeURIComponent(tid)}` : ''}`, {
+      headers: getHeaders(undefined, tid),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
   async getByTelegram(chatId: string): Promise<Customer | null> {
@@ -128,25 +125,15 @@ export const customersService = {
   },
 
   async create(customer: { name: string; phone?: string; email?: string; address_default?: string }, tenantId?: string): Promise<Customer> {
-    const supabase = createClient();
-    if (!supabase) throw new Error('Supabase no configurado');
     const tid = tenantId || getActiveTenantId();
-    const { data, error } = await supabase
-      .from('customers')
-      .insert({
-        tenant_id: tid,
-        name: customer.name.trim(),
-        phone: customer.phone?.trim() || '0000000000',
-        email: customer.email?.trim() || null,
-        address_default: customer.address_default?.trim() || null,
-        segment: 'new',
-        total_spent: 0,
-        order_count: 0,
-      })
-      .select('*')
-      .single();
-    if (error) throw error;
-    return mapCustomer(data as Record<string, unknown>);
+    const res = await fetch('/api/customers', {
+      method: 'POST',
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
+      body: JSON.stringify({ ...customer, tenant_id: tid }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo crear cliente');
+    return body as Customer;
   },
 };
 

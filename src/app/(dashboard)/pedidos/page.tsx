@@ -124,27 +124,39 @@ function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
       )}
 
       <div className="space-y-2.5 pt-1">
-        {order.items.map((item) => (
-          <div key={item.id} className="flex gap-3 items-center">
-            <div className="h-10 w-10 rounded-xl overflow-hidden shadow-sm shrink-0">
-              <img src={item.product.image_url} alt="" className="h-full w-full object-cover" />
+        {(!order.items || order.items.length === 0) ? (
+          <p className="text-[11px] font-medium text-[var(--text-muted)] italic">
+            Sin platillos detallados
+          </p>
+        ) : (
+          order.items.map((item, idx) => (
+            <div key={item.id || idx} className="flex gap-3 items-center">
+              <div className="h-10 w-10 rounded-xl overflow-hidden shadow-sm shrink-0 bg-[var(--bg-input)] flex items-center justify-center border border-[var(--border)]">
+                {item.product?.image_url ? (
+                  <img src={item.product.image_url} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <Utensils className="w-4 h-4 text-[var(--orange)] opacity-80" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold truncate text-[var(--text-primary)]">
+                  {item.product?.name || 'Platillo'}
+                </p>
+                <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  Cant: {item.quantity} · {formatCurrency(item.unit_price || item.product?.price || 0)}
+                  {item.notes && <span className="ml-1.5 text-red-500 font-extrabold bg-red-500/10 px-1.5 py-0.5 rounded">({item.notes})</span>}
+                </p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold truncate text-[var(--text-primary)]">{item.product.name}</p>
-              <p className="text-[10px] font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                Cant: {item.quantity}
-                {item.notes && <span className="ml-1.5 text-red-500 font-extrabold bg-red-500/10 px-1.5 py-0.5 rounded">({item.notes})</span>}
-              </p>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
-      {order.customer && (
+      {order.customer ? (
         <div className="bg-[var(--bg-input)] rounded-xl p-2.5 space-y-1.5 border border-[var(--border)] mt-2">
           <p className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-primary)]">
             <User className="h-3.5 w-3.5 text-[var(--orange)]" />
-            <span className="truncate">{order.customer.name}</span>
+            <span className="truncate">{order.customer.name || 'Cliente'}</span>
           </p>
           {order.delivery_address && (
             <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)] truncate">
@@ -152,12 +164,21 @@ function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
               <span className="truncate">{order.delivery_address}</span>
             </p>
           )}
-          <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)]">
-            <Phone className="h-3.5 w-3.5 text-[var(--orange)]" />
-            {order.customer.phone}
+          {order.customer.phone && order.customer.phone !== '0000000000' && (
+            <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)]">
+              <Phone className="h-3.5 w-3.5 text-[var(--orange)]" />
+              {order.customer.phone}
+            </p>
+          )}
+        </div>
+      ) : order.delivery_address ? (
+        <div className="bg-[var(--bg-input)] rounded-xl p-2.5 space-y-1.5 border border-[var(--border)] mt-2">
+          <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)] truncate">
+            <MapPin className="h-3.5 w-3.5 text-[var(--orange)] shrink-0" />
+            <span className="truncate">{order.delivery_address}</span>
           </p>
         </div>
-      )}
+      ) : null}
 
       <div className="flex items-center justify-between pt-3 border-t border-[var(--border)] mt-1">
         <span className="text-sm font-black text-[var(--text-primary)]">{formatCurrency(order.total)}</span>
@@ -212,6 +233,7 @@ export default function PedidosPage() {
 
   // Create Order states
   const [newCustomer, setNewCustomer] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newType, setNewType] = useState<OrderType>('dine_in');
   const [newPayment, setNewPayment] = useState<PaymentMethod>('cash');
   const [newAddress, setNewAddress] = useState('');
@@ -380,6 +402,8 @@ export default function PedidosPage() {
         type: newType,
         payment_method: newPayment,
         customer_id: newCustomer || undefined,
+        customer_name: newCustomer,
+        customer_phone: newCustomerPhone || undefined,
         subtotal,
         delivery_fee,
         tips: 0,
@@ -407,6 +431,7 @@ export default function PedidosPage() {
 
     setShowCreateModal(false);
     setNewCustomer('');
+    setNewCustomerPhone('');
     setNewType('dine_in');
     setNewPayment('cash');
     setNewAddress('');
@@ -867,6 +892,18 @@ export default function PedidosPage() {
                   />
                 </div>
                 <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Teléfono / Celular (Opcional)</label>
+                  <input
+                    type="tel" value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)}
+                    placeholder="Ej. 300 123 4567"
+                    className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Tipo de Entrega</label>
                   <div className="relative">
                     <select value={newType} onChange={(e) => setNewType(e.target.value as OrderType)}
@@ -875,6 +912,21 @@ export default function PedidosPage() {
                       <option value="dine_in">🍽️ Mesa (Local)</option>
                       <option value="pickup">🛍️ Para Llevar</option>
                       <option value="delivery">🛵 Domicilio</option>
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Método de Pago</label>
+                  <div className="relative">
+                    <select value={newPayment} onChange={(e) => setNewPayment(e.target.value as PaymentMethod)}
+                      className="w-full text-xs font-bold px-3 py-2.5 rounded-xl border focus:ring-2 focus:ring-[var(--orange-soft)] outline-none appearance-none pr-7"
+                      style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                      <option value="cash">Efectivo</option>
+                      <option value="card">Tarjeta</option>
+                      <option value="nequi">Nequi</option>
+                      <option value="daviplata">Daviplata</option>
+                      <option value="wompi">Wompi</option>
                     </select>
                     <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none" style={{ color: 'var(--text-muted)' }} />
                   </div>

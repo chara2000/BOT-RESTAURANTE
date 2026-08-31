@@ -213,16 +213,19 @@ export const inventoryService = {
 
 export const settingsService = {
   async get(tenantId?: string): Promise<Partial<TenantSettings> | null> {
-    const supabase = createClient();
-    if (!supabase) return null;
     const tid = tenantId || getActiveTenantId();
-    const { data, error } = await supabase
-      .from('tenant_settings')
-      .select('*')
-      .eq('tenant_id', tid)
-      .maybeSingle();
-    if (error) throw error;
-    return data ? mapSettings(data as Record<string, unknown>) : null;
+    try {
+      // Use API route to avoid PostgREST schema cache issues on direct client
+      const res = await fetch(`/api/settings?tenant_id=${encodeURIComponent(tid)}`, {
+        method: 'GET',
+        headers: getHeaders({}, tid),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data ? mapSettings(data as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
   },
 
   async update(settings: Partial<TenantSettings>, tenantId?: string): Promise<Partial<TenantSettings>> {

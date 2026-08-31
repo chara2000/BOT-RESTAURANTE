@@ -147,7 +147,6 @@ export function mapSettings(row: Record<string, unknown>): Partial<TenantSetting
     ai_enabled: Boolean(row.ai_enabled),
     ai_model: String(row.ai_model ?? 'local-chefflow'),
     payment_methods: (row.payment_methods as TenantSettings['payment_methods']) ?? ['cash', 'nequi'],
-    additions: row.additions ? (row.additions as TenantSettings['additions']) : undefined,
     // Cuentas de Pago Digital
     nequi_number: paymentAccounts.nequi_number,
     bancolombia_number: paymentAccounts.bancolombia_number,

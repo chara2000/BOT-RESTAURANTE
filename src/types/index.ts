@@ -169,8 +169,6 @@ export interface TenantSettings {
   allow_external_riders?: boolean;
   payment_methods: PaymentMethod[];
   business_hours: { day: string; open: string; close: string; closed: boolean }[];
-  // Adiciones configurables para platillos
-  additions?: AdditionItem[];
   // Números de cuenta para pago digital
   nequi_number?: string;
   bancolombia_number?: string;

@@ -115,15 +115,6 @@ export const initialSettings: TenantSettings = {
   auto_assign_riders: false,
   allow_external_riders: false,
   payment_methods: ['cash', 'nequi', 'daviplata', 'wompi', 'card', 'transfer'],
-  additions: [
-    { id: 'add_1', name: '🧀 Extra Queso Costeño / Mozzarella', price: 3500, is_available: true },
-    { id: 'add_2', name: '🥓 Tocineta Ahumada Caramelizada', price: 4000, is_available: true },
-    { id: 'add_3', name: '🥩 Carne Artesanal Extra (150g)', price: 8500, is_available: true },
-    { id: 'add_4', name: '🥚 Huevos de Codorniz (3 und)', price: 2500, is_available: true },
-    { id: 'add_5', name: '🍟 Porción de Papas Francesas', price: 6000, is_available: true },
-    { id: 'add_6', name: '🌽 Maíz Tierno Desgranado', price: 3000, is_available: true },
-    { id: 'add_7', name: '🥫 Salsa Tártara / Piña de la Casa', price: 1500, is_available: true },
-  ],
   // Ubicación por defecto (Bogotá, Colombia)
   restaurant_lat: 4.7110,
   restaurant_lng: -74.0721,

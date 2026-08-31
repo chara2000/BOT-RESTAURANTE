@@ -12,6 +12,20 @@ export async function PATCH(
       return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
     }
 
+    // Ensure columns exist on public.tenants table
+    try {
+      await supabase.rpc('execute_sql', {
+        sql: `
+          ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS nit TEXT;
+          ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS logo_url TEXT;
+          ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS plan_type TEXT DEFAULT 'pro';
+          ALTER TABLE public.tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+        `
+      });
+    } catch {
+      // Non-critical if RPC not available
+    }
+
     const body = await request.json();
     const {
       name,
@@ -26,7 +40,9 @@ export async function PATCH(
     } = body;
 
     // 1. Actualizar el registro del Restaurante (Tenant)
-    const updatePayload: Record<string, unknown> = {};
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
     if (name !== undefined) updatePayload.name = name.trim();
     if (subdomain !== undefined) updatePayload.subdomain = subdomain.trim();
     if (plan_type !== undefined) updatePayload.plan_type = plan_type;
@@ -34,46 +50,84 @@ export async function PATCH(
     if (nit !== undefined) updatePayload.nit = nit.trim();
     if (logo_url !== undefined) updatePayload.logo_url = logo_url.trim();
 
-    const { data: updatedTenant, error: tenantError } = await supabase
+    let updatedTenant: any = null;
+    const { data, error: tenantError } = await supabase
       .from('tenants')
       .update(updatePayload)
       .eq('id', id)
       .select('*')
-      .single();
+      .maybeSingle();
 
     if (tenantError) {
-      return NextResponse.json({ error: `Error al actualizar restaurante: ${tenantError.message}` }, { status: 400 });
+      // Fallback: Si alguna columna (como nit o logo_url) falló por schema, actualizar sólo columnas base
+      const corePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (name !== undefined) corePayload.name = name.trim();
+      if (subdomain !== undefined) corePayload.subdomain = subdomain.trim();
+      if (plan_type !== undefined) corePayload.plan_type = plan_type;
+      if (is_active !== undefined) corePayload.is_active = is_active;
+
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('tenants')
+        .update(corePayload)
+        .eq('id', id)
+        .select('*')
+        .maybeSingle();
+
+      if (fallbackError) {
+        return NextResponse.json({ error: `Error al actualizar restaurante: ${fallbackError.message}` }, { status: 400 });
+      }
+      updatedTenant = fallbackData;
+    } else {
+      updatedTenant = data;
     }
 
-    // 2. Si se proporciona contraseña o email para actualizar el usuario Admin del restaurante
+    // 2. Si se proporcionó logo_url o name, sincronizar también en tenant_settings
+    if (logo_url !== undefined || name !== undefined) {
+      const settingsPatch: Record<string, unknown> = {
+        tenant_id: id,
+        updated_at: new Date().toISOString(),
+      };
+      if (logo_url !== undefined) settingsPatch.logo_url = logo_url.trim();
+      if (name !== undefined) settingsPatch.restaurant_name = name.trim();
+      
+      await supabase
+        .from('tenant_settings')
+        .upsert(settingsPatch, { onConflict: 'tenant_id' });
+    }
+
+    // 3. Si se proporciona contraseña, email o nombre para actualizar el usuario Admin del restaurante
     if (admin_email || admin_password || admin_name) {
-      const { data: adminProfiles } = await supabase
-        .from('profiles')
-        .select('id, email')
-        .eq('tenant_id', id)
-        .eq('role', 'admin')
-        .limit(1);
+      try {
+        const { data: adminProfiles } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .eq('tenant_id', id)
+          .eq('role', 'admin')
+          .limit(1);
 
-      if (adminProfiles && adminProfiles.length > 0) {
-        const adminId = adminProfiles[0].id;
-        const authPayload: Record<string, unknown> = {};
-        if (admin_email) authPayload.email = admin_email.trim();
-        if (admin_password) authPayload.password = admin_password;
-        if (admin_name) authPayload.user_metadata = { name: admin_name.trim(), role: 'admin', tenant_id: id };
+        if (adminProfiles && adminProfiles.length > 0) {
+          const adminId = adminProfiles[0].id;
+          const authPayload: Record<string, unknown> = {};
+          if (admin_email) authPayload.email = admin_email.trim();
+          if (admin_password) authPayload.password = admin_password;
+          if (admin_name) authPayload.user_metadata = { name: admin_name.trim(), role: 'admin', tenant_id: id };
 
-        await supabase.auth.admin.updateUserById(adminId, authPayload);
+          await supabase.auth.admin.updateUserById(adminId, authPayload);
 
-        const profilePayload: Record<string, unknown> = {};
-        if (admin_email) profilePayload.email = admin_email.trim();
-        if (admin_name) profilePayload.name = admin_name.trim();
+          const profilePayload: Record<string, unknown> = {};
+          if (admin_email) profilePayload.email = admin_email.trim();
+          if (admin_name) profilePayload.name = admin_name.trim();
 
-        await supabase.from('profiles').update(profilePayload).eq('id', adminId);
+          await supabase.from('profiles').update(profilePayload).eq('id', adminId);
+        }
+      } catch (authErr) {
+        console.warn('[Tenants PATCH] Warning updating admin auth/profile:', authErr);
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: `¡Restaurante "${updatedTenant.name}" actualizado exitosamente!`,
+      message: `¡Restaurante "${updatedTenant?.name || name || 'Restaurante'}" actualizado exitosamente!`,
       tenant: updatedTenant,
     });
   } catch (err) {

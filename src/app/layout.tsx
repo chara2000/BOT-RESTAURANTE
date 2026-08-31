@@ -53,7 +53,21 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="icon" href="/favicon.jpg" type="image/jpeg" sizes="32x32" />
         <link rel="apple-touch-icon" href="/icon-192.jpg" />
-        {/* DO NOT add rel="manifest" here — Next.js adds it automatically via src/app/manifest.ts */}
+        {/* Safety guard for third-party browser extension performance monkey-patching crashes */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (typeof window !== 'undefined') {
+                window.addEventListener('error', function(e) {
+                  if (e.message && (e.message.indexOf('startTime') !== -1 || e.message.indexOf('reportAllChanges') !== -1)) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                  }
+                });
+              }
+            `,
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col font-[var(--font-outfit)]" suppressHydrationWarning>
         <AppProviders>

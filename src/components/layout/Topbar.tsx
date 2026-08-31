@@ -6,6 +6,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { useMobileMenu } from '@/context/MobileMenuContext';
 import { useAuth } from '@/context/AuthContext';
 import { useAppData } from '@/context/AppDataContext';
+import { playAlarmSound } from '@/hooks/useAlarmSound';
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
@@ -133,15 +134,16 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
       </div>
 
       <div className="flex items-center gap-2 lg:gap-4 shrink-0">
-        {/* Alarm Test Button */}
+        {/* Alarm Test Button — click is a user gesture so audio gets unlocked & plays */}
         <button
           onClick={() => {
+            // Direct call inside click handler = guaranteed user gesture = audio unlocks
+            playAlarmSound();
             if (typeof window !== 'undefined') {
-              window.dispatchEvent(new Event('play_alarm_sound'));
               window.dispatchEvent(new CustomEvent('show_toast', {
                 detail: {
-                  title: '🔔 Alarma de Pedidos Activa',
-                  message: 'El sistema de sonido y alertas en tiempo real está funcionando correctamente.',
+                  title: '🔔 Alarma Probada',
+                  message: 'Sonido de nuevo pedido activo. El audio ya está desbloqueado.',
                   type: 'success',
                 }
               }));

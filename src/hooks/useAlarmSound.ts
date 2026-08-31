@@ -3,101 +3,25 @@
 import { useEffect, useRef } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ALARM SOUND — Dual strategy: <audio> element (primary) + AudioContext (fallback)
-// The <audio> approach bypasses Chrome/Safari AutoPlay restrictions because
-// it gets pre-unlocked via a muted "tap" during first user interaction.
+// ALARM SOUND SYSTEM — Restaurant order bell
+// Strategy: Use a real /public/alarm.wav file via HTMLAudioElement.
+// The element is pre-unlocked on the FIRST user interaction so it can play
+// at any time afterwards (including when a realtime order arrives).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Singleton audio element reused on every alarm
-let _audioEl: HTMLAudioElement | null = null;
-let _audioUnlocked = false;
+let _audio: HTMLAudioElement | null = null;
+let _unlocked = false;
+let _unlocking = false;
 
-// Short 2-note PCM bell chime encoded as WAV base64 (2 tones, ~1.2 seconds)
-// Generated via offline synthesis — no external files needed
-const ALARM_WAV_B64 = (() => {
-  // Build a simple loud beep programmatically as a data URI using AudioContext offline
-  // We'll generate this lazily on first call to keep the module lightweight
-  return null;
-})();
-
-function buildAlarmDataURI(): string {
-  // Build two-burst beep as WAV bytes via offline rendering
-  const sampleRate = 22050;
-  const duration = 1.8; // seconds
-  const numSamples = Math.floor(sampleRate * duration);
-  const buffer = new Float32Array(numSamples);
-
-  // Chime pattern: 3 notes x 2 bursts
-  const notes = [
-    { startSec: 0.00, freq: 1046.5, dur: 0.18 },
-    { startSec: 0.22, freq: 1318.5, dur: 0.18 },
-    { startSec: 0.44, freq: 1567.98, dur: 0.30 },
-    { startSec: 0.85, freq: 1046.5, dur: 0.18 },
-    { startSec: 1.07, freq: 1318.5, dur: 0.18 },
-    { startSec: 1.29, freq: 1567.98, dur: 0.35 },
-  ];
-
-  for (const note of notes) {
-    const startSample = Math.floor(note.startSec * sampleRate);
-    const durSamples = Math.floor(note.dur * sampleRate);
-    const attackSamples = Math.floor(0.015 * sampleRate);
-    for (let i = 0; i < durSamples; i++) {
-      const t = i / sampleRate;
-      const amp = i < attackSamples ? i / attackSamples : Math.exp(-5 * (i - attackSamples) / sampleRate);
-      buffer[startSample + i] = (buffer[startSample + i] || 0) + 0.9 * amp * Math.sin(2 * Math.PI * note.freq * t);
-    }
-  }
-
-  // Encode Float32Array to 16-bit PCM WAV
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-  const blockAlign = numChannels * bitsPerSample / 8;
-  const dataSize = numSamples * blockAlign;
-  const wavBuffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(wavBuffer);
-
-  const writeString = (offset: number, str: string) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-  };
-
-  writeString(0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeString(8, 'WAVE');
-  writeString(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, numChannels, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, byteRate, true);
-  view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
-  writeString(36, 'data');
-  view.setUint32(40, dataSize, true);
-
-  for (let i = 0; i < numSamples; i++) {
-    const sample = Math.max(-1, Math.min(1, buffer[i]));
-    view.setInt16(44 + i * 2, sample * 0x7FFF, true);
-  }
-
-  // Convert to base64 data URI
-  const bytes = new Uint8Array(wavBuffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return 'data:audio/wav;base64,' + btoa(binary);
-}
-
-function getOrCreateAudioEl(): HTMLAudioElement | null {
+function getAlarmAudio(): HTMLAudioElement | null {
   if (typeof window === 'undefined') return null;
-  if (_audioEl) return _audioEl;
-
+  if (_audio) return _audio;
   try {
-    const el = new Audio();
-    el.volume = 1.0;
+    const el = new Audio('/alarm.wav');
     el.preload = 'auto';
-    el.src = buildAlarmDataURI();
+    el.volume = 1.0;
     el.load();
-    _audioEl = el;
+    _audio = el;
     return el;
   } catch {
     return null;
@@ -105,88 +29,89 @@ function getOrCreateAudioEl(): HTMLAudioElement | null {
 }
 
 /**
- * Unlock audio by "playing" and immediately pausing a muted audio element.
- * This must be called inside a user gesture handler (click, touchstart, etc.)
+ * Must be called inside a real user-gesture event handler.
+ * Silently plays & pauses the audio so the browser "grants" it permission.
  */
-export async function unlockAudio(): Promise<void> {
-  if (_audioUnlocked) return;
-  const el = getOrCreateAudioEl();
-  if (!el) return;
-
+async function doUnlock() {
+  if (_unlocked || _unlocking) return;
+  _unlocking = true;
+  const audio = getAlarmAudio();
+  if (!audio) { _unlocking = false; return; }
   try {
-    el.muted = true;
-    await el.play();
-    el.pause();
-    el.currentTime = 0;
-    el.muted = false;
-    _audioUnlocked = true;
-  } catch {
-    // Some browsers still block — AudioContext fallback will be used
-    _audioUnlocked = true; // Mark anyway so we don't loop
+    audio.volume = 0;
+    audio.currentTime = 0;
+    await audio.play();
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = 1.0;
+    _unlocked = true;
+    console.log('[Alarm] Audio pre-unlocked ✓');
+  } catch (e) {
+    console.warn('[Alarm] Pre-unlock failed:', e);
+    _unlocked = true; // attempt anyway
+  } finally {
+    _unlocking = false;
   }
 }
 
 /**
- * Play the alarm chime. Uses <audio> element (most reliable) with
- * AudioContext synthesis as fallback.
+ * Play the restaurant alarm chime.
+ * Safe to call from anywhere (realtime callbacks, effects, etc.).
  */
 export async function playAlarmSound(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  // Primary: HTMLAudioElement (works even without prior user gesture if pre-unlocked)
-  const el = getOrCreateAudioEl();
-  if (el) {
+  const audio = getAlarmAudio();
+  if (audio) {
     try {
-      el.muted = false;
-      el.volume = 1.0;
-      el.currentTime = 0;
-      await el.play();
-    } catch (audioErr) {
-      console.warn('[Alarm] audio.play() blocked, trying AudioContext:', audioErr);
-      // Fallback: AudioContext oscillator synthesis
-      await playAlarmFallback();
+      audio.volume = 1.0;
+      audio.currentTime = 0;
+      await audio.play();
+    } catch (err) {
+      console.warn('[Alarm] play() blocked — triggering unlock then retry:', err);
+      // Unlock and retry once
+      await doUnlock();
+      try {
+        audio.volume = 1.0;
+        audio.currentTime = 0;
+        await audio.play();
+      } catch (e2) {
+        console.warn('[Alarm] Retry also failed — AudioContext fallback:', e2);
+        playOscillatorFallback();
+      }
     }
   } else {
-    await playAlarmFallback();
+    playOscillatorFallback();
   }
 
-  // Haptic vibration on mobile
-  try {
-    if ('vibrate' in navigator) navigator.vibrate([300, 100, 300, 100, 600]);
-  } catch {}
+  // Haptic on mobile
+  try { if ('vibrate' in navigator) navigator.vibrate([300, 100, 300, 100, 500]); } catch {}
 }
 
-async function playAlarmFallback(): Promise<void> {
+/** AudioContext oscillator as absolute last resort */
+function playOscillatorFallback() {
   try {
-    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtxClass) return;
-
-    const ctx: AudioContext = new AudioCtxClass();
-    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
-
-    const now = ctx.currentTime;
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx: AudioContext = new AudioCtx();
     const notes = [
-      { time: now + 0.0, freq: 1046.5, dur: 0.18 },
-      { time: now + 0.22, freq: 1318.5, dur: 0.18 },
-      { time: now + 0.44, freq: 1567.98, dur: 0.30 },
-      { time: now + 0.85, freq: 1046.5, dur: 0.18 },
-      { time: now + 1.07, freq: 1318.5, dur: 0.18 },
-      { time: now + 1.29, freq: 1567.98, dur: 0.35 },
+      [0.00, 1046.5, 0.22], [0.26, 1318.5, 0.22], [0.52, 1567.98, 0.38],
+      [1.00, 1046.5, 0.22], [1.26, 1318.5, 0.22], [1.52, 1567.98, 0.50],
     ];
-
-    notes.forEach(({ time, freq, dur }) => {
+    const now = ctx.currentTime;
+    notes.forEach(([delay, freq, dur]) => {
       try {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, time);
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(0.85, time + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+        osc.frequency.setValueAtTime(freq, now + delay);
+        gain.gain.setValueAtTime(0, now + delay);
+        gain.gain.linearRampToValueAtTime(0.8, now + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + dur);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(time);
-        osc.stop(time + dur);
+        osc.start(now + delay);
+        osc.stop(now + delay + dur);
       } catch {}
     });
   } catch {}
@@ -195,50 +120,41 @@ async function playAlarmFallback(): Promise<void> {
 export const playAlarmBeep = playAlarmSound;
 
 /**
- * Global hook — mount once in the root layout (NotificationManager).
- * Pre-unlocks the audio element on ANY first user interaction so the
- * alarm can play immediately when a new order arrives.
+ * Mount this hook ONCE in the root layout (via NotificationManager).
+ * It eagerly loads /alarm.wav and unlocks it on the first user touch/click.
  */
 export function useAlarmSound() {
-  const mounted = useRef(false);
+  const initialized = useRef(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || mounted.current) return;
-    mounted.current = true;
+    if (initialized.current) return;
+    initialized.current = true;
 
-    // Pre-create the audio element immediately
-    getOrCreateAudioEl();
+    // Pre-load the audio file immediately
+    getAlarmAudio();
 
-    const handleUnlock = () => {
-      unlockAudio();
-    };
+    const onGesture = () => { doUnlock(); };
+    const onAlarm = () => { playAlarmSound(); };
 
-    const handleManualAlarm = () => {
-      playAlarmSound();
-    };
+    // Unlock on any real user interaction
+    window.addEventListener('click',      onGesture, { passive: true });
+    window.addEventListener('touchstart', onGesture, { passive: true });
+    window.addEventListener('pointerdown',onGesture, { passive: true });
+    window.addEventListener('keydown',    onGesture, { passive: true });
+    window.addEventListener('scroll',     onGesture, { passive: true, once: true } as any);
 
-    const handleNewOrder = () => {
-      playAlarmSound();
-    };
-
-    // Unlock on ANY user interaction — click, touch, key, scroll
-    window.addEventListener('click', handleUnlock, { passive: true });
-    window.addEventListener('touchstart', handleUnlock, { passive: true });
-    window.addEventListener('pointerdown', handleUnlock, { passive: true });
-    window.addEventListener('keydown', handleUnlock, { passive: true });
-    window.addEventListener('scroll', handleUnlock, { passive: true, once: true });
-
-    window.addEventListener('play_alarm_sound', handleManualAlarm);
-    window.addEventListener('new_order', handleNewOrder);
+    // Listen for alarm triggers
+    window.addEventListener('play_alarm_sound', onAlarm);
+    window.addEventListener('new_order',        onAlarm);
 
     return () => {
-      window.removeEventListener('click', handleUnlock);
-      window.removeEventListener('touchstart', handleUnlock);
-      window.removeEventListener('pointerdown', handleUnlock);
-      window.removeEventListener('keydown', handleUnlock);
-      window.removeEventListener('scroll', handleUnlock);
-      window.removeEventListener('play_alarm_sound', handleManualAlarm);
-      window.removeEventListener('new_order', handleNewOrder);
+      window.removeEventListener('click',       onGesture);
+      window.removeEventListener('touchstart',  onGesture);
+      window.removeEventListener('pointerdown', onGesture);
+      window.removeEventListener('keydown',     onGesture);
+      window.removeEventListener('scroll',      onGesture);
+      window.removeEventListener('play_alarm_sound', onAlarm);
+      window.removeEventListener('new_order',        onAlarm);
     };
   }, []);
 }

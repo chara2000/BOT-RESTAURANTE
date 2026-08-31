@@ -81,13 +81,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
     }
 
-    // Ensure additions column exists on products
-    try {
-      await supabase.rpc('execute_sql', {
-        sql: "ALTER TABLE public.products ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;"
-      });
-    } catch {}
-
     const category_id = await resolveCategoryId(body.category, body.category_id, tenantId);
     const insertPayload: Record<string, unknown> = {
       tenant_id: tenantId,
@@ -109,8 +102,8 @@ export async function POST(request: Request) {
       .select(PRODUCT_SELECT)
       .single();
 
-    if (error && body.additions !== undefined) {
-      // Fallback without additions if column not present yet
+    if (error && error.message?.includes('additions')) {
+      // additions column not in schema yet — retry without it
       delete insertPayload.additions;
       const res = await supabase.from('products').insert(insertPayload).select(PRODUCT_SELECT).single();
       data = res.data;
@@ -121,7 +114,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json(mapProduct(data as Record<string, unknown>), { status: 201 });
+    const mapped = mapProduct(data as Record<string, unknown>);
+    // Merge back the additions the client sent if the column didn't exist
+    return NextResponse.json({ ...mapped, additions: mapped.additions ?? body.additions ?? [] }, { status: 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Error creando producto';
     return NextResponse.json({ error: message }, { status: 500 });

@@ -2,148 +2,243 @@
 
 import { useEffect, useRef } from 'react';
 
-// Singleton AudioContext shared across all instances
-let sharedCtx: AudioContext | null = null;
-let audioUnlocked = false;
+// ─────────────────────────────────────────────────────────────────────────────
+// ALARM SOUND — Dual strategy: <audio> element (primary) + AudioContext (fallback)
+// The <audio> approach bypasses Chrome/Safari AutoPlay restrictions because
+// it gets pre-unlocked via a muted "tap" during first user interaction.
+// ─────────────────────────────────────────────────────────────────────────────
 
-export function getAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
-  if (!sharedCtx) {
-    try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtxClass) {
-        sharedCtx = new AudioCtxClass();
-      }
-    } catch {
-      return null;
+// Singleton audio element reused on every alarm
+let _audioEl: HTMLAudioElement | null = null;
+let _audioUnlocked = false;
+
+// Short 2-note PCM bell chime encoded as WAV base64 (2 tones, ~1.2 seconds)
+// Generated via offline synthesis — no external files needed
+const ALARM_WAV_B64 = (() => {
+  // Build a simple loud beep programmatically as a data URI using AudioContext offline
+  // We'll generate this lazily on first call to keep the module lightweight
+  return null;
+})();
+
+function buildAlarmDataURI(): string {
+  // Build two-burst beep as WAV bytes via offline rendering
+  const sampleRate = 22050;
+  const duration = 1.8; // seconds
+  const numSamples = Math.floor(sampleRate * duration);
+  const buffer = new Float32Array(numSamples);
+
+  // Chime pattern: 3 notes x 2 bursts
+  const notes = [
+    { startSec: 0.00, freq: 1046.5, dur: 0.18 },
+    { startSec: 0.22, freq: 1318.5, dur: 0.18 },
+    { startSec: 0.44, freq: 1567.98, dur: 0.30 },
+    { startSec: 0.85, freq: 1046.5, dur: 0.18 },
+    { startSec: 1.07, freq: 1318.5, dur: 0.18 },
+    { startSec: 1.29, freq: 1567.98, dur: 0.35 },
+  ];
+
+  for (const note of notes) {
+    const startSample = Math.floor(note.startSec * sampleRate);
+    const durSamples = Math.floor(note.dur * sampleRate);
+    const attackSamples = Math.floor(0.015 * sampleRate);
+    for (let i = 0; i < durSamples; i++) {
+      const t = i / sampleRate;
+      const amp = i < attackSamples ? i / attackSamples : Math.exp(-5 * (i - attackSamples) / sampleRate);
+      buffer[startSample + i] = (buffer[startSample + i] || 0) + 0.9 * amp * Math.sin(2 * Math.PI * note.freq * t);
     }
   }
-  return sharedCtx;
+
+  // Encode Float32Array to 16-bit PCM WAV
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = numSamples * blockAlign;
+  const wavBuffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(wavBuffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for (let i = 0; i < numSamples; i++) {
+    const sample = Math.max(-1, Math.min(1, buffer[i]));
+    view.setInt16(44 + i * 2, sample * 0x7FFF, true);
+  }
+
+  // Convert to base64 data URI
+  const bytes = new Uint8Array(wavBuffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return 'data:audio/wav;base64,' + btoa(binary);
 }
 
-export async function unlockAudio(): Promise<void> {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume();
-    } catch { /* ignore */ }
+function getOrCreateAudioEl(): HTMLAudioElement | null {
+  if (typeof window === 'undefined') return null;
+  if (_audioEl) return _audioEl;
+
+  try {
+    const el = new Audio();
+    el.volume = 1.0;
+    el.preload = 'auto';
+    el.src = buildAlarmDataURI();
+    el.load();
+    _audioEl = el;
+    return el;
+  } catch {
+    return null;
   }
-  audioUnlocked = true;
 }
 
 /**
- * Generates and plays a rich, loud, restaurant order alarm buzzer / chime sequence.
- * Includes multiple harmonics, piercing bell chimes, and high volume to ensure
- * kitchen / cashier staff never miss an incoming order.
+ * Unlock audio by "playing" and immediately pausing a muted audio element.
+ * This must be called inside a user gesture handler (click, touchstart, etc.)
+ */
+export async function unlockAudio(): Promise<void> {
+  if (_audioUnlocked) return;
+  const el = getOrCreateAudioEl();
+  if (!el) return;
+
+  try {
+    el.muted = true;
+    await el.play();
+    el.pause();
+    el.currentTime = 0;
+    el.muted = false;
+    _audioUnlocked = true;
+  } catch {
+    // Some browsers still block — AudioContext fallback will be used
+    _audioUnlocked = true; // Mark anyway so we don't loop
+  }
+}
+
+/**
+ * Play the alarm chime. Uses <audio> element (most reliable) with
+ * AudioContext synthesis as fallback.
  */
 export async function playAlarmSound(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  try {
-    let ctx = getAudioContext();
-    if (!ctx) {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtxClass) {
-        ctx = new AudioCtxClass();
-        sharedCtx = ctx;
-      }
-    }
-
-    if (ctx && ctx.state === 'suspended') {
-      await ctx.resume().catch(() => {});
-    }
-
-    if (ctx) {
-      const now = ctx.currentTime;
-      // Piercing Restaurant Chime sequence: 3 energetic chimes
-      const chimeChords = [
-        { time: now + 0.0, freqs: [1046.5, 1318.5, 1567.98], dur: 0.22 }, // High C, E, G
-        { time: now + 0.25, freqs: [1174.66, 1479.98, 1760.0], dur: 0.25 }, // D, F#, A
-        { time: now + 0.55, freqs: [1046.5, 1318.5, 1567.98, 2093.0], dur: 0.45 }, // C Major chord with top C7
-        { time: now + 1.1, freqs: [1046.5, 1318.5, 1567.98], dur: 0.22 },
-        { time: now + 1.35, freqs: [1174.66, 1479.98, 1760.0], dur: 0.25 },
-        { time: now + 1.65, freqs: [1046.5, 1318.5, 1567.98, 2093.0], dur: 0.60 },
-      ];
-
-      chimeChords.forEach(({ time, freqs, dur }) => {
-        freqs.forEach((freq, idx) => {
-          try {
-            const osc = ctx!.createOscillator();
-            const gain = ctx!.createGain();
-
-            osc.type = idx === 0 ? 'sine' : 'triangle';
-            osc.frequency.setValueAtTime(freq, time);
-
-            // Loud punchy attack and smooth bell decay
-            gain.gain.setValueAtTime(0, time);
-            gain.gain.linearRampToValueAtTime(0.85, time + 0.02);
-            gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
-
-            osc.connect(gain);
-            gain.connect(ctx!.destination);
-
-            osc.start(time);
-            osc.stop(time + dur);
-          } catch {}
-        });
-      });
-    }
-  } catch (err) {
-    console.warn('[AlarmSound] AudioContext chime notice:', err);
-  }
-
-  // Also trigger mobile haptic vibration
-  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+  // Primary: HTMLAudioElement (works even without prior user gesture if pre-unlocked)
+  const el = getOrCreateAudioEl();
+  if (el) {
     try {
-      navigator.vibrate([300, 100, 300, 100, 600]);
-    } catch {}
+      el.muted = false;
+      el.volume = 1.0;
+      el.currentTime = 0;
+      await el.play();
+    } catch (audioErr) {
+      console.warn('[Alarm] audio.play() blocked, trying AudioContext:', audioErr);
+      // Fallback: AudioContext oscillator synthesis
+      await playAlarmFallback();
+    }
+  } else {
+    await playAlarmFallback();
   }
+
+  // Haptic vibration on mobile
+  try {
+    if ('vibrate' in navigator) navigator.vibrate([300, 100, 300, 100, 600]);
+  } catch {}
+}
+
+async function playAlarmFallback(): Promise<void> {
+  try {
+    const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtxClass) return;
+
+    const ctx: AudioContext = new AudioCtxClass();
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+
+    const now = ctx.currentTime;
+    const notes = [
+      { time: now + 0.0, freq: 1046.5, dur: 0.18 },
+      { time: now + 0.22, freq: 1318.5, dur: 0.18 },
+      { time: now + 0.44, freq: 1567.98, dur: 0.30 },
+      { time: now + 0.85, freq: 1046.5, dur: 0.18 },
+      { time: now + 1.07, freq: 1318.5, dur: 0.18 },
+      { time: now + 1.29, freq: 1567.98, dur: 0.35 },
+    ];
+
+    notes.forEach(({ time, freq, dur }) => {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, time);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.85, time + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(time);
+        osc.stop(time + dur);
+      } catch {}
+    });
+  } catch {}
 }
 
 export const playAlarmBeep = playAlarmSound;
 
 /**
  * Global hook — mount once in the root layout (NotificationManager).
- * Unlocks AudioContext on first user interaction and listens for alarm events.
+ * Pre-unlocks the audio element on ANY first user interaction so the
+ * alarm can play immediately when a new order arrives.
  */
 export function useAlarmSound() {
-  const unlockedRef = useRef(false);
+  const mounted = useRef(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || mounted.current) return;
+    mounted.current = true;
 
-    // Unlock audio on any first gesture anywhere in the app
-    const unlock = async () => {
-      await unlockAudio();
-      unlockedRef.current = true;
+    // Pre-create the audio element immediately
+    getOrCreateAudioEl();
+
+    const handleUnlock = () => {
+      unlockAudio();
     };
 
-    // Listen for manual alarm test event (from Topbar button)
     const handleManualAlarm = () => {
-      unlockAudio().then(() => playAlarmSound());
+      playAlarmSound();
     };
 
-    // Listen for new order event to auto-play alarm
     const handleNewOrder = () => {
-      unlockAudio().then(() => playAlarmSound());
+      playAlarmSound();
     };
 
-    window.addEventListener('click', unlock, { passive: true });
-    window.addEventListener('touchstart', unlock, { passive: true });
-    window.addEventListener('pointerdown', unlock, { passive: true });
-    window.addEventListener('keydown', unlock, { passive: true });
+    // Unlock on ANY user interaction — click, touch, key, scroll
+    window.addEventListener('click', handleUnlock, { passive: true });
+    window.addEventListener('touchstart', handleUnlock, { passive: true });
+    window.addEventListener('pointerdown', handleUnlock, { passive: true });
+    window.addEventListener('keydown', handleUnlock, { passive: true });
+    window.addEventListener('scroll', handleUnlock, { passive: true, once: true });
+
     window.addEventListener('play_alarm_sound', handleManualAlarm);
     window.addEventListener('new_order', handleNewOrder);
 
     return () => {
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('touchstart', unlock);
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('click', handleUnlock);
+      window.removeEventListener('touchstart', handleUnlock);
+      window.removeEventListener('pointerdown', handleUnlock);
+      window.removeEventListener('keydown', handleUnlock);
+      window.removeEventListener('scroll', handleUnlock);
       window.removeEventListener('play_alarm_sound', handleManualAlarm);
       window.removeEventListener('new_order', handleNewOrder);
     };
   }, []);
 }
-

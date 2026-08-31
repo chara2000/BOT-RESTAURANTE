@@ -479,9 +479,19 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await productsService.update(product);
         setProducts((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '✅ Platillo Actualizado', message: `"${saved.name}" fue guardado correctamente`, type: 'success' }
+          }));
+        }
         return saved;
       } catch (err) {
         logSupabaseError(err);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '❌ Error al Actualizar', message: 'No se pudo guardar el platillo. Verifica tu conexión.', type: 'warning' }
+          }));
+        }
         await syncFromSupabase();
         throw err;
       }
@@ -494,10 +504,20 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await productsService.create(product);
         setProducts((prev) => prev.map((p) => (p.id === product.id ? saved : p)));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '🍽️ Platillo Creado', message: `"${saved.name}" fue agregado al menú exitosamente`, type: 'success' }
+          }));
+        }
         return saved;
       } catch (err) {
         logSupabaseError(err);
         setProducts((prev) => prev.filter((p) => p.id !== product.id));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '❌ Error al Crear', message: 'No se pudo crear el platillo. Verifica tu conexión.', type: 'warning' }
+          }));
+        }
         throw err;
       }
     }
@@ -505,13 +525,24 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const deleteProduct = useCallback(async (id: string) => {
     const previous = products;
+    const deletedProduct = products.find((p) => p.id === id);
     setProducts((prev) => prev.filter((p) => p.id !== id));
     if (dataSource === 'supabase') {
       try {
         await productsService.remove(id);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '🗑️ Platillo Eliminado', message: `"${deletedProduct?.name || 'Platillo'}" fue eliminado del menú`, type: 'warning' }
+          }));
+        }
       } catch (err) {
         logSupabaseError(err);
         setProducts(previous);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '❌ Error al Eliminar', message: 'No se pudo eliminar el platillo', type: 'warning' }
+          }));
+        }
         throw err;
       }
     }
@@ -522,6 +553,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await categoriesService.create(category);
         setCategories((prev) => [...prev, saved].sort((a, b) => a.sort_order - b.sort_order));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '📁 Categoría Creada', message: `"${saved.name}" fue agregada exitosamente`, type: 'success' }
+          }));
+        }
       } catch (err) {
         logSupabaseError(err);
         throw err;
@@ -535,6 +571,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       try {
         const saved = await categoriesService.update(category);
         setCategories((prev) => prev.map((c) => (c.id === saved.id ? saved : c)));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '📁 Categoría Actualizada', message: `"${saved.name}" fue actualizada correctamente`, type: 'success' }
+          }));
+        }
       } catch (err) {
         logSupabaseError(err);
         await syncFromSupabase();
@@ -545,10 +586,16 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const deleteCategory = useCallback(async (id: string) => {
     const previous = categories;
+    const deletedCat = categories.find((c) => c.id === id);
     setCategories((prev) => prev.filter((c) => c.id !== id));
     if (dataSource === 'supabase') {
       try {
         await categoriesService.remove(id);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('show_toast', {
+            detail: { title: '🗑️ Categoría Eliminada', message: `"${deletedCat?.name || 'Categoría'}" fue eliminada del sistema`, type: 'warning' }
+          }));
+        }
       } catch (err) {
         logSupabaseError(err);
         setCategories(previous);

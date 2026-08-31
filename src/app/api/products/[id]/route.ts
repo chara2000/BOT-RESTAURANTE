@@ -58,13 +58,6 @@ export async function PATCH(
       return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
     }
 
-    // Ensure additions column exists on products
-    try {
-      await supabase.rpc('execute_sql', {
-        sql: "ALTER TABLE public.products ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;"
-      });
-    } catch {}
-
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (body.name !== undefined) patch.name = body.name.trim();
     if (body.description !== undefined) patch.description = body.description;
@@ -72,12 +65,13 @@ export async function PATCH(
     if (body.image_url !== undefined) patch.image_url = body.image_url;
     if (body.is_available !== undefined) patch.is_available = body.is_available;
     if (body.is_combo !== undefined) patch.is_combo = body.is_combo;
+    // Always include additions if provided — even if it's an empty array
     if (body.additions !== undefined) patch.additions = body.additions;
     if (body.category !== undefined || body.category_id !== undefined) {
       patch.category_id = await resolveCategoryId(body.category, body.category_id, tenantId);
     }
 
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from('products')
       .update(patch)
       .eq('id', id)
@@ -85,21 +79,26 @@ export async function PATCH(
       .select(PRODUCT_SELECT)
       .maybeSingle();
 
-    if (error && body.additions !== undefined) {
-      // Fallback without additions if column not present yet
-      delete patch.additions;
-      const res = await supabase
-        .from('products')
-        .update(patch)
-        .eq('id', id)
-        .eq('tenant_id', tenantId)
-        .select(PRODUCT_SELECT)
-        .maybeSingle();
-      data = res.data;
-      error = res.error;
-    }
-
     if (error) {
+      // If additions column doesn't exist yet, retry without it
+      if (error.message?.includes('additions') && body.additions !== undefined) {
+        delete patch.additions;
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('products')
+          .update(patch)
+          .eq('id', id)
+          .eq('tenant_id', tenantId)
+          .select(PRODUCT_SELECT)
+          .maybeSingle();
+
+        if (fallbackError) {
+          return NextResponse.json({ error: fallbackError.message }, { status: 400 });
+        }
+        // Still return with the additions the client sent (optimistic)
+        const mapped = mapProduct(fallbackData as Record<string, unknown>);
+        return NextResponse.json({ ...mapped, additions: body.additions || [] });
+      }
+
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 

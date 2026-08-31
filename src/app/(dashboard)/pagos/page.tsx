@@ -426,7 +426,7 @@ export default function PagosPage() {
 
       {/* Modal Receipt Viewer */}
       {selectedReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedReceipt(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedReceipt(null)}>
           <div className="relative max-w-2xl w-full max-h-[90vh] mx-4 bg-[var(--bg-card)] p-2 rounded-3xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setSelectedReceipt(null)} className="absolute -top-12 right-0 p-2 text-white/70 hover:text-white bg-black/40 hover:bg-black/80 rounded-full transition-all cursor-pointer">
               <XCircle className="w-8 h-8" />

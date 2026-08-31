@@ -186,7 +186,7 @@ export default function MisPedidosPage() {
 
       {/* PIN Verification Modal */}
       {pinModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 sm:p-0">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPinModalOrder(null)} />
           <div className="bg-[var(--bg-card)] w-full max-w-sm rounded-3xl p-6 relative z-10 animate-fade-in-up border border-[var(--border)] shadow-2xl">
             <button onClick={() => setPinModalOrder(null)} className="absolute top-4 right-4 p-2 rounded-full hover:bg-[var(--bg-input)] text-[var(--text-muted)]">

@@ -321,7 +321,7 @@ export default function MenuPage() {
 
         {/* Create / Edit Product Modal */}
         {showForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
             <div
               className="w-full max-w-2xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh] overflow-hidden"
               style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
@@ -677,7 +677,7 @@ export default function MenuPage() {
 
       {/* Modal de Gestión de Adiciones por Plato */}
       {showAdditionsModal && selectedProductForAdditions && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="card p-6 max-w-lg w-full animate-fade-in-up space-y-5 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-3">
@@ -782,7 +782,7 @@ export default function MenuPage() {
 
       {/* Modal de Categorías */}
       {showCatModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="card p-6 max-w-md w-full animate-fade-in-up space-y-4">
             <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
               <p className="text-sm font-black flex items-center gap-2">

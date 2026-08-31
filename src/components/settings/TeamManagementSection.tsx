@@ -177,7 +177,7 @@ function UserModal({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
         className="w-full max-w-lg rounded-3xl border shadow-2xl flex flex-col max-h-[92vh] animate-fade-in-up overflow-hidden"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}

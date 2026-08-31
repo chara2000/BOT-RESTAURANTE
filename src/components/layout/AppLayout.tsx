@@ -41,7 +41,7 @@ function NoTenantBlockedScreen() {
         </button>
 
         {showModal && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
             <div className="card p-6 max-w-md w-full animate-fade-in-up space-y-4">
               <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
                 <p className="text-sm font-black flex items-center gap-2">

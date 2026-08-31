@@ -519,7 +519,7 @@ export default function InventarioPage() {
 
       {/* Modal: Create / Edit Insumo */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={closeModal}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={closeModal}>
           <div
             className="relative w-full max-w-md rounded-3xl border shadow-2xl p-6 space-y-5"
             style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}

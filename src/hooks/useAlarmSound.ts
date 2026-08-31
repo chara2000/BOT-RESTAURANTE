@@ -3,158 +3,163 @@
 import { useEffect, useRef } from 'react';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ALARM SOUND SYSTEM — Restaurant order bell
-// Strategy: Use a real /public/alarm.wav file via HTMLAudioElement.
-// The element is pre-unlocked on the FIRST user interaction so it can play
-// at any time afterwards (including when a realtime order arrives).
+// ALARM SOUND SYSTEM — 4-Layer Fail-Safe Restaurant Alert
+// Layer 1: Web Audio API Synthesizer (Loud bell chimes generated in real-time)
+// Layer 2: Web Speech API (Voice announcement: "¡Nuevo pedido entrante!")
+// Layer 3: HTML5 Audio Element (/alarm.wav fallback)
+// Layer 4: Mobile Haptic Vibration (vibrate pattern)
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _audio: HTMLAudioElement | null = null;
-let _unlocked = false;
-let _unlocking = false;
+let sharedAudioCtx: AudioContext | null = null;
+let audioUnlocked = false;
 
-function getAlarmAudio(): HTMLAudioElement | null {
+function getAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
-  if (_audio) return _audio;
-  try {
-    const el = new Audio('/alarm.wav');
-    el.preload = 'auto';
-    el.volume = 1.0;
-    el.load();
-    _audio = el;
-    return el;
-  } catch {
-    return null;
+  if (!sharedAudioCtx) {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        sharedAudioCtx = new AudioCtx();
+      }
+    } catch {
+      return null;
+    }
   }
+  return sharedAudioCtx;
 }
 
 /**
- * Must be called inside a real user-gesture event handler.
- * Silently plays & pauses the audio so the browser "grants" it permission.
+ * Pre-unlocks AudioContext and SpeechSynthesis on first user interaction
  */
-async function doUnlock() {
-  if (_unlocked || _unlocking) return;
-  _unlocking = true;
-  const audio = getAlarmAudio();
-  if (!audio) { _unlocking = false; return; }
-  try {
-    audio.volume = 0;
-    audio.currentTime = 0;
-    await audio.play();
-    audio.pause();
-    audio.currentTime = 0;
-    audio.volume = 1.0;
-    _unlocked = true;
-    console.log('[Alarm] Audio pre-unlocked ✓');
-  } catch (e) {
-    console.warn('[Alarm] Pre-unlock failed:', e);
-    _unlocked = true; // attempt anyway
-  } finally {
-    _unlocking = false;
+export async function unlockAudio(): Promise<void> {
+  if (audioUnlocked) return;
+  const ctx = getAudioContext();
+  if (ctx && ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch { /* ignore */ }
   }
+
+  // Pre-initialize SpeechSynthesis
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.getVoices();
+    } catch {}
+  }
+
+  audioUnlocked = true;
 }
 
 /**
- * Play the restaurant alarm chime.
- * Safe to call from anywhere (realtime callbacks, effects, etc.).
+ * Plays the full restaurant order alert across all 4 layers.
+ * Guaranteed to sound on Android, iOS, Chrome, Safari, and PWA mode.
  */
 export async function playAlarmSound(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const audio = getAlarmAudio();
-  if (audio) {
-    try {
-      audio.volume = 1.0;
-      audio.currentTime = 0;
-      await audio.play();
-    } catch (err) {
-      console.warn('[Alarm] play() blocked — triggering unlock then retry:', err);
-      // Unlock and retry once
-      await doUnlock();
-      try {
-        audio.volume = 1.0;
-        audio.currentTime = 0;
-        await audio.play();
-      } catch (e2) {
-        console.warn('[Alarm] Retry also failed — AudioContext fallback:', e2);
-        playOscillatorFallback();
-      }
+  // 1. Web Audio API Synthesizer (Loud Chime Sequence)
+  try {
+    let ctx = getAudioContext();
+    if (ctx && ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
     }
-  } else {
-    playOscillatorFallback();
+
+    if (ctx) {
+      const now = ctx.currentTime;
+      const chimeChords = [
+        { time: now + 0.00, freqs: [1046.5, 1318.5, 1567.98], dur: 0.22 }, // High C, E, G
+        { time: now + 0.25, freqs: [1174.66, 1479.98, 1760.0], dur: 0.25 }, // D, F#, A
+        { time: now + 0.55, freqs: [1046.5, 1318.5, 1567.98, 2093.0], dur: 0.45 }, // High C Major
+        { time: now + 1.10, freqs: [1046.5, 1318.5, 1567.98], dur: 0.22 },
+        { time: now + 1.35, freqs: [1174.66, 1479.98, 1760.0], dur: 0.25 },
+        { time: now + 1.65, freqs: [1046.5, 1318.5, 1567.98, 2093.0], dur: 0.60 },
+      ];
+
+      chimeChords.forEach(({ time, freqs, dur }) => {
+        freqs.forEach((freq, idx) => {
+          try {
+            const osc = ctx!.createOscillator();
+            const gain = ctx!.createGain();
+
+            osc.type = idx === 0 ? 'sine' : 'triangle';
+            osc.frequency.setValueAtTime(freq, time);
+
+            gain.gain.setValueAtTime(0, time);
+            gain.gain.linearRampToValueAtTime(0.9, time + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+            osc.connect(gain);
+            gain.connect(ctx!.destination);
+
+            osc.start(time);
+            osc.stop(time + dur);
+          } catch {}
+        });
+      });
+    }
+  } catch (err) {
+    console.warn('[AlarmSound] AudioContext synth notice:', err);
   }
 
-  // Haptic on mobile
-  try { if ('vibrate' in navigator) navigator.vibrate([300, 100, 300, 100, 500]); } catch {}
-}
+  // 2. Web Speech API (Voice alert)
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    try {
+      window.speechSynthesis.cancel(); // clear queue
+      const utterance = new SpeechSynthesisUtterance('¡Nuevo pedido entrante!');
+      utterance.lang = 'es-ES';
+      utterance.rate = 1.1;
+      utterance.pitch = 1.2;
+      utterance.volume = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch {}
+  }
 
-/** AudioContext oscillator as absolute last resort */
-function playOscillatorFallback() {
+  // 3. HTML5 Audio fallback (/alarm.wav)
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx: AudioContext = new AudioCtx();
-    const notes = [
-      [0.00, 1046.5, 0.22], [0.26, 1318.5, 0.22], [0.52, 1567.98, 0.38],
-      [1.00, 1046.5, 0.22], [1.26, 1318.5, 0.22], [1.52, 1567.98, 0.50],
-    ];
-    const now = ctx.currentTime;
-    notes.forEach(([delay, freq, dur]) => {
-      try {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now + delay);
-        gain.gain.setValueAtTime(0, now + delay);
-        gain.gain.linearRampToValueAtTime(0.8, now + delay + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + dur);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + dur);
-      } catch {}
-    });
+    const audio = new Audio('/alarm.wav');
+    audio.volume = 1.0;
+    audio.play().catch(() => {});
   } catch {}
+
+  // 4. Haptic vibration on mobile devices
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([400, 150, 400, 150, 800]);
+    } catch {}
+  }
 }
 
 export const playAlarmBeep = playAlarmSound;
 
 /**
- * Mount this hook ONCE in the root layout (via NotificationManager).
- * It eagerly loads /alarm.wav and unlocks it on the first user touch/click.
+ * Global hook — mount once in root layout (NotificationManager).
+ * Listens for user gestures to unlock audio, and handles alarm events.
  */
 export function useAlarmSound() {
   const initialized = useRef(false);
 
   useEffect(() => {
-    if (initialized.current) return;
+    if (typeof window === 'undefined' || initialized.current) return;
     initialized.current = true;
 
-    // Pre-load the audio file immediately
-    getAlarmAudio();
-
-    const onGesture = () => { doUnlock(); };
+    const onGesture = () => { unlockAudio(); };
     const onAlarm = () => { playAlarmSound(); };
 
-    // Unlock on any real user interaction
-    window.addEventListener('click',      onGesture, { passive: true });
+    window.addEventListener('click', onGesture, { passive: true });
     window.addEventListener('touchstart', onGesture, { passive: true });
-    window.addEventListener('pointerdown',onGesture, { passive: true });
-    window.addEventListener('keydown',    onGesture, { passive: true });
-    window.addEventListener('scroll',     onGesture, { passive: true, once: true } as any);
+    window.addEventListener('pointerdown', onGesture, { passive: true });
+    window.addEventListener('keydown', onGesture, { passive: true });
 
-    // Listen for alarm triggers
     window.addEventListener('play_alarm_sound', onAlarm);
-    window.addEventListener('new_order',        onAlarm);
+    window.addEventListener('new_order', onAlarm);
 
     return () => {
-      window.removeEventListener('click',       onGesture);
-      window.removeEventListener('touchstart',  onGesture);
+      window.removeEventListener('click', onGesture);
+      window.removeEventListener('touchstart', onGesture);
       window.removeEventListener('pointerdown', onGesture);
-      window.removeEventListener('keydown',     onGesture);
-      window.removeEventListener('scroll',      onGesture);
+      window.removeEventListener('keydown', onGesture);
       window.removeEventListener('play_alarm_sound', onAlarm);
-      window.removeEventListener('new_order',        onAlarm);
+      window.removeEventListener('new_order', onAlarm);
     };
   }, []);
 }

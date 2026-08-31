@@ -44,8 +44,8 @@ export default function RiderLayout({ children }: { children: ReactNode }) {
       </main>
 
       {/* BARRA DE NAVEGACIÓN INFERIOR (PWA STYLE) */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-card)]/90 backdrop-blur-xl border-t border-[var(--border)] shadow-[0_-4px_24px_rgba(0,0,0,0.04)]" style={{ paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) - 8px), 4px)' }}>
-        <div className="flex justify-around items-center h-16">
+      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-[var(--bg-card)]/95 backdrop-blur-xl border-t border-[var(--border)] shadow-[0_-4px_24px_rgba(0,0,0,0.08)]" style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 4px)' }}>
+        <div className="flex justify-around items-center h-14">
           {NAV_ITEMS.map((item) => {
             const isActive = pathname.startsWith(item.href);
             const Icon = item.icon;

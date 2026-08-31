@@ -346,7 +346,7 @@ export default function HistorialPage() {
 
       {/* Modal Detalle de Pedido */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={() => setSelectedOrder(null)}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={() => setSelectedOrder(null)}>
           <div className="relative w-full max-w-lg bg-[var(--bg-card)] rounded-3xl border shadow-2xl p-6 space-y-5" style={{ borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
               <div>

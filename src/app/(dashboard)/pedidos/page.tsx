@@ -624,7 +624,7 @@ export default function PedidosPage() {
 
       {/* Edit Order Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="w-full max-w-lg rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
             {/* Modal header */}
             <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
@@ -852,7 +852,7 @@ export default function PedidosPage() {
 
       {/* Create Order Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <form onSubmit={handleCreateOrderSubmit} className="w-full max-w-xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
             <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
               <div>

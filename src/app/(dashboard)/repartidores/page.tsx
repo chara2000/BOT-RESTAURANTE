@@ -419,7 +419,7 @@ export default function RepartidoresPage() {
 
       {/* MODAL EDIT / CREATE */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <form onSubmit={handleSubmit} className="card p-6 max-w-lg w-full animate-fade-in-up space-y-4 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
               <h3 className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>

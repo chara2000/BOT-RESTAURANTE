@@ -26,7 +26,7 @@ export function ThermalTicketModal({ order, settings, onClose }: ThermalTicketMo
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4">
       {/* Estilos para impresión aislada (solo imprime el ticket) */}
       <style jsx global>{`
         @media print {

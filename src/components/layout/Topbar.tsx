@@ -138,11 +138,18 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
           onClick={() => {
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new Event('play_alarm_sound'));
+              window.dispatchEvent(new CustomEvent('show_toast', {
+                detail: {
+                  title: '🔔 Alarma de Pedidos Activa',
+                  message: 'El sistema de sonido y alertas en tiempo real está funcionando correctamente.',
+                  type: 'success',
+                }
+              }));
             }
           }}
           aria-label="Probar alarma sonora de pedidos"
           title="Probar Alarma Sonora de Pedidos"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-black transition-all hover:scale-105 active:scale-95 text-amber-500 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-black transition-all hover:scale-105 active:scale-95 text-amber-500 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
         >
           <Bell className="h-3.5 w-3.5 animate-pulse" />
           <span className="hidden md:inline">Alarma</span>

@@ -19,6 +19,7 @@ import {
   settingsService,
   ridersService,
 } from '@/services/api';
+import { playAlarmSound } from '@/hooks/useAlarmSound';
 import type {
   Category, CashSession, Customer, DashboardStats, DeliveryAssignment,
   InventoryItem, Order, OrderStatus, OrderType, Product, StockMovement, TenantSettings,
@@ -852,8 +853,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
 
     function handleAlarmTrigger() {
-      resumeAudio();
-      playNotificationSound();
+      playAlarmSound();
     }
 
     if (typeof window !== 'undefined') {
@@ -869,8 +869,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           if (active) {
             syncFromSupabase(tid).catch(logSupabaseError);
             if (payload.eventType === 'INSERT') {
-              resumeAudio();
-              playNotificationSound();
+              playAlarmSound();
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
+              }
             }
           }
         }

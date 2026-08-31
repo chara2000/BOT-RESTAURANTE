@@ -214,7 +214,7 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
 
   const { data, error } = await supabase
     .from('tenant_settings')
-    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone, additions')
+    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone')
     .eq('tenant_id', tenantId)
     .single();
 
@@ -228,7 +228,6 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
   const settings: CachedSettings = {
     delivery_fee: data?.delivery_fee ?? 5000,
     business_hours: data?.business_hours ?? [],
-    additions: (data as any)?.additions,
     coverage_city: data?.coverage_city,
     coverage_department: data?.coverage_department,
     coverage_keywords: data?.coverage_keywords ?? [],

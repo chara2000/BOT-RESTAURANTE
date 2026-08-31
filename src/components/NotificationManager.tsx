@@ -5,7 +5,7 @@ import { Toaster, sileo } from 'sileo';
 import 'sileo/styles.css';
 import { useAuth } from '@/context/AuthContext';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
-import { useAlarmSound } from '@/hooks/useAlarmSound';
+import { useAlarmSound, playAlarmSound } from '@/hooks/useAlarmSound';
 import { useTheme } from '@/context/ThemeContext';
 
 export function NotificationManager() {
@@ -24,9 +24,12 @@ export function NotificationManager() {
       const order = customEvent.detail;
       const orderNum = order?.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order?.id?.slice(0, 6)?.toUpperCase() || 'NUEVO'}`;
 
+      // Play real-time alarm chime immediately
+      playAlarmSound();
+
       if (!user?.role || user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'kitchen' || user?.role === 'operator') {
         sileo.show({
-          title: '🔔 ¡Nuevo Pedido Entrante!',
+          title: '🚨 ¡NUEVO PEDIDO ENTRANTE!',
           description: `${orderNum} · ${order?.customer?.name || 'Cliente'} (${order?.type === 'delivery' ? '🛵 Domicilio' : order?.type === 'pickup' ? '🛍️ Para Llevar' : '🍽️ Mesa'})`,
           type: 'info',
         });

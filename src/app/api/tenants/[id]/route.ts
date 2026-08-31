@@ -81,21 +81,7 @@ export async function PATCH(
       updatedTenant = data;
     }
 
-    // 2. Si se proporcionó logo_url o name, sincronizar también en tenant_settings
-    if (logo_url !== undefined || name !== undefined) {
-      const settingsPatch: Record<string, unknown> = {
-        tenant_id: id,
-        updated_at: new Date().toISOString(),
-      };
-      if (logo_url !== undefined) settingsPatch.logo_url = logo_url.trim();
-      if (name !== undefined) settingsPatch.restaurant_name = name.trim();
-      
-      await supabase
-        .from('tenant_settings')
-        .upsert(settingsPatch, { onConflict: 'tenant_id' });
-    }
-
-    // 3. Si se proporciona contraseña, email o nombre para actualizar el usuario Admin del restaurante
+    // 2. Si se proporciona contraseña, email o nombre para actualizar el usuario Admin del restaurante
     if (admin_email || admin_password || admin_name) {
       try {
         const { data: adminProfiles } = await supabase

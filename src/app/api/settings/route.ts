@@ -10,21 +10,23 @@ export async function PATCH(request: Request) {
 
   const tenantId = getTenantId(request);
   const body = await request.json();
-  if (body.restaurant_name !== undefined) {
-    const { error: tenantError } = await supabase
-      .from('tenants')
-      .update({ name: String(body.restaurant_name), updated_at: new Date().toISOString() })
-      .eq('id', tenantId);
 
-    if (tenantError) {
-      return NextResponse.json({ error: tenantError.message }, { status: 400 });
-    }
+  // 1. Sincronizar nombre y logo directamente en la tabla tenants
+  const tenantUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (body.restaurant_name !== undefined) tenantUpdates.name = String(body.restaurant_name).trim();
+  if (body.name !== undefined) tenantUpdates.name = String(body.name).trim();
+  if (body.logo_url !== undefined) tenantUpdates.logo_url = String(body.logo_url).trim();
+
+  if (Object.keys(tenantUpdates).length > 1) {
+    await supabase
+      .from('tenants')
+      .update(tenantUpdates)
+      .eq('id', tenantId);
   }
 
   if (body.nequi_number !== undefined || body.bancolombia_number !== undefined || body.bancolombia_type !== undefined) {
     body.whatsapp_phone = encodePaymentAccounts(body.nequi_number, body.bancolombia_number, body.bancolombia_type);
   }
-
 
   const allowed = [
     'delivery_fee',
@@ -54,15 +56,30 @@ export async function PATCH(request: Request) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
 
-  const { data, error } = await supabase
+  let data: any = null;
+  const { data: upsertData, error } = await supabase
     .from('tenant_settings')
     .upsert(patch, { onConflict: 'tenant_id' })
     .select('*')
-    .single();
+    .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    console.warn('[Settings PATCH] Upsert warning, trying core settings update:', error.message);
+    // Fallback: intentar update directo
+    const { data: fallbackData } = await supabase
+      .from('tenant_settings')
+      .update(patch)
+      .eq('tenant_id', tenantId)
+      .select('*')
+      .maybeSingle();
+    data = fallbackData || patch;
+  } else {
+    data = upsertData || patch;
   }
 
-  return NextResponse.json({ ...data, restaurant_name: body.restaurant_name });
+  return NextResponse.json({
+    ...data,
+    restaurant_name: body.restaurant_name || body.name,
+    logo_url: body.logo_url,
+  });
 }

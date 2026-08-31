@@ -41,34 +41,27 @@ export function ImageInputPicker({
     };
 
     try {
-      const supabase = createClient();
       let uploadedUrl: string | null = null;
 
-      if (supabase) {
-        try {
-          const fileExt = file.name.split('.').pop() || 'jpg';
-          const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
-          const filePath = `uploads/${fileName}`;
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('bucket', bucket);
 
-          const { error: uploadErr } = await supabase.storage
-            .from(bucket)
-            .upload(filePath, file, {
-              contentType: file.type,
-              upsert: true,
-            });
+        const res = await fetch('/api/storage/upload', {
+          method: 'POST',
+          body: formData,
+        });
 
-          if (!uploadErr) {
-            const { data } = supabase.storage.from(bucket).getPublicUrl(filePath);
-            if (data?.publicUrl) {
-              uploadedUrl = data.publicUrl;
-            }
-          }
-        } catch {
-          // Ignorar error de storage y pasar al fallback local
+        if (res.ok) {
+          const json = await res.json();
+          if (json.url) uploadedUrl = json.url;
         }
+      } catch {
+        // Fallback local
       }
 
-      // Si Supabase Storage no está disponible o falló, convertir a Base64
+      // Si falla la API, usar Base64 localmente
       if (!uploadedUrl) {
         uploadedUrl = await convertToBase64(file);
       }

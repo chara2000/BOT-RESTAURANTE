@@ -16,6 +16,7 @@ export interface Product {
   is_available: boolean;
   stock?: number;
   is_combo?: boolean;
+  additions?: AdditionItem[];
 }
 
 export interface Category {

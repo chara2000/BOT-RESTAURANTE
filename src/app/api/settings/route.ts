@@ -26,15 +26,6 @@ export async function PATCH(request: Request) {
   }
 
 
-  // Ensure additions column exists in tenant_settings
-  try {
-    await supabase.rpc('execute_sql', {
-      sql: "ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;"
-    });
-  } catch (e) {
-    // Non-critical if RPC not available
-  }
-
   const allowed = [
     'delivery_fee',
     'telegram_bot_token',
@@ -53,7 +44,6 @@ export async function PATCH(request: Request) {
     'restaurant_lng',
     'auto_assign_riders',
     'allow_external_riders',
-    'additions',
   ];
   const patch: Record<string, unknown> = {
     tenant_id: tenantId,

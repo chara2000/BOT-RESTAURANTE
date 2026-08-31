@@ -16,6 +16,7 @@ export function mapProduct(row: Record<string, unknown>): Product {
     image_url: String(r.image_url ?? ''),
     is_available: Boolean(r.is_available ?? true),
     is_combo: Boolean(r.is_combo ?? false),
+    additions: Array.isArray(r.additions) ? (r.additions as Product['additions']) : undefined,
   };
 }
 

@@ -13,6 +13,7 @@ type ProductBody = {
   image_url?: string;
   is_available?: boolean;
   is_combo?: boolean;
+  additions?: any[];
 };
 
 async function resolveCategoryId(categoryName: string | undefined, categoryId: string | undefined, tenantId: string) {
@@ -80,21 +81,41 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
     }
 
+    // Ensure additions column exists on products
+    try {
+      await supabase.rpc('execute_sql', {
+        sql: "ALTER TABLE public.products ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;"
+      });
+    } catch {}
+
     const category_id = await resolveCategoryId(body.category, body.category_id, tenantId);
-    const { data, error } = await supabase
+    const insertPayload: Record<string, unknown> = {
+      tenant_id: tenantId,
+      category_id,
+      name,
+      description: body.description ?? '',
+      price: Number(body.price ?? 0),
+      image_url: body.image_url ?? '',
+      is_available: body.is_available ?? true,
+      is_combo: body.is_combo ?? false,
+    };
+    if (body.additions !== undefined) {
+      insertPayload.additions = body.additions;
+    }
+
+    let { data, error } = await supabase
       .from('products')
-      .insert({
-        tenant_id: tenantId,
-        category_id,
-        name,
-        description: body.description ?? '',
-        price: Number(body.price ?? 0),
-        image_url: body.image_url ?? '',
-        is_available: body.is_available ?? true,
-        is_combo: body.is_combo ?? false,
-      })
+      .insert(insertPayload)
       .select(PRODUCT_SELECT)
       .single();
+
+    if (error && body.additions !== undefined) {
+      // Fallback without additions if column not present yet
+      delete insertPayload.additions;
+      const res = await supabase.from('products').insert(insertPayload).select(PRODUCT_SELECT).single();
+      data = res.data;
+      error = res.error;
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

@@ -512,33 +512,44 @@ async function askItemNoteScreen(session: BotSession, qty: number, productId?: s
   session.state = 'selecting_item_note';
 
   const p = session.selectedProduct;
+  const availableAdditions = (p.additions || []).filter((a: AdditionItem) => a.is_available !== false);
+
+  const buttons: { text: string; callback_data: string }[][] = [];
+  if (availableAdditions.length > 0) {
+    buttons.push([{ text: `🧀 Agregar adición (+${availableAdditions.length} disp.)`, callback_data: `show_additions:${qty}:${p.id}` }]);
+  }
+  buttons.push([{ text: '⏭️ Omitir y agregar al carrito', callback_data: `skip_note:${qty}:${p.id}` }]);
+  buttons.push([{ text: '↩️ Cancelar', callback_data: 'menu' }]);
+
+  const additionsHint = availableAdditions.length > 0 
+    ? `\n\n🧀 *Este plato cuenta con ${availableAdditions.length} adición(es) disponible(s).*` 
+    : '';
 
   return {
-    text: `Has elegido *${qty}x ${p.name}*.\n\n📝 *¿Deseas agregar una instrucción especial?* (Ej: sin cebolla, extra salsa).\n\nEscribe tu nota ahora, o toca el botón para omitir:`,
+    text: `Has elegido *${qty}x ${p.name}*.\n\n📝 *¿Deseas agregar una instrucción especial o adición?*${additionsHint}\n\nEscribe tu nota ahora, o toca un botón:`,
     reply_markup: {
-      inline_keyboard: [
-        [{ text: '➕ Agregar adición', callback_data: `show_additions:${qty}:${p.id}` }],
-        [{ text: '⏭️ Omitir y agregar al carrito', callback_data: `skip_note:${qty}:${p.id}` }],
-        [{ text: '↩️ Cancelar', callback_data: 'menu' }],
-      ],
+      inline_keyboard: buttons,
     },
   };
 }
 
 async function showAdditionsScreen(session: BotSession, qty: number, productId: string, tenantId: string): Promise<BotResponse> {
-  if (productId && !session.selectedProduct) {
+  let p = session.selectedProduct;
+  if (productId && (!p || p.id !== productId)) {
     const { data } = await supabase.from('products').select('*').eq('id', productId).single();
-    if (data) session.selectedProduct = data as Product;
+    if (data) {
+      session.selectedProduct = data as Product;
+      p = data as Product;
+    }
   }
-  const p = session.selectedProduct;
   const productName = p?.name || 'este platillo';
 
-  const settings = await getTenantSettings(tenantId);
-  const additionsList: AdditionItem[] = (settings.additions || []).filter((a: AdditionItem) => a.is_available !== false);
+  // Dish-level additions
+  const additionsList: AdditionItem[] = (p?.additions || []).filter((a: AdditionItem) => a.is_available !== false);
 
   if (additionsList.length === 0) {
     return {
-      text: `🧀 *No hay adiciones configuradas* para *${productName}* en este restaurante.\n\n¿Deseas agregar el producto directamente al carrito?`,
+      text: `🧀 *El platillo "${productName}" no tiene adiciones configuradas.*\n\n¿Deseas agregarlo directamente al carrito?`,
       reply_markup: {
         inline_keyboard: [
           [{ text: '✅ Sí, agregar al carrito', callback_data: `skip_note:${qty}:${productId}` }],
@@ -555,13 +566,13 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
     const a1 = additionsList[i];
     row.push({
       text: `${a1.name} (+$${a1.price.toLocaleString('es-CO')})`,
-      callback_data: `add_ad:${a1.id}:${qty}`,
+      callback_data: `add_ad:${a1.id}:${qty}:${productId.slice(0, 8)}`,
     });
     if (additionsList[i + 1]) {
       const a2 = additionsList[i + 1];
       row.push({
         text: `${a2.name} (+$${a2.price.toLocaleString('es-CO')})`,
-        callback_data: `add_ad:${a2.id}:${qty}`,
+        callback_data: `add_ad:${a2.id}:${qty}:${productId.slice(0, 8)}`,
       });
     }
     buttons.push(row);
@@ -1690,11 +1701,14 @@ async function handleProcessCallback(
     const parts = callbackData.replace('add_ad:', '').split(':');
     const addId = parts[0];
     const qty = parseInt(parts[1]) || 1;
-    const settings = await getTenantSettings(tenantId);
-    const addition = (settings.additions || []).find((a: AdditionItem) => a.id === addId);
+    let p = session.selectedProduct;
+    if (!p && session.pendingItem) {
+      p = session.pendingItem.product;
+    }
+    const addition = (p?.additions || []).find((a: AdditionItem) => a.id === addId);
     const additionName = addition?.name || 'Adición Extra';
     const additionPrice = addition?.price || 0;
-    return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, undefined, additionPrice);
+    return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, p?.id, additionPrice);
   }
 
   if (callbackData.startsWith('add_addition:')) {

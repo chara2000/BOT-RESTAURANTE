@@ -37,11 +37,17 @@ export default function MenuPage() {
   const [newCatName, setNewCatName] = useState('');
   const [savingCat, setSavingCat] = useState(false);
 
-  // Additions modal state
+  // Dish additions modal state
   const [showAdditionsModal, setShowAdditionsModal] = useState(false);
+  const [selectedProductForAdditions, setSelectedProductForAdditions] = useState<Product | null>(null);
   const [newAddName, setNewAddName] = useState('');
   const [newAddPrice, setNewAddPrice] = useState<number | string>('');
   const [savingAdd, setSavingAdd] = useState(false);
+
+  // Form dish additions state
+  const [formAdditions, setFormAdditions] = useState<AdditionItem[]>([]);
+  const [formNewAddName, setFormNewAddName] = useState('');
+  const [formNewAddPrice, setFormNewAddPrice] = useState<number | string>('');
 
   const startEditProduct = (prod: Product) => {
     setEditing(prod);
@@ -51,6 +57,9 @@ export default function MenuPage() {
     setFormDescription(prod.description || '');
     setFormImageUrl(prod.image_url || '');
     setFormAvailable(prod.is_available ?? true);
+    setFormAdditions(prod.additions || []);
+    setFormNewAddName('');
+    setFormNewAddPrice('');
     setShowForm(true);
   };
 
@@ -62,7 +71,17 @@ export default function MenuPage() {
     setFormDescription('');
     setFormImageUrl('');
     setFormAvailable(true);
+    setFormAdditions([]);
+    setFormNewAddName('');
+    setFormNewAddPrice('');
     setShowForm(true);
+  };
+
+  const openDishAdditions = (prod: Product) => {
+    setSelectedProductForAdditions(prod);
+    setNewAddName('');
+    setNewAddPrice('');
+    setShowAdditionsModal(true);
   };
 
   const filtered = products.filter((p) => {
@@ -91,6 +110,7 @@ export default function MenuPage() {
       image_url: formImageUrl || (editing?.image_url ?? 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400'),
       description: formDescription.trim(),
       is_available: formAvailable,
+      additions: formAdditions,
     };
 
     try {
@@ -107,6 +127,7 @@ export default function MenuPage() {
       setFormPrice('');
       setFormDescription('');
       setFormImageUrl('');
+      setFormAdditions([]);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Error al guardar el producto.');
     } finally {
@@ -152,12 +173,12 @@ export default function MenuPage() {
     }
   };
 
-  // Additions handlers (per-tenant)
-  const currentAdditions = settings?.additions ?? [];
+  // Dish-level Additions handlers for Modal
+  const dishAdditions = selectedProductForAdditions?.additions ?? [];
 
-  const handleAddAddition = async (e: React.FormEvent) => {
+  const handleAddDishAddition = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAddName.trim() || !newAddPrice) return;
+    if (!selectedProductForAdditions || !newAddName.trim() || !newAddPrice) return;
     setSavingAdd(true);
     try {
       const newItem: AdditionItem = {
@@ -166,40 +187,45 @@ export default function MenuPage() {
         price: Number(newAddPrice),
         is_available: true,
       };
-      const updated = [...currentAdditions, newItem];
-      await updateSettings({ additions: updated });
+      const updated = [...dishAdditions, newItem];
+      await updateProduct({ ...selectedProductForAdditions, additions: updated });
+      setSelectedProductForAdditions((prev) => prev ? { ...prev, additions: updated } : null);
       setNewAddName('');
       setNewAddPrice('');
-      showAlert({ title: 'Adición Creada', message: `Se agregó "${newItem.name}" al catálogo de adiciones.`, type: 'success' });
+      showAlert({ title: 'Adición Agregada', message: `Se agregó "${newItem.name}" al platillo "${selectedProductForAdditions.name}".`, type: 'success' });
     } catch (err) {
-      showAlert({ title: 'Error', message: 'No se pudo guardar la adición', type: 'error' });
+      showAlert({ title: 'Error', message: 'No se pudo guardar la adición del platillo', type: 'error' });
     } finally {
       setSavingAdd(false);
     }
   };
 
-  const handleToggleAddition = async (id: string) => {
+  const handleToggleDishAddition = async (id: string) => {
+    if (!selectedProductForAdditions) return;
     try {
-      const updated = currentAdditions.map(a => a.id === id ? { ...a, is_available: !a.is_available } : a);
-      await updateSettings({ additions: updated });
+      const updated = dishAdditions.map(a => a.id === id ? { ...a, is_available: !a.is_available } : a);
+      await updateProduct({ ...selectedProductForAdditions, additions: updated });
+      setSelectedProductForAdditions((prev) => prev ? { ...prev, additions: updated } : null);
     } catch (err) {
       showAlert({ title: 'Error', message: 'No se pudo actualizar la disponibilidad', type: 'error' });
     }
   };
 
-  const handleDeleteAddition = async (id: string, name: string) => {
+  const handleDeleteDishAddition = async (id: string, name: string) => {
+    if (!selectedProductForAdditions) return;
     const ok = await showConfirm({
       title: '¿Eliminar Adición?',
-      message: `¿Deseas eliminar la adición "${name}"?`,
+      message: `¿Deseas eliminar la adición "${name}" de este platillo?`,
       confirmText: 'Sí, Eliminar',
       cancelText: 'Cancelar',
       isDanger: true,
     });
     if (ok) {
       try {
-        const updated = currentAdditions.filter(a => a.id !== id);
-        await updateSettings({ additions: updated });
-        showAlert({ title: 'Eliminada', message: 'Adición eliminada correctamente', type: 'success' });
+        const updated = dishAdditions.filter(a => a.id !== id);
+        await updateProduct({ ...selectedProductForAdditions, additions: updated });
+        setSelectedProductForAdditions((prev) => prev ? { ...prev, additions: updated } : null);
+        showAlert({ title: 'Eliminada', message: 'Adición eliminada del platillo', type: 'success' });
       } catch (err) {
         showAlert({ title: 'Error', message: 'No se pudo eliminar la adición', type: 'error' });
       }
@@ -232,14 +258,17 @@ export default function MenuPage() {
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
-            <button
-              onClick={() => setShowAdditionsModal(true)}
-              className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-            >
-              <Layers className="h-4 w-4 text-[var(--orange)]" />
-              <span>Adiciones ({currentAdditions.length})</span>
-            </button>
+            {products.length > 0 && (
+              <button
+                onClick={() => openDishAdditions(products[0])}
+                className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                title="Configurar adiciones por plato"
+              >
+                <Layers className="h-4 w-4 text-[var(--orange)]" />
+                <span>Adiciones por Plato</span>
+              </button>
+            )}
 
             <button
               onClick={() => setShowCatModal(true)}
@@ -396,6 +425,87 @@ export default function MenuPage() {
                   />
                 </div>
 
+                {/* Sección de Adiciones por Plato en Formulario */}
+                <div className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-black flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                        <Layers className="w-4 h-4 text-[var(--orange)]" /> Adiciones de este Plato (Toppings / Extras)
+                      </p>
+                      <p className="text-[10px] font-medium mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        Opciones adicionales exclusivas que el cliente puede añadir a este platillo (ej: Queso Extra, Tocineta, Salsa).
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-black px-2 py-0.5 rounded-lg bg-[var(--orange-soft)] text-[var(--orange)]">
+                      {formAdditions.length} configuradas
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nombre (ej: Extra Tocineta)"
+                      value={formNewAddName}
+                      onChange={(e) => setFormNewAddName(e.target.value)}
+                      className="sm:col-span-2 text-xs font-semibold px-3 py-2 rounded-xl border focus:outline-none focus:ring-1 focus:ring-[var(--orange)]"
+                      style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        placeholder="Precio COP"
+                        value={formNewAddPrice}
+                        onChange={(e) => setFormNewAddPrice(e.target.value)}
+                        className="w-full text-xs font-semibold px-3 py-2 rounded-xl border focus:outline-none focus:ring-1 focus:ring-[var(--orange)]"
+                        style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!formNewAddName.trim() || !formNewAddPrice) return;
+                          const item: AdditionItem = {
+                            id: 'add_' + Date.now(),
+                            name: formNewAddName.trim(),
+                            price: Number(formNewAddPrice),
+                            is_available: true,
+                          };
+                          setFormAdditions((prev) => [...prev, item]);
+                          setFormNewAddName('');
+                          setFormNewAddPrice('');
+                        }}
+                        className="px-3 py-2 rounded-xl text-white text-xs font-black shadow-sm hover:scale-105 active:scale-95 transition-all cursor-pointer shrink-0"
+                        style={{ background: 'var(--orange)' }}
+                      >
+                        ➕
+                      </button>
+                    </div>
+                  </div>
+
+                  {formAdditions.length > 0 && (
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                      {formAdditions.map((add, idx) => (
+                        <div
+                          key={add.id || idx}
+                          className="flex items-center justify-between p-2 rounded-xl border text-xs font-bold"
+                          style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+                        >
+                          <span style={{ color: 'var(--text-primary)' }}>{add.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-black text-[var(--orange)]">+{formatCurrency(add.price)}</span>
+                            <button
+                              type="button"
+                              onClick={() => setFormAdditions((prev) => prev.filter((_, i) => i !== idx))}
+                              className="text-rose-500 hover:text-rose-600 p-1 cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <label className="flex items-center gap-3 text-xs font-black cursor-pointer p-3.5 rounded-xl border" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
                   <input
                     type="checkbox"
@@ -477,6 +587,23 @@ export default function MenuPage() {
                     {product.description || 'Sin descripción detallada.'}
                   </p>
 
+                  {/* Botón de Adiciones del Plato */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => openDishAdditions(product)}
+                      className="w-full py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-black transition-all hover:bg-[var(--orange-soft)] hover:border-[var(--orange)] cursor-pointer group/add"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      <span className="flex items-center gap-1.5 group-hover/add:text-[var(--orange)]">
+                        <Layers className="h-3.5 w-3.5 text-[var(--orange)]" /> Adiciones del Plato
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-lg font-black bg-[var(--bg-input)] group-hover/add:bg-[var(--orange)] group-hover/add:text-white transition-colors">
+                        {(product.additions || []).length}
+                      </span>
+                    </button>
+                  </div>
+
                   <div className="flex items-center justify-between pt-3 mt-auto border-t" style={{ borderColor: 'var(--border)' }}>
                     <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
                       product.is_available ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
@@ -548,31 +675,37 @@ export default function MenuPage() {
         )}
       </div>
 
-      {/* Modal de Gestión de Adiciones */}
-      {showAdditionsModal && (
+      {/* Modal de Gestión de Adiciones por Plato */}
+      {showAdditionsModal && selectedProductForAdditions && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="card p-6 max-w-lg w-full animate-fade-in-up space-y-5 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
-              <h3 className="text-base font-black flex items-center gap-2">
-                <Layers className="w-5 h-5 text-[var(--orange)]" />
-                Gestionar Adiciones del Menú
-              </h3>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl overflow-hidden shrink-0 border" style={{ borderColor: 'var(--border)' }}>
+                  <img src={selectedProductForAdditions.image_url} alt="" className="w-full h-full object-cover" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black flex items-center gap-2">
+                    <Layers className="w-5 h-5 text-[var(--orange)]" />
+                    Adiciones de "{selectedProductForAdditions.name}"
+                  </h3>
+                  <p className="text-[11px] font-bold" style={{ color: 'var(--text-muted)' }}>
+                    Configura los extras y toppings exclusivos para este plato
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => setShowAdditionsModal(false)}
-                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer p-1"
               >
                 ✕ Cerrar
               </button>
             </div>
 
-            <p className="text-xs font-medium text-[var(--text-muted)]">
-              Crea o edita las adiciones que el cliente podrá añadir a sus platillos desde el bot de Telegram o la caja POS.
-            </p>
-
-            {/* Formulario de Nueva Adición */}
-            <form onSubmit={handleAddAddition} className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+            {/* Formulario de Nueva Adición para el Plato */}
+            <form onSubmit={handleAddDishAddition} className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
               <p className="text-xs font-black text-[var(--text-primary)] flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4 text-[var(--orange)]" /> Nueva Adición
+                <PlusCircle className="w-4 h-4 text-[var(--orange)]" /> Nueva Adición para este Plato
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input
@@ -600,16 +733,18 @@ export default function MenuPage() {
                 className="w-full text-xs font-black py-2.5 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
                 style={{ background: 'var(--orange)' }}
               >
-                {savingAdd ? 'Guardando...' : '➕ Agregar al Menú de Adiciones'}
+                {savingAdd ? 'Guardando...' : '➕ Agregar Adición a este Plato'}
               </button>
             </form>
 
-            {/* Lista de Adiciones Existentes */}
+            {/* Lista de Adiciones del Plato */}
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {currentAdditions.length === 0 ? (
-                <p className="text-xs font-bold text-center text-[var(--text-muted)] py-4">No hay adiciones configuradas.</p>
+              {dishAdditions.length === 0 ? (
+                <p className="text-xs font-bold text-center text-[var(--text-muted)] py-4">
+                  No hay adiciones configuradas para este plato.<br />¡Agrega la primera usando el formulario superior!
+                </p>
               ) : (
-                currentAdditions.map((addition) => (
+                dishAdditions.map((addition) => (
                   <div
                     key={addition.id}
                     className="flex items-center justify-between p-3 rounded-xl border bg-[var(--bg-card)] hover:border-[var(--orange)] transition-colors"
@@ -618,7 +753,7 @@ export default function MenuPage() {
                     <div className="flex items-center gap-2.5">
                       <button
                         type="button"
-                        onClick={() => handleToggleAddition(addition.id)}
+                        onClick={() => handleToggleDishAddition(addition.id)}
                         className="text-[var(--orange)] cursor-pointer"
                         title={addition.is_available ? 'Disponible' : 'No disponible'}
                       >
@@ -632,7 +767,7 @@ export default function MenuPage() {
 
                     <button
                       type="button"
-                      onClick={() => handleDeleteAddition(addition.id, addition.name)}
+                      onClick={() => handleDeleteDishAddition(addition.id, addition.name)}
                       className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

@@ -46,10 +46,10 @@ export function Sidebar() {
   // Dynamic badge counts
   const activeDeliveries = deliveries.filter((d) => d.status === 'assigned' || d.status === 'searching').length;
 
-  const getDynamicBadge = (label: string, staticBadge?: number) => {
-    if (label === 'Pedidos') return activeOrdersCount || undefined;
-    if (label === 'Domicilios') return activeDeliveries || undefined;
-    return staticBadge;
+  const getDynamicBadge = (label: string) => {
+    if (label === 'Pedidos') return activeOrdersCount > 0 ? activeOrdersCount : undefined;
+    if (label === 'Domicilios') return activeDeliveries > 0 ? activeDeliveries : undefined;
+    return undefined;
   };
 
   const getShowAlert = (label: string, staticAlert?: boolean) => {
@@ -78,9 +78,9 @@ export function Sidebar() {
         </div>
 
         <nav className="space-y-1.5">
-          {visibleNavItems.map(({ label, href, icon: Icon, badge, alert }) => {
+          {visibleNavItems.map(({ label, href, icon: Icon, alert }) => {
             const active = isActive(href);
-            const dynamicBadge = getDynamicBadge(label, badge);
+            const dynamicBadge = getDynamicBadge(label);
             const showAlert = getShowAlert(label, alert);
 
             return (
@@ -119,7 +119,8 @@ export function Sidebar() {
       <div className="p-4 border-t" style={{ borderColor: 'var(--border)' }}>
         <button 
           onClick={toggleCollapse}
-          className="w-full flex items-center justify-center p-2 rounded-xl text-sm font-black transition-colors hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--orange)] hidden md:flex"
+          aria-label={isCollapsed ? 'Expandir menú lateral' : 'Colapsar menú lateral'}
+          className="w-full flex items-center justify-center p-2 rounded-xl text-sm font-black transition-colors hover:bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--orange)] hidden md:flex cursor-pointer"
         >
           {isCollapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
         </button>

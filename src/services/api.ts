@@ -308,22 +308,21 @@ export const deliveryService = {
 };
 
 export const categoriesService = {
-  async getAll(): Promise<Category[]> {
-    const supabase = createClient();
-    if (!supabase) return [];
-    const { data, error } = await supabase
-      .from('categories')
-      .select('*')
-      .eq('tenant_id', DEMO_TENANT_ID)
-      .order('sort_order', { ascending: true });
-    if (error) throw error;
-    return data as Category[];
+  async getAll(tenantId?: string): Promise<Category[]> {
+    const tid = tenantId || getActiveTenantId();
+    const res = await fetch(`/api/categories${tid ? `?tenant_id=${encodeURIComponent(tid)}` : ''}`, {
+      headers: getHeaders(undefined, tid),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
   },
 
-  async create(category: Partial<Category>): Promise<Category> {
+  async create(category: Partial<Category>, tenantId?: string): Promise<Category> {
+    const tid = tenantId || getActiveTenantId();
     const res = await fetch('/api/categories', {
       method: 'POST',
-      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
       body: JSON.stringify(category),
     });
     const body = await res.json().catch(() => ({}));
@@ -331,10 +330,11 @@ export const categoriesService = {
     return body;
   },
 
-  async update(category: Category): Promise<Category> {
+  async update(category: Category, tenantId?: string): Promise<Category> {
+    const tid = tenantId || getActiveTenantId();
     const res = await fetch(`/api/categories/${category.id}`, {
       method: 'PATCH',
-      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
       body: JSON.stringify(category),
     });
     const body = await res.json().catch(() => ({}));
@@ -342,10 +342,11 @@ export const categoriesService = {
     return body;
   },
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, tenantId?: string): Promise<void> {
+    const tid = tenantId || getActiveTenantId();
     const res = await fetch(`/api/categories/${id}`, {
       method: 'DELETE',
-      headers: getHeaders(),
+      headers: getHeaders(undefined, tid),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(body.error ?? 'No se pudo eliminar la categoría');
@@ -364,7 +365,7 @@ export async function loadDashboardData(tenantId?: string, riderId?: string) {
       }
       const res = await fetch(url, {
         cache: 'no-store',
-        headers: getHeaders(),
+        headers: getHeaders(undefined, tenantId),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));

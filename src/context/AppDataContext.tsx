@@ -226,37 +226,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     { id: 'a0000000-0000-4000-8000-000000000003', name: 'Burger & Shake House', subdomain: 'burgershake', plan_type: 'starter' },
   ]);
 
-  const setSelectedTenantId = useCallback((id: string | null) => {
-    setSelectedTenantIdState(id);
-    if (typeof window !== 'undefined') {
-      if (id) {
-        safeLocalStorage.setItem('chefflow_selected_tenant_id', id);
-      } else {
-        safeLocalStorage.removeItem('chefflow_selected_tenant_id');
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    // Fetch all tenants from admin API endpoint to bypass client RLS and get all real restaurants
-    fetch('/api/tenants')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.tenants && Array.isArray(data.tenants) && data.tenants.length > 0) {
-          setAllTenants(data.tenants);
-        }
-      })
-      .catch(() => {
-        const supabase = createClient();
-        if (!supabase) return;
-        supabase.from('tenants').select('id, name, subdomain, plan_type').then(({ data }) => {
-          if (data && data.length > 0) {
-            setAllTenants(data);
-          }
-        });
-      });
-  }, []);
-
   const [isLoading, setIsLoading] = useState(useSupabase);
 
   const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] => {
@@ -280,8 +249,6 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         longitude: lng,
       }));
   }, [settings?.restaurant_lat, settings?.restaurant_lng]);
-
-
 
   const syncFromSupabase = useCallback(async (overrideTenantId?: string, isBackground = false) => {
     const tid = overrideTenantId || activeTenantId;
@@ -313,7 +280,51 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     } finally {
       if (!isBackground) setIsLoading(false);
     }
-  }, [activeTenantId, buildDeliveries]);
+  }, [activeTenantId, buildDeliveries, user?.id]);
+
+  const setSelectedTenantId = useCallback((id: string | null) => {
+    setSelectedTenantIdState(id);
+    if (typeof window !== 'undefined') {
+      if (id) {
+        safeLocalStorage.setItem('chefflow_selected_tenant_id', id);
+      } else {
+        safeLocalStorage.removeItem('chefflow_selected_tenant_id');
+      }
+    }
+    if (useSupabase) {
+      if (!id && user?.role === 'super_admin') {
+        setCategories([]);
+        setOrders([]);
+        setProducts([]);
+        setCustomers([]);
+        setInventory([]);
+        setStockMovements([]);
+        setDeliveries([]);
+      } else {
+        syncFromSupabase(id || DEMO_TENANT_ID);
+      }
+    }
+  }, [useSupabase, user?.role, syncFromSupabase]);
+
+  useEffect(() => {
+    // Fetch all tenants from admin API endpoint to bypass client RLS and get all real restaurants
+    fetch('/api/tenants')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.tenants && Array.isArray(data.tenants) && data.tenants.length > 0) {
+          setAllTenants(data.tenants);
+        }
+      })
+      .catch(() => {
+        const supabase = createClient();
+        if (!supabase) return;
+        supabase.from('tenants').select('id, name, subdomain, plan_type').then(({ data }) => {
+          if (data && data.length > 0) {
+            setAllTenants(data);
+          }
+        });
+      });
+  }, []);
 
   // Real-time order synchronization listener & 6s polling fallback
   useEffect(() => {

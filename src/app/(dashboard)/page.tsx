@@ -294,7 +294,7 @@ export default function DashboardPage() {
               <div className="card p-5 lg:p-6 flex flex-col">
                 <div className="flex items-center justify-between pb-3 lg:pb-4 border-b mb-3 lg:mb-4" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-sm font-black tracking-wide">Fila de Preparación</p>
-                  <button className="p-1.5 rounded-lg hover:bg-[var(--bg-input)] transition-colors" style={{ color: 'var(--text-muted)' }}><MoreHorizontal className="h-5 w-5" /></button>
+                  <button aria-label="Opciones de fila de preparación" className="p-1.5 rounded-lg hover:bg-[var(--bg-input)] transition-colors cursor-pointer" style={{ color: 'var(--text-muted)' }}><MoreHorizontal className="h-5 w-5" /></button>
                 </div>
                 <div className="space-y-4 lg:space-y-5 flex-1">
                   {orderList.map((o) => (

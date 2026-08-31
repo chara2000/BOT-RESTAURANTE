@@ -14,7 +14,6 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: "ChefFlow IA — Restaurant SaaS POS Dashboard",
   description: "Sistema de gestión integral para restaurantes con IA, domicilios, caja POS y automatización.",
-  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -34,8 +33,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
   viewportFit: "cover",
   themeColor: "#FF6B35",
 };

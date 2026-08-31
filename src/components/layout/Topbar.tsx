@@ -98,7 +98,8 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
       <div className="flex items-center gap-4">
         <button
           onClick={toggleMenu}
-          className="md:hidden p-2.5 rounded-xl border transition-all active:scale-95"
+          aria-label="Abrir menú de navegación"
+          className="md:hidden p-2.5 rounded-xl border transition-all active:scale-95 cursor-pointer"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
         >
           <Menu className="w-5 h-5" />
@@ -108,8 +109,6 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
           <h1 className="text-xl lg:text-2xl font-black tracking-tight text-[var(--text-primary)] leading-tight">{title}</h1>
           <p style={{ color: 'var(--text-muted)' }} className="text-[11px] lg:text-xs font-bold mt-0.5">{subtitle}</p>
         </div>
-
-
       </div>
 
       <div className="relative flex-1 max-w-md hidden lg:block group ml-4">
@@ -141,8 +140,9 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
               window.dispatchEvent(new Event('play_alarm_sound'));
             }
           }}
+          aria-label="Probar alarma sonora de pedidos"
           title="Probar Alarma Sonora de Pedidos"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-black transition-all hover:scale-105 active:scale-95 text-amber-500 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[11px] font-black transition-all hover:scale-105 active:scale-95 text-amber-500 bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 cursor-pointer"
         >
           <Bell className="h-3.5 w-3.5 animate-pulse" />
           <span className="hidden md:inline">Alarma</span>
@@ -151,7 +151,8 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
         {/* Theme Toggle */}
         <button
           onClick={toggleTheme}
-          className="p-2.5 lg:p-3 rounded-xl border shadow-sm transition-transform hover:scale-105 active:scale-95"
+          aria-label={dark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'}
+          className="p-2.5 lg:p-3 rounded-xl border shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer"
           style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
         >
           {dark ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-indigo-400" />}
@@ -161,7 +162,8 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
         <div ref={notifRef} className="relative">
           <button
             onClick={() => { setShowNotifications(!showNotifications); markAllSeen(); }}
-            className="p-2.5 lg:p-3 rounded-xl border relative shadow-sm transition-all hover:scale-105 active:scale-95 hover:border-[var(--orange)] group"
+            aria-label={`Notificaciones (${unreadCount} pedidos pendientes)`}
+            className="p-2.5 lg:p-3 rounded-xl border relative shadow-sm transition-all hover:scale-105 active:scale-95 hover:border-[var(--orange)] group cursor-pointer"
             style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}
           >
             <Bell className="h-4 w-4 group-hover:text-[var(--orange)] transition-colors" />
@@ -225,6 +227,7 @@ export function Topbar({ title, subtitle = 'Visión general de tu restaurante' }
         <div ref={userRef} className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
+            aria-label="Menú de perfil y usuario"
             className="flex items-center gap-3 cursor-pointer group pl-1"
           >
             <div className="text-right hidden sm:block transition-transform group-hover:-translate-x-0.5">

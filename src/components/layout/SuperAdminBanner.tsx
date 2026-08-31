@@ -58,6 +58,7 @@ export function SuperAdminBanner() {
           <button
             type="button"
             onClick={() => setShowSelectorModal(true)}
+            aria-label="Cambiar restaurante seleccionado"
             className="flex items-center gap-1.5 bg-white text-orange-600 hover:bg-orange-50 px-3 py-1.5 rounded-xl shadow-sm transition-all active:scale-95 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
@@ -85,6 +86,7 @@ export function SuperAdminBanner() {
               <button
                 type="button"
                 onClick={() => setSelectedTenantId(null)}
+                aria-label="Desloguearme de esta sede"
                 title="Desloguearme de esta sede"
                 className="flex items-center gap-1.5 bg-red-600/90 hover:bg-red-700 text-white px-2.5 py-1.5 rounded-xl transition-all active:scale-95 cursor-pointer"
               >
@@ -112,7 +114,8 @@ export function SuperAdminBanner() {
               <button
                 type="button"
                 onClick={() => setShowSelectorModal(false)}
-                className="text-sm font-bold text-[var(--text-muted)] hover:text-white p-1"
+                aria-label="Cerrar modal de selección de restaurante"
+                className="text-sm font-bold text-[var(--text-muted)] hover:text-white p-1 cursor-pointer"
               >
                 ✕
               </button>

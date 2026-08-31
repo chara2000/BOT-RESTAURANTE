@@ -21,13 +21,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Supabase no configurado' }, { status: 503 });
   }
 
-  // Run DB DDL migration to add allow_external_riders if not exists
+  // Run DB DDL migration to add allow_external_riders and additions if not exists
   try {
     await supabase.rpc('execute_sql', {
-      sql: 'ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS allow_external_riders BOOLEAN DEFAULT false;'
+      sql: `
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS allow_external_riders BOOLEAN DEFAULT false;
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;
+      `
     });
   } catch (err) {
-    console.warn('[Bootstrap] SQL migration for allow_external_riders skipped/failed:', err);
+    console.warn('[Bootstrap] SQL migration skipped/failed:', err);
   }
 
   const { searchParams } = new URL(request.url);

@@ -721,15 +721,15 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setSettings((prev) => ({ ...prev, ...partial }));
     if (dataSource === 'supabase') {
       try {
-        const saved = await settingsService.update(partial);
+        const saved = await settingsService.update(partial, activeTenantId);
         setSettings((prev) => ({ ...prev, ...saved }));
       } catch (err) {
         logSupabaseError(err);
-        await syncFromSupabase();
+        await syncFromSupabase(activeTenantId);
         throw err;
       }
     }
-  }, [dataSource, syncFromSupabase]);
+  }, [dataSource, activeTenantId, syncFromSupabase]);
 
   const assignRider = useCallback(async (orderId: string, riderId: string, riderName: string) => {
     setDeliveries((prev) =>

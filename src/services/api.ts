@@ -225,10 +225,11 @@ export const settingsService = {
     return data ? mapSettings(data as Record<string, unknown>) : null;
   },
 
-  async update(settings: Partial<TenantSettings>): Promise<Partial<TenantSettings>> {
-    const res = await fetch('/api/settings', {
+  async update(settings: Partial<TenantSettings>, tenantId?: string): Promise<Partial<TenantSettings>> {
+    const tid = tenantId || getActiveTenantId();
+    const res = await fetch(`/api/settings${tid ? `?tenant_id=${encodeURIComponent(tid)}` : ''}`, {
       method: 'PATCH',
-      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      headers: getHeaders({ 'Content-Type': 'application/json' }, tid),
       body: JSON.stringify(settings),
     });
     const body = await res.json().catch(() => ({}));

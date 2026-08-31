@@ -203,7 +203,7 @@ interface CachedSettings {
 
 // Per-tenant settings cache: key = tenantId
 const _settingsCacheMap = new Map<string, { data: CachedSettings; at: number }>();
-const SETTINGS_TTL_MS = 60_000; // refresca cada 1 minuto
+const SETTINGS_TTL_MS = 5_000; // refresca cada 5 segundos para reflejar adiciones y ajustes al instante
 
 async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
   const now = Date.now();
@@ -534,15 +534,19 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
   const productName = p?.name || 'este platillo';
 
   const settings = await getTenantSettings(tenantId);
-  const additionsList: AdditionItem[] = settings.additions?.filter((a: AdditionItem) => a.is_available !== false) || [
-    { id: 'add_1', name: '🧀 Extra Queso Costeño', price: 3500, is_available: true },
-    { id: 'add_2', name: '🥓 Tocineta Ahumada', price: 4000, is_available: true },
-    { id: 'add_3', name: '🥩 Carne Extra (150g)', price: 8500, is_available: true },
-    { id: 'add_4', name: '🥚 Huevos de Codorniz (3 und)', price: 2500, is_available: true },
-    { id: 'add_5', name: '🍟 Porción de Papas', price: 6000, is_available: true },
-    { id: 'add_6', name: '🌽 Maíz Tierno Dulce', price: 3000, is_available: true },
-    { id: 'add_7', name: '🥫 Salsa Tártara / Piña', price: 1500, is_available: true },
-  ];
+  const additionsList: AdditionItem[] = (settings.additions || []).filter((a: AdditionItem) => a.is_available !== false);
+
+  if (additionsList.length === 0) {
+    return {
+      text: `🧀 *No hay adiciones configuradas* para *${productName}* en este restaurante.\n\n¿Deseas agregar el producto directamente al carrito?`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Sí, agregar al carrito', callback_data: `skip_note:${qty}:${productId}` }],
+          [{ text: '↩️ Volver', callback_data: `ask_note:${qty}:${productId}` }],
+        ],
+      },
+    };
+  }
 
   const buttons: { text: string; callback_data: string }[][] = [];
   
@@ -551,19 +555,19 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
     const a1 = additionsList[i];
     row.push({
       text: `${a1.name} (+$${a1.price.toLocaleString('es-CO')})`,
-      callback_data: `add_addition:${a1.name}:${a1.price}:${qty}:${productId}`,
+      callback_data: `add_ad:${a1.id}:${qty}`,
     });
     if (additionsList[i + 1]) {
       const a2 = additionsList[i + 1];
       row.push({
         text: `${a2.name} (+$${a2.price.toLocaleString('es-CO')})`,
-        callback_data: `add_addition:${a2.name}:${a2.price}:${qty}:${productId}`,
+        callback_data: `add_ad:${a2.id}:${qty}`,
       });
     }
     buttons.push(row);
   }
 
-  buttons.push([{ text: '⏭️ Omitir y agregar al carrito', callback_data: `skip_note:${qty}:${productId}` }]);
+  buttons.push([{ text: '⏭️ Omitir adiciones y agregar', callback_data: `skip_note:${qty}:${productId}` }]);
   buttons.push([{ text: '↩️ Volver', callback_data: `ask_note:${qty}:${productId}` }]);
 
   return {
@@ -1588,6 +1592,7 @@ async function handleProcessCallback(
     callbackData.startsWith('product:') ||
     callbackData.startsWith('quick_add:') ||
     callbackData.startsWith('show_additions:') ||
+    callbackData.startsWith('add_ad:') ||
     callbackData.startsWith('add_addition:') ||
     callbackData.startsWith('ask_note:') ||
     callbackData.startsWith('skip_note') ||
@@ -1679,6 +1684,17 @@ async function handleProcessCallback(
     const qty = parseInt(parts[0]) || 1;
     const prodId = parts[1];
     return showAdditionsScreen(session, qty, prodId, tenantId);
+  }
+
+  if (callbackData.startsWith('add_ad:')) {
+    const parts = callbackData.replace('add_ad:', '').split(':');
+    const addId = parts[0];
+    const qty = parseInt(parts[1]) || 1;
+    const settings = await getTenantSettings(tenantId);
+    const addition = (settings.additions || []).find((a: AdditionItem) => a.id === addId);
+    const additionName = addition?.name || 'Adición Extra';
+    const additionPrice = addition?.price || 0;
+    return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, undefined, additionPrice);
   }
 
   if (callbackData.startsWith('add_addition:')) {

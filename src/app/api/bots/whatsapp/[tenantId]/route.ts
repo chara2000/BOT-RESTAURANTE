@@ -30,21 +30,43 @@ async function getTenantCreds(tenantId: string) {
   const cached = tenantCredCache.get(tenantId);
   if (cached && Date.now() - cached.at < CACHE_TTL) return cached;
 
+  // 1. Try exact tenant query
   const { data } = await supabase
     .from('tenant_settings')
     .select('ycloud_api_key, ycloud_webhook_secret')
     .eq('tenant_id', tenantId)
     .maybeSingle();
 
-  if (!data?.ycloud_api_key) return null;
+  if (data?.ycloud_api_key) {
+    const entry = {
+      apiKey: data.ycloud_api_key,
+      webhookSecret: data.ycloud_webhook_secret || null,
+      at: Date.now(),
+    };
+    tenantCredCache.set(tenantId, entry);
+    return entry;
+  }
 
-  const entry = {
-    apiKey: data.ycloud_api_key,
-    webhookSecret: data.ycloud_webhook_secret || null,
-    at: Date.now(),
-  };
-  tenantCredCache.set(tenantId, entry);
-  return entry;
+  // 2. Fallback: Query first configured tenant with non-null ycloud_api_key
+  const { data: fallback } = await supabase
+    .from('tenant_settings')
+    .select('ycloud_api_key, ycloud_webhook_secret')
+    .not('ycloud_api_key', 'is', null)
+    .limit(1)
+    .maybeSingle();
+
+  if (fallback?.ycloud_api_key) {
+    const entry = {
+      apiKey: fallback.ycloud_api_key,
+      webhookSecret: fallback.ycloud_webhook_secret || null,
+      at: Date.now(),
+    };
+    tenantCredCache.set(tenantId, entry);
+    return entry;
+  }
+
+  console.warn('[bot/whatsapp] No YCloud API Key found in DB for tenant:', tenantId);
+  return null;
 }
 
 export async function GET(

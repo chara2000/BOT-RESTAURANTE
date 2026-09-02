@@ -25,10 +25,10 @@ export async function sendWhatsAppMessage({
   text: string;
   buttons?: WhatsAppButton[];  // Max 3 for WhatsApp interactive buttons
   apiKey: string;
-}): Promise<void> {
+}): Promise<boolean> {
   if (!apiKey || !to) {
-    console.warn('[ycloud] Missing apiKey or recipient number — message not sent');
-    return;
+    console.warn('[ycloud] Missing apiKey or recipient number — message not sent', { apiKey: !!apiKey, to });
+    return false;
   }
 
   // Strip Markdown formatting that Telegram uses but WhatsApp doesn't support
@@ -41,11 +41,11 @@ export async function sendWhatsAppMessage({
 
   if (buttons && buttons.length > 0) {
     // Interactive message with quick-reply buttons (max 3)
-    const waBtns = buttons.slice(0, 3).map((b, i) => ({
+    const waBtns = buttons.slice(0, 3).map((b) => ({
       type: 'reply',
       reply: {
-        id: b.callback_data.slice(0, 256),
-        title: b.text.slice(0, 20), // WhatsApp button title max 20 chars
+        id: (b.callback_data || '').slice(0, 256),
+        title: (b.text || '').slice(0, 20), // WhatsApp button title max 20 chars
       },
     }));
 
@@ -77,12 +77,22 @@ export async function sendWhatsAppMessage({
       body: JSON.stringify(body),
     });
 
+    const resText = await res.text().catch(() => '');
+
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.error('[ycloud] Failed to send message:', res.status, errText);
+      console.error('[ycloud] Failed to send message:', res.status, resText);
+      // Fallback: if interactive message failed, retry as plain text
+      if (buttons && buttons.length > 0) {
+        console.log('[ycloud] Retrying as plain text without buttons...');
+        return await sendWhatsAppMessage({ to, text, apiKey });
+      }
+      return false;
     }
+
+    return true;
   } catch (err) {
     console.error('[ycloud] Network error sending message:', (err as Error).message);
+    return false;
   }
 }
 

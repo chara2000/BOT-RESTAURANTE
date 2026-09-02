@@ -76,7 +76,11 @@ export async function POST(
 
   // Verify YCloud signature if secret is configured
   if (creds.webhookSecret) {
-    const signature = req.headers.get('x-ycloud-signature-256') || '';
+    const signature =
+      req.headers.get('ycloud-signature') ||
+      req.headers.get('x-ycloud-signature-256') ||
+      req.headers.get('x-ycloud-signature') ||
+      '';
     const valid = await verifyYCloudSignature(rawBody, signature, creds.webhookSecret);
     if (!valid) {
       console.warn('[bot/whatsapp] Invalid signature for tenant:', tenantId);

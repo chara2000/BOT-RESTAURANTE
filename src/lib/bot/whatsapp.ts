@@ -89,19 +89,39 @@ export async function sendWhatsAppMessage({
 
 /**
  * Verifies the YCloud webhook signature.
- * YCloud sends X-YCloud-Signature-256: sha256=<hmac> in the headers.
+ * YCloud header format: YCloud-Signature: t=<timestamp>,s=<signature>
+ * Signed payload format: <timestamp>.<raw_body>
  */
 export async function verifyYCloudSignature(
   body: string,
-  signature: string,
+  signatureHeader: string,
   secret: string
 ): Promise<boolean> {
   if (!secret) return true; // If no secret configured, skip verification
+  if (!signatureHeader) return false;
 
   try {
     const encoder = new TextEncoder();
+    let timestamp = '';
+    let targetSig = '';
+
+    // Check if header follows YCloud format: t=...,s=...
+    if (signatureHeader.includes('t=') && signatureHeader.includes('s=')) {
+      const parts = signatureHeader.split(',');
+      for (const part of parts) {
+        const [k, v] = part.trim().split('=');
+        if (k === 't') timestamp = v;
+        if (k === 's') targetSig = v;
+      }
+    } else {
+      // Fallback if header is plain hex or prefixed with sha256=
+      targetSig = signatureHeader.replace('sha256=', '').trim();
+    }
+
+    const payloadToSign = timestamp ? `${timestamp}.${body}` : body;
+
     const keyData = encoder.encode(secret);
-    const msgData = encoder.encode(body);
+    const msgData = encoder.encode(payloadToSign);
 
     const cryptoKey = await crypto.subtle.importKey(
       'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
@@ -111,8 +131,7 @@ export async function verifyYCloudSignature(
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    const expected = `sha256=${sigHex}`;
-    return expected === signature;
+    return sigHex.toLowerCase() === targetSig.toLowerCase();
   } catch {
     return false;
   }

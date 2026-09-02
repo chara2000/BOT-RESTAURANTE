@@ -95,14 +95,19 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // YCloud payload structure: body.type = 'whatsapp.message.received'
+  // YCloud payload structure: body.type = 'whatsapp.inbound_message.received' or 'whatsapp.message.received'
   const type = body.type as string;
-  if (!type?.startsWith('whatsapp.message')) {
+  if (!type?.includes('message')) {
     return NextResponse.json({ ok: true });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const message = (body as any).message || (body as any).data?.message;
+  const message =
+    (body as any).whatsappInboundMessage ||
+    (body as any).message ||
+    (body as any).data?.message ||
+    (body as any).whatsappMessage;
+
   if (!message) return NextResponse.json({ ok: true });
 
   const from: string = message.from || message.whatsapp?.from || '';
@@ -112,7 +117,8 @@ export async function POST(
   // We prefix with 'wa_' to avoid collision with Telegram IDs
   const chatIdStr = `wa_${from.replace(/\D/g, '')}`;
   const chatId = parseInt(chatIdStr.replace('wa_', ''), 10);
-  const username = sanitizeUsername(message.customerName || message.from || 'Cliente WhatsApp');
+  const rawName = message.customerProfile?.name || message.customerName || message.from || 'Cliente WhatsApp';
+  const username = sanitizeUsername(rawName);
 
   const msgType = message.type as string;
   let text = '';
@@ -123,11 +129,12 @@ export async function POST(
     text = message.text?.body || '';
   } else if (msgType === 'interactive') {
     // Button reply from our interactive message
-    const btnReply = message.interactive?.button_reply;
-    if (btnReply?.id) {
+    const btnReply = message.interactive?.buttonReply || message.interactive?.button_reply || message.button;
+    const btnId = btnReply?.id || btnReply?.payload;
+    if (btnId) {
       // Treat as a callback
       try {
-        const response = await processCallback(chatId, btnReply.id, username, tenantId);
+        const response = await processCallback(chatId, btnId, username, tenantId);
         if (response.text) {
           await sendWhatsAppMessage({
             to: from,
@@ -143,7 +150,7 @@ export async function POST(
     }
   } else if (msgType === 'image') {
     isPhoto = true;
-    photoId = message.image?.id || message.image?.url;
+    photoId = message.image?.id || message.image?.link || message.image?.url;
     text = message.image?.caption || '';
   }
 

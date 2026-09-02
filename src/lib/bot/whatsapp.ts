@@ -50,7 +50,6 @@ export async function sendWhatsAppMessage({
     }));
 
     body = {
-      from: to, // will be overridden by YCloud with the registered number
       to,
       type: 'interactive',
       interactive: {

@@ -138,9 +138,9 @@ function formatWhatsAppResponse(
     return { text: formattedText, buttons };
   }
 
-  // Check if options are list items (categories, products, additions)
+  // Check if options are list items (categories, products, additions, ver todo el menú)
   const isListOptions = flatButtons.some(b => 
-    (b.callback_data.startsWith('cat:') && b.callback_data !== 'cat:all') || 
+    b.callback_data.startsWith('cat:') || 
     b.callback_data.startsWith('product:') || 
     b.callback_data.startsWith('add_ad:') ||
     b.callback_data.startsWith('add_addition:')
@@ -149,7 +149,7 @@ function formatWhatsAppResponse(
   if (isListOptions) {
     // Only list item options in the numbered text
     const itemButtons = flatButtons.filter(b => 
-      (b.callback_data.startsWith('cat:') && b.callback_data !== 'cat:all') || 
+      b.callback_data.startsWith('cat:') || 
       b.callback_data.startsWith('product:') || 
       b.callback_data.startsWith('add_ad:') ||
       b.callback_data.startsWith('add_addition:')
@@ -355,12 +355,14 @@ export async function POST(
       }
       return NextResponse.json({ ok: true });
     }
-  } else if (msgType === 'location') {
-    const loc = (message as any).location || (message as any).whatsapp?.location;
-    if (loc && loc.latitude && loc.longitude) {
+  } else if (msgType === 'location' || (message as any).location || (message as any).whatsapp?.location || (body as any).type?.includes('location')) {
+    const loc = (message as any).location || (message as any).whatsapp?.location || (body as any).location;
+    const lat = loc?.latitude ?? loc?.lat;
+    const lng = loc?.longitude ?? loc?.long ?? loc?.lng;
+    if (lat !== undefined && lng !== undefined) {
       location = {
-        latitude: parseFloat(loc.latitude),
-        longitude: parseFloat(loc.longitude),
+        latitude: parseFloat(lat),
+        longitude: parseFloat(lng),
       };
       text = loc.address || loc.name || `Ubicación GPS (${location.latitude}, ${location.longitude})`;
     }

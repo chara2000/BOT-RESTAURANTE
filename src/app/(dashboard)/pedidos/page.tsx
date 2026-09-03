@@ -133,20 +133,6 @@ function OrderCard({
     >
       <div className="flex items-center justify-between pb-2 border-b border-[var(--border)] gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {onToggleSelect && (
-            <div 
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSelect();
-              }}
-              className="p-1 -ml-1 rounded-md hover:bg-[var(--bg-input)] cursor-pointer shrink-0"
-              title="Seleccionar pedido"
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-[var(--orange)] border-[var(--orange)] text-white' : 'border-[var(--border)] bg-[var(--bg-card)]'}`}>
-                {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-              </div>
-            </div>
-          )}
           <span className="text-sm font-black tracking-wider drop-shadow-sm truncate" style={{ color: 'var(--orange)' }}>
             {orderNumber}
           </span>
@@ -248,10 +234,26 @@ function OrderCard({
 
       <div className="flex items-center justify-between pt-3 border-t border-[var(--border)] mt-1">
         <span className="text-sm font-black text-[var(--text-primary)]">{formatCurrency(order.total)}</span>
-        <span className="text-[10px] font-bold flex items-center gap-1.5 px-2 py-1 bg-[var(--bg-input)] rounded-md" style={{ color: 'var(--text-muted)' }}>
-          <Clock className="h-3.5 w-3.5" />
-          {new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-bold flex items-center gap-1.5 px-2 py-1 bg-[var(--bg-input)] rounded-md" style={{ color: 'var(--text-muted)' }}>
+            <Clock className="h-3.5 w-3.5" />
+            {new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          {onToggleSelect && (
+            <div 
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect();
+              }}
+              className="p-1 rounded-md hover:bg-[var(--bg-input)] cursor-pointer shrink-0"
+              title="Seleccionar pedido"
+            >
+              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-[var(--orange)] border-[var(--orange)] text-white' : 'border-[var(--border)] bg-[var(--bg-card)]'}`}>
+                {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

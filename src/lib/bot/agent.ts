@@ -199,6 +199,7 @@ interface CachedSettings {
   coverage_department?: string;
   coverage_keywords?: string[];
   coverage_require_keywords?: boolean;
+  coverage_radius_km?: number;
   restaurant_lat?: number;
   restaurant_lng?: number;
   nequi_number?: string;
@@ -301,7 +302,7 @@ function isRestaurantOpen(hours: CachedSettings['business_hours']): boolean {
  */
 function formatBusinessHours(hours: CachedSettings['business_hours']): string {
   if (!hours || hours.length === 0) return 'Sin horarios configurados.';
-  
+
   return hours.map(h => {
     if (h.closed) {
       return `• *${h.day}*: Cerrado`;
@@ -331,46 +332,41 @@ function validateAddressCoverage(
 ): string | null {
   const addr = normalize(address);
   const city = settings.coverage_city ? normalize(settings.coverage_city) : '';
-  const dept = settings.coverage_department ? normalize(settings.coverage_department) : '';
 
-  const keywords = (settings.coverage_keywords ?? []).filter(Boolean);
-  const hasKeyword = keywords.length > 0 ? keywords.some(kw => addr.includes(normalize(kw))) : false;
+  const DEFAULT_NOMENCLATURE = [
+    'calle', 'cll', 'cl', 'carrera', 'cra', 'cr', 'diagonal', 'diag', 'dg',
+    'transversal', 'transv', 'tv', 'avenida', 'av', 'circular', 'autopista',
+    'manzana', 'mz', 'lote', 'barrio', 'b/', 'conjunto', 'urbanizacion', 'urb',
+    'edificio', 'torre', 'casa', 'apto', 'apartamento', 'vereda', 'sector', 'km',
+    'norte', 'sur', 'este', 'oeste', 'parque', 'centro', 'frente', 'esquina'
+  ];
+
+  const keywords = (settings.coverage_keywords && settings.coverage_keywords.length > 0)
+    ? settings.coverage_keywords.filter(Boolean)
+    : DEFAULT_NOMENCLATURE;
+
+  const hasKeyword = keywords.some(kw => addr.includes(normalize(kw)));
   const hasCity = city ? addr.includes(city) : false;
 
-  // Si tiene palabras clave (ej: "cra", "calle") pero no menciona la ciudad,
-  // la aceptamos automáticamente completando internamente la ciudad para que el mapa funcione.
-  if (hasKeyword && !hasCity && settings.coverage_city) {
-    // Retornamos null (es válida), y el bot guardará la dirección más adelante concatenada
-    return null; 
+  // Si tiene palabras clave (ej: "cra", "calle", "casa") o menciona la ciudad, es válida
+  if (hasKeyword || hasCity) {
+    return null;
   }
 
-  // Si no tiene la ciudad Y tampoco tiene una palabra clave de nomenclatura válida, se rechaza
-  if (city && !hasCity && !hasKeyword) {
-    const cityName = settings.coverage_city ? `*${settings.coverage_city}*` : '';
-    const deptName = settings.coverage_department ? `, ${settings.coverage_department}` : '';
-    const examples = keywords.slice(0, 4).join(', ');
-    return [
-      `⚠️ *Dirección incompleta o no reconocida*`,
-      ``,
-      `Solo realizamos entregas en el municipio de ${cityName}${deptName}.`,
-      `Asegúrate de escribir la calle/carrera o incluir el nombre del municipio:`,
-      `_Ej: Cra 19 #18-44 Barrio Centro, ${settings.coverage_city}_`,
-    ].join('\n');
+  // Si la validación estricta de palabras clave no está encendida, aceptamos la dirección si tiene longitud mínima
+  if (!settings.coverage_require_keywords && addr.length >= 4) {
+    return null;
   }
 
-  // Si tiene activa la validación estricta de palabras clave pero no cumple ninguna regla
-  if (settings.coverage_require_keywords && keywords.length > 0 && !hasKeyword && !hasCity) {
+  // Si tiene activa la validación estricta de palabras clave pero no cumple
+  if (settings.coverage_require_keywords && !hasKeyword && !hasCity) {
     const cityName = settings.coverage_city ? `*${settings.coverage_city}*` : 'nuestra ciudad';
-    const deptName = settings.coverage_department ? `, ${settings.coverage_department}` : '';
-    const examples = keywords.slice(0, 4).join(', ');
     return [
       `⚠️ *Dirección no reconocida*`,
       ``,
-      `Solo realizamos domicilios en ${cityName}${deptName}.`,
-      `Tu dirección debe incluir la nomenclatura de la ciudad:`,
-      `_Ej: ${examples}${keywords.length > 4 ? '...' : ''}_`,
-      ``,
-      `✏️ Escribe tu dirección completa (Ej: *Cra 19 #18-44 Barrio Centro*) o selecciona recoger en el local:`,
+      `Solo realizamos domicilios en ${cityName}.`,
+      `Por favor incluye la nomenclatura o barrio (ej: Calle, Carrera, Manzana, Barrio):`,
+      `_Ej: Cra 19 #18-44 Barrio Centro_`,
     ].join('\n');
   }
 
@@ -396,11 +392,11 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
@@ -417,7 +413,7 @@ function welcomeScreen(isReturning = false): BotResponse {
         [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
         [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
         [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
-        [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+        [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
       ],
     },
   };
@@ -427,7 +423,7 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
   if (!categoryId) {
     const { data, error } = await supabase.from('categories').select('id, name').eq('is_active', true).eq('tenant_id', tenantId).order('sort_order', { ascending: true });
     if (error || !data || data.length === 0) return { text: '⚠️ No hay menú disponible en este momento. Intenta más tarde.' };
-    
+
     const buttons = data.map(c => [{ text: `📁 ${c.name}`, callback_data: `cat:${c.id}` }]);
     buttons.push([{ text: '🍔 Ver todo el menú', callback_data: 'cat:all' }]);
     buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
@@ -459,7 +455,7 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
     if (categoryId !== 'all') {
       query = query.eq('category_id', categoryId);
     }
-    
+
     const { data, error } = await query;
     if (error || !data || data.length === 0) return { text: '⚠️ Categoría vacía o sin productos disponibles.' };
 
@@ -525,8 +521,8 @@ async function askItemNoteScreen(session: BotSession, qty: number, productId?: s
   buttons.push([{ text: '⏭️ Omitir / Agregar', callback_data: `skip_note:${qty}:${p.id}` }]);
   buttons.push([{ text: '↩️ Cancelar', callback_data: 'menu' }]);
 
-  const additionsHint = availableAdditions.length > 0 
-    ? `\n\n🧀 *Este plato cuenta con ${availableAdditions.length} adición(es) disponible(s).*` 
+  const additionsHint = availableAdditions.length > 0
+    ? `\n\n🧀 *Este plato cuenta con ${availableAdditions.length} adición(es) disponible(s).*`
     : '';
 
   return {
@@ -567,7 +563,7 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
   }
 
   const buttons: { text: string; callback_data: string }[][] = [];
-  
+
   for (let i = 0; i < additionsList.length; i++) {
     const a = additionsList[i];
     buttons.push([{
@@ -824,7 +820,7 @@ async function handlePaymentReceipt(
       reply_markup: {
         inline_keyboard: [
           [{ text: '📸 Enviar otro comprobante', callback_data: 'pay_digital' }],
-          [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+          [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
           [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
         ],
       },
@@ -850,7 +846,7 @@ function onDeliveryScreen(session: BotSession, tenantId: string): Promise<BotRes
 
 async function getOrCreateCustomer(session: BotSession, tenantId: string): Promise<string> {
   const idStr = session.chatId.toString();
-  
+
   const { data: existing } = await supabase
     .from('customers')
     .select('id')
@@ -892,7 +888,7 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
   const total = cartTotal(session.cart);
   const orderId = crypto.randomUUID();
   const shortId = 'T-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-  
+
   let notes = `[ID: ${shortId}] [CHAT_ID: ${session.chatId}] [Cliente: ${session.customerName}]`;
   if (session.paymentMethod === 'cash' && session.changeAmount !== undefined) {
     notes += ` | [EFECTIVO] Devuelta: $${session.changeAmount.toLocaleString('es-CO')}`;
@@ -952,7 +948,7 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
       reply_markup: {
         inline_keyboard: [
           [{ text: '🔄 Intentar de nuevo', callback_data: 'pay' }],
-          [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+          [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
         ],
       },
     };
@@ -968,7 +964,7 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
       total_price: item.quantity * item.unit_price,
       notes: item.notes || null,
     }));
-    
+
     const { error: itemsError } = await supabase.from('order_items').insert(itemsData);
     if (itemsError) {
       console.error('Error Supabase Order Items:', itemsError);
@@ -1051,8 +1047,8 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
     reply_markup: {
       inline_keyboard: [
         [{ text: '📦 Rastrear Pedido', callback_data: `track:${shortId}` }],
-        [{ text: '🍽️ Hacer otro Pedido', callback_data: 'menu' }],
-        [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+        [{ text: '🍽️ NuevoPedido', callback_data: 'menu' }],
+        [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
       ],
     },
   };
@@ -1088,7 +1084,7 @@ async function promptTrackOrderScreen(session: BotSession, tenantId: string): Pr
       };
 
       const buttons = orders.map(o => {
-        const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0,6).toUpperCase()}`;
+        const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0, 6).toUpperCase()}`;
         const icon = statusMap[o.status] || '📦';
         return [{ text: `${icon} ${shortId}`, callback_data: `track:${shortId}` }];
       });
@@ -1114,7 +1110,7 @@ async function promptTrackOrderScreen(session: BotSession, tenantId: string): Pr
 async function handleTrackOrder(session: BotSession, code: string): Promise<BotResponse> {
   session.state = 'idle';
   const cleanCode = code.trim().toUpperCase();
-  
+
   const { data, error } = await supabase
     .from('orders')
     .select('id, status, created_at, tracking_token')
@@ -1148,8 +1144,8 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
 
   const buttons = [
     [{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }],
-    [{ text: '🍽️ Hacer otro Pedido', callback_data: 'menu' }],
-    [{ text: '🙋 Hablar con Encargado', callback_data: 'contact_manager' }],
+    [{ text: '🍽️ Nuevo Pedido', callback_data: 'menu' }],
+    [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
   ];
 
   return {
@@ -1199,14 +1195,14 @@ async function executeCancelOrder(session: BotSession): Promise<BotResponse> {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Error desconocido' }));
-      return { 
-        text: `❌ No se pudo cancelar: ${err.error || 'Error'}\n\nSi necesitas ayuda, contacta al encargado.`, 
-        reply_markup: { 
+      return {
+        text: `❌ No se pudo cancelar: ${err.error || 'Error'}\n\nSi necesitas ayuda, contacta al encargado.`,
+        reply_markup: {
           inline_keyboard: [
-            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
             [{ text: '🏠 Volver al menú', callback_data: 'menu' }]
-          ] 
-        } 
+          ]
+        }
       };
     }
     const data = await res.json();
@@ -1236,7 +1232,7 @@ async function handleContactManager(
   adminChatId?: string
 ): Promise<BotResponse> {
   session.state = 'idle';
-  
+
   // Use per-tenant credentials, fall back to global env vars
   const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
   const adminId = adminChatId || process.env.ADMIN_CHAT_ID;
@@ -1300,7 +1296,7 @@ export async function processMessage(
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
             [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
-            [{ text: '🙋 Hablar con el Encargado', callback_data: 'contact_manager' }],
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
           ],
         },
       };
@@ -1318,7 +1314,7 @@ export async function processMessage(
         reply_markup: {
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú (para explorar)', callback_data: 'menu' }],
-            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }]
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }]
           ],
         },
       };
@@ -1379,15 +1375,35 @@ async function handleProcessMessage(
     return handleCashAmount(session, text.trim(), tenantId);
   }
 
-  if (session.state === 'checkout_home_address') {
-    const homeDetails = text.trim();
-    if (/recoger|pickup|voy a recoger/i.test(homeDetails)) {
+  if (session.state === 'checkout_delivery_mode') {
+    const raw = normalizeInput(text);
+    if (raw === '1' || /domicilio|entrega|envio|enviar/i.test(raw)) {
+      session.deliveryMode = 'delivery';
+      return promptDeliveryAddressScreen(session);
+    }
+    if (raw === '2' || /recoger|pickup|local|tienda|punto/i.test(raw)) {
       session.deliveryMode = 'pickup';
       session.deliveryAddress = 'Para Recoger en el local';
       return paymentOptionsScreen(session, tenantId);
     }
-    const reverse = session.pendingReverseAddress || '';
-    session.deliveryAddress = reverse ? `${homeDetails} (${reverse})` : homeDetails;
+    if (raw === '3' || /carrito|volver/i.test(raw)) {
+      return cartScreen(session);
+    }
+  }
+
+  if (session.state === 'checkout_home_address') {
+    const homeDetails = text.trim();
+    if (/recoger|pickup|voy a recoger|en el local/i.test(homeDetails)) {
+      session.deliveryMode = 'pickup';
+      session.deliveryAddress = 'Para Recoger en el local';
+      return paymentOptionsScreen(session, tenantId);
+    }
+    const baseAddr = session.pendingReverseAddress || '';
+    if (/^(ninguno|ninguna|ya est[aá]|completa|solo eso|as[ií])$/i.test(homeDetails)) {
+      session.deliveryAddress = baseAddr || 'Dirección registrada';
+    } else {
+      session.deliveryAddress = baseAddr ? `${homeDetails} (${baseAddr})` : homeDetails;
+    }
     return paymentOptionsScreen(session, tenantId);
   }
 
@@ -1395,18 +1411,22 @@ async function handleProcessMessage(
     // 1. Detectar si el usuario envió una ubicación GPS compartida
     if (extra?.location) {
       const { latitude, longitude } = extra.location;
+      session.location = extra.location;
+
       // Obtener restaurante coords para geocercas
       const tenantSettings = await getTenantSettings(tenantId);
       const restaurantLat = tenantSettings.restaurant_lat ?? 3.2311;
       const restaurantLng = tenantSettings.restaurant_lng ?? -76.4167;
-      
+
       // Calcular distancia Haversine
       const distance = calculateDistance(restaurantLat, restaurantLng, latitude, longitude);
-      if (distance > 8) {
+      const maxDistance = tenantSettings.coverage_radius_km ?? 35;
+      if (distance > maxDistance) {
         return {
-          text: `⚠️ *Fuera de Cobertura*\n\nTu ubicación se encuentra a *${distance.toFixed(1)} km* de nuestro local, lo cual excede nuestro límite de cobertura de *8 km*.\n\n¿Deseas recoger el pedido en nuestro local?`,
+          text: `⚠️ *Ubicación Lejana*\n\nTu ubicación se encuentra a *${distance.toFixed(1)} km* de nuestro local (cobertura habitual: ${maxDistance} km).\n\n¿Deseas continuar con esta ubicación o prefieres recoger en el local?`,
           reply_markup: {
             inline_keyboard: [
+              [{ text: '📍 Continuar con esta ubicación', callback_data: 'use_gps_anyway' }],
               [{ text: '🏪 Voy a recoger en el local', callback_data: 'mode_pickup' }],
               [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
             ]
@@ -1418,24 +1438,27 @@ async function handleProcessMessage(
       let reverseAddress = `Ubicación GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`;
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, {
-          headers: { 'User-Agent': 'ChefFlow-Restaurant-Bot/1.0' }
+          headers: { 'User-Agent': 'ChefFlow-Restaurant-Bot/1.0 (contact@chefflow.app)' }
         });
         if (res.ok) {
           const data = await res.json();
           if (data && data.display_name) {
-            reverseAddress = data.display_name;
+            const road = data.address?.road || data.address?.pedestrian || data.address?.suburb || '';
+            const neighbourhood = data.address?.neighbourhood || data.address?.residential || '';
+            const city = data.address?.city || data.address?.town || data.address?.village || data.address?.municipality || '';
+            const shortAddr = [road, neighbourhood, city].filter(Boolean).join(', ');
+            reverseAddress = shortAddr || data.display_name.split(',').slice(0, 3).join(',');
           }
         }
       } catch (err) {
         console.warn('Reverse geocoding failed:', err);
       }
 
-      session.location = extra.location;
       session.pendingReverseAddress = reverseAddress;
       session.state = 'checkout_home_address';
 
       return {
-        text: `📍 *Ubicación GPS detectada:*\n_${reverseAddress}_\n\n🏠 *Ahora indícanos los datos exactos de tu casa:*\n_(Ej: Carrera 5 # 12-34, Casa 3, Apto 201, Conjunto Residencial o punto de referencia)_`,
+        text: `📍 *Ubicación GPS detectada:*\n_${reverseAddress}_\n\n🏠 *Ahora indícanos los datos exactos de tu casa:*\n_(Ej: Casa 14, Apto 302 Torre B, Manzana 5, o punto de referencia)_`,
         reply_markup: {
           inline_keyboard: [
             [{ text: '✅ Usar solo ubicación GPS', callback_data: 'use_gps_only' }],
@@ -1448,58 +1471,59 @@ async function handleProcessMessage(
 
     let address = text.trim();
     // Detectar botón de teclado de recoger (reply keyboard envía texto, no callback)
-    if (/recoger|pickup|voy a recoger/i.test(address)) {
+    if (/recoger|pickup|voy a recoger|en el local/i.test(address)) {
       session.deliveryMode = 'pickup';
       session.deliveryAddress = 'Para Recoger en el local';
       return paymentOptionsScreen(session, tenantId);
     }
-    // Solo validar cobertura si NO es para recoger
-    if (!/recoger|mesa|pickup/i.test(address)) {
-      // Validar formato de dirección con InputValidator antes de coverage check
-      const addrResult = validateAddress(address);
-      if (!addrResult.valid) {
-        return {
-          text: addrResult.errorMessage,
-          reply_markup: {
-            keyboard: [
-              [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-              [{ text: '🏪 Voy a recoger en el local' }],
-            ],
-            one_time_keyboard: true,
-            resize_keyboard: true,
-          },
-        };
-      }
-      address = addrResult.value;
 
-      const tenantSettings = await getTenantSettings(tenantId);
-      const coverageError = validateAddressCoverage(address, tenantSettings);
-      if (coverageError) {
-        return {
-          text: coverageError,
-          reply_markup: {
-            keyboard: [
-              [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-              [{ text: '🏪 Voy a recoger en el local' }],
-            ],
-            one_time_keyboard: true,
-            resize_keyboard: true,
-          },
-        };
-      }
-      
-      // Si la validacion paso y se configuro ciudad, pero la direccion NO contiene la ciudad explicitamente,
-      // se la concatenamos automaticamente para que se guarde de forma correcta y aparezca en el mapa.
-      if (tenantSettings.coverage_city) {
-        const cityNormalized = tenantSettings.coverage_city.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-        const addressNormalized = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-        if (!addressNormalized.includes(cityNormalized)) {
-          address = `${address}, ${tenantSettings.coverage_city}`;
-        }
+    // Validar longitud mínima de la dirección
+    if (address.length < 4) {
+      return {
+        text: `⚠️ La dirección es muy corta.\n\nPor favor escribe tu calle, carrera, avenida o barrio (ej: *Calle 15 con Carrera 4*):`,
+      };
+    }
+
+    const tenantSettings = await getTenantSettings(tenantId);
+    const coverageError = validateAddressCoverage(address, tenantSettings);
+    if (coverageError) {
+      return {
+        text: coverageError,
+        reply_markup: {
+          keyboard: [
+            [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
+            [{ text: '🏪 Voy a recoger en el local' }],
+          ],
+          one_time_keyboard: true,
+          resize_keyboard: true,
+        },
+      };
+    }
+
+    // Si la validacion paso y se configuro ciudad, pero la direccion NO contiene la ciudad explicitamente,
+    // se la concatenamos suavemente al final
+    if (tenantSettings.coverage_city) {
+      const cityNormalized = tenantSettings.coverage_city.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      const addressNormalized = address.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      if (!addressNormalized.includes(cityNormalized)) {
+        address = `${address}, ${tenantSettings.coverage_city}`;
       }
     }
-    session.deliveryAddress = address;
-    return paymentOptionsScreen(session, tenantId);
+
+    // Guardar calle / barrio y solicitar número de casa / referencia
+    session.pendingReverseAddress = address;
+    session.state = 'checkout_home_address';
+
+    return {
+      text: `📍 *Dirección registrada:*\n_${address}_\n\n🏠 *Ahora indícanos el número de tu casa, apartamento, torre o referencia de entrega:*\n_(Ej: Casa 14, Apto 302 Torre B, Manzana 5, o frente a la panadería)_`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Usar solo esta dirección', callback_data: 'use_gps_only' }],
+          [{ text: '🏪 Prefiero recoger en el local', callback_data: 'mode_pickup' }],
+          [{ text: '↩️ Cambiar dirección', callback_data: 'mode_delivery' }],
+        ],
+      },
+    };
   }
 
   // Si la sesión está en 'idle' pero el usuario envía un texto
@@ -1508,6 +1532,9 @@ async function handleProcessMessage(
     const rawText = normalizeInput(text);
 
     // Comandos de navegación por texto
+    if (/^(ver\s+)?todo(\s+el)?\s*(men[uú]|carta)$|^todo$|^todos$|^(ver\s+)?todos\s+los\s+platos$/i.test(rawText)) {
+      return menuScreen(tenantId, 'all');
+    }
     if (['menu', 'ver menu', 'carta', 'ver carta', 'pedido', 'quiero pedir'].includes(rawText)) {
       return menuScreen(tenantId);
     }
@@ -1525,7 +1552,7 @@ async function handleProcessMessage(
             [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
             [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
             [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
-            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
           ],
         },
       };
@@ -1562,7 +1589,7 @@ async function handleRiderRating(session: BotSession, text: string, tenantId: st
         .select('rider_id')
         .eq('order_id', session.pendingRatingOrderId)
         .single();
-      
+
       if (delivery && delivery.rider_id) {
         // Here we could ideally calculate the average rating based on past ratings.
         // For simplicity, we just save this rating directly or you'd save it in an order_ratings table.
@@ -1623,7 +1650,7 @@ export async function processCallback(
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
             [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
-            [{ text: '🙋 Hablar con el Encargado', callback_data: 'contact_manager' }],
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
           ],
         },
       };
@@ -1642,7 +1669,7 @@ async function handleProcessCallback(
   botCredentials?: { botToken?: string; adminChatId?: string }
 ): Promise<BotResponse> {
   // Acciones permitidas siempre (aún estando cerrado)
-  const isAllowedAction = 
+  const isAllowedAction =
     callbackData === 'menu' ||
     callbackData.startsWith('cat:') ||
     callbackData.startsWith('product:') ||
@@ -1670,7 +1697,7 @@ async function handleProcessCallback(
         reply_markup: {
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú (para explorar)', callback_data: 'menu' }],
-            [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }]
+            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }]
           ],
         },
       };
@@ -1715,6 +1742,22 @@ async function handleProcessCallback(
   if (callbackData === 'use_gps_only') {
     session.deliveryAddress = session.pendingReverseAddress || 'Ubicación GPS compartida';
     return paymentOptionsScreen(session, tenantId);
+  }
+  if (callbackData === 'use_gps_anyway') {
+    session.pendingReverseAddress = session.location
+      ? `Ubicación GPS (${session.location.latitude.toFixed(4)}, ${session.location.longitude.toFixed(4)})`
+      : 'Ubicación GPS';
+    session.state = 'checkout_home_address';
+    return {
+      text: `📍 *Ubicación confirmada*\n\n🏠 *Ahora indícanos los datos exactos de tu casa:*\n_(Ej: Casa 14, Apto 302 Torre B, Manzana 5, o punto de referencia)_`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '✅ Usar solo ubicación GPS', callback_data: 'use_gps_only' }],
+          [{ text: '🏪 Prefiero recoger en el local', callback_data: 'mode_pickup' }],
+          [{ text: '↩️ Cancelar', callback_data: 'menu' }],
+        ],
+      },
+    };
   }
   if (callbackData === 'pay') {
     if (!session.deliveryMode && !session.deliveryAddress) {
@@ -1825,7 +1868,7 @@ async function handleProcessCallback(
       text: `⭐ *Califica a tu repartidor: ${riderName}*\n\nEscribe un número del 1 al 5 para calificar:\n1 = Muy malo\n2 = Regular\n3 = Bueno\n4 = Muy bueno\n5 = Excelente\n\n¡Tu opinión nos ayuda a mejorar!`,
     };
   }
-  
+
   if (callbackData.startsWith('product:')) {
     return productScreen(session, callbackData.replace('product:', ''));
   }

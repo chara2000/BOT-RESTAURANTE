@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Crown, MessageCircle, Phone, Star, User, Search, Filter, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
+import { Crown, MessageCircle, Phone, Star, User, Search, Filter, ChevronLeft, ChevronRight, MapPin, LayoutGrid, Table as TableIcon } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
@@ -20,6 +20,7 @@ export default function ClientesPage() {
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   // Filter customers
   const filtered = customers.filter((c) => {
@@ -61,7 +62,7 @@ export default function ClientesPage() {
             />
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
             <div className="relative">
               <select
                 value={segmentFilter}
@@ -78,6 +79,26 @@ export default function ClientesPage() {
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
             </div>
 
+            {/* View Switcher (Cuadrícula / Lista) */}
+            <div className="flex items-center gap-1 bg-[var(--bg-card)] p-1 rounded-2xl border" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-xl transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+                title="Vista Cuadrícula"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-2 rounded-xl transition-all cursor-pointer ${viewMode === 'table' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+                title="Vista Lista / Tabla"
+              >
+                <TableIcon className="w-4 h-4" />
+              </button>
+            </div>
+
             <select
               value={pageSize}
               onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
@@ -86,17 +107,113 @@ export default function ClientesPage() {
             >
               <option value={6}>6 / pág</option>
               <option value={9}>9 / pág</option>
-              <option value={18}>18 / pág</option>
+              <option value={15}>15 / pág</option>
+              <option value={30}>30 / pág</option>
             </select>
           </div>
         </div>
 
-        {/* Customer Cards Grid */}
+        {/* Customer Content (Grid or Table) */}
         {paginated.length === 0 ? (
           <div className="card p-14 text-center space-y-3">
             <User className="w-12 h-12 text-[var(--text-muted)] mx-auto opacity-50" />
             <p className="text-sm font-black" style={{ color: 'var(--text-primary)' }}>No se encontraron clientes</p>
             <p className="text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>Prueba ajustando los filtros de búsqueda</p>
+          </div>
+        ) : viewMode === 'table' ? (
+          <div className="card bg-[var(--bg-card)] border rounded-3xl shadow-sm overflow-hidden animate-fade-in-up" style={{ borderColor: 'var(--border)' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[750px]">
+                <thead className="bg-[var(--bg-input)] border-b sticky top-0 z-20 backdrop-blur-md" style={{ borderColor: 'var(--border)' }}>
+                  <tr>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Cliente</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Segmento</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Gasto Acumulado</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Pedidos</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Dirección Registrada</th>
+                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] text-right">Contacto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                  {paginated.map((c) => {
+                    const seg = SEGMENT_STYLES[c.segment] || SEGMENT_STYLES.new;
+                    const isVip = c.segment === 'vip';
+                    const initials = c.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+
+                    return (
+                      <tr key={c.id} className="hover:bg-[var(--bg-input)] transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black text-xs shrink-0 border ${
+                              isVip
+                                ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-white border-amber-300'
+                                : 'bg-orange-500/15 text-[var(--orange)] border-orange-500/30'
+                            }`}>
+                              {isVip ? <Crown className="w-4 h-4 text-white" /> : initials || <User className="w-4 h-4" />}
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-[var(--text-primary)]">{c.name}</p>
+                              <p className="text-[11px] text-[var(--text-muted)] font-semibold flex items-center gap-1 mt-0.5">
+                                <Phone className="w-3 h-3 text-[var(--orange)]" />
+                                {c.phone}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border inline-flex items-center gap-1 ${seg.bg} ${seg.color} ${seg.border}`}>
+                            {isVip && <Star className="w-3 h-3 text-amber-400 fill-amber-400" />}
+                            {SEGMENT_LABELS[c.segment]}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <p className="text-xs font-black text-[var(--orange)]">{formatCurrency(c.total_spent)}</p>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-xs font-bold text-[var(--text-primary)] px-2.5 py-1 rounded-lg bg-[var(--bg-input)] border border-[var(--border)]">
+                            {c.order_count} pedidos
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 max-w-[240px]">
+                          {c.address_default ? (
+                            <p className="text-xs font-medium text-[var(--text-muted)] flex items-center gap-1.5 truncate" title={c.address_default}>
+                              <MapPin className="w-3.5 h-3.5 text-[var(--orange)] shrink-0" />
+                              <span className="truncate">{c.address_default}</span>
+                            </p>
+                          ) : (
+                            <span className="text-[11px] text-[var(--text-muted)] italic">Sin dirección</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {c.phone && c.phone.length >= 7 && (
+                              <a
+                                href={`https://wa.me/${c.phone.replace(/\D/g, '')}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 transition-all cursor-pointer inline-flex items-center"
+                                title="Enviar WhatsApp"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                            {c.phone && (
+                              <a
+                                href={`tel:${c.phone}`}
+                                className="p-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer inline-flex items-center"
+                                title="Llamar"
+                              >
+                                <Phone className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-fade-in-up">

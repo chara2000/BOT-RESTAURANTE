@@ -82,6 +82,10 @@ function cleanWAButtonTitle(text: string): string {
   cleaned = cleaned.replace(/\s*\(\+?\$?[\d.,]+\s*disp\.?\)/gi, '').replace(/\s*\(\+?\$?[\d.,]+\)/gi, '');
   if (cleaned.length <= 20) return cleaned;
 
+  // Clean trailing punctuation or parentheses
+  cleaned = cleaned.replace(/[(\[\\/:\-–—]+$/, '').trim();
+  if (cleaned.length <= 20) return cleaned;
+
   // Smart truncation at word boundary
   const words = cleaned.split(' ');
   let result = '';
@@ -92,7 +96,7 @@ function cleanWAButtonTitle(text: string): string {
       break;
     }
   }
-  return result.trim() || cleaned.slice(0, 20);
+  return result.trim().replace(/[(\[\\/:\-–—]+$/, '').trim() || cleaned.slice(0, 20);
 }
 
 function formatWhatsAppResponse(
@@ -136,7 +140,7 @@ function formatWhatsAppResponse(
 
   // Check if options are list items (categories, products, additions)
   const isListOptions = flatButtons.some(b => 
-    b.callback_data.startsWith('cat:') || 
+    (b.callback_data.startsWith('cat:') && b.callback_data !== 'cat:all') || 
     b.callback_data.startsWith('product:') || 
     b.callback_data.startsWith('add_ad:') ||
     b.callback_data.startsWith('add_addition:')
@@ -145,7 +149,7 @@ function formatWhatsAppResponse(
   if (isListOptions) {
     // Only list item options in the numbered text
     const itemButtons = flatButtons.filter(b => 
-      b.callback_data.startsWith('cat:') || 
+      (b.callback_data.startsWith('cat:') && b.callback_data !== 'cat:all') || 
       b.callback_data.startsWith('product:') || 
       b.callback_data.startsWith('add_ad:') ||
       b.callback_data.startsWith('add_addition:')
@@ -161,7 +165,7 @@ function formatWhatsAppResponse(
 
     formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde enviando solo el número (1 - ${itemButtons.length})._`;
 
-    // Only action buttons (Omitir, Cancelar, Volver, Carrito) are shown as WhatsApp quick buttons
+    // Action buttons (Ver todo el menú, Ver Carrito, Omitir, Cancelar, Volver) are shown as WhatsApp quick buttons
     if (actionButtons.length > 0) {
       buttons = actionButtons.slice(0, 3).map(b => ({
         text: cleanWAButtonTitle(b.text),

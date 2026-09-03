@@ -1112,31 +1112,38 @@ async function handleTrackOrder(session: BotSession, code: string): Promise<BotR
   const order = data[0];
   const statusMap: Record<string, string> = {
     'pending': '⏳ Pendiente (Esperando confirmación)',
-    'confirmed': '✅ Confirmado (En cola)',
+    'confirmed': '✅ Confirmado (En cola de cocina)',
     'preparing': '🍳 En preparación (Cocinando)',
-    'ready': '🛍️ Listo para entregar',
-    'shipping': '🛵 En camino (Repartidor asignado)',
-    'delivered': '🎉 Entregado',
+    'ready': '🛍️ Listo para entregar / despachar',
+    'shipping': '🛵 En camino (Repartidor en ruta)',
+    'delivered': '🎉 ¡Entregado con éxito!',
     'cancelled': '❌ Cancelado'
   };
 
   const statusText = statusMap[order.status] || order.status;
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const trackingToken = (order as any).tracking_token || cleanCode;
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://bot-restaurante-sigma.vercel.app';
+  const trackingToken = (order as any).tracking_token || order.id || cleanCode;
   const trackingUrl = `${baseUrl}/public/rastreo/${trackingToken}`;
 
   const buttons = [
-    [{ text: '🛵 Seguir en tiempo real 📍', url: trackingUrl }],
-    [{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }]
+    [{ text: '🔄 Actualizar estado', callback_data: `track:${cleanCode}` }],
+    [{ text: '🍽️ Hacer otro Pedido', callback_data: 'menu' }],
+    [{ text: '🙋 Hablar con Encargado', callback_data: 'contact_manager' }],
   ];
-  if (['pending', 'confirmed'].includes(order.status)) {
-    buttons.push([{ text: `❌ Cancelar pedido`, callback_data: `cancel_order:${order.id}` }]);
-  }
-  buttons.push([{ text: '🏠 Menú principal', callback_data: 'menu' }]);
 
   return {
-    text: `📦 *Estado de tu pedido (${cleanCode})*\n\nEstado actual:\n👉 *${statusText}*`,
+    text: [
+      `📦 *Estado de tu pedido (${cleanCode})*`,
+      ``,
+      `👉 *Estado actual:*`,
+      `*${statusText}*`,
+      ``,
+      `🌐 *Rastreo en tiempo real (Mapa en vivo):*`,
+      `${trackingUrl}`,
+      ``,
+      `_Toca el enlace para ver la ruta y posición en vivo del repartidor._`
+    ].join('\n'),
     reply_markup: {
       inline_keyboard: buttons,
     },

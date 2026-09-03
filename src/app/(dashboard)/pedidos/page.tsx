@@ -171,7 +171,6 @@ function OrderCard({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {paymentBadge}
           <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg border shadow-sm transition-colors group-hover:border-[var(--orange)]"
                 style={{ background: 'var(--orange-soft)', color: 'var(--orange)', borderColor: 'var(--border)' }}>
             {getOrderTypeIcon(order.type)} {getOrderTypeLabel(order.type)}
@@ -225,33 +224,27 @@ function OrderCard({
         )}
       </div>
 
-      {order.customer ? (
-        <div className="bg-[var(--bg-input)] rounded-xl p-2.5 space-y-1.5 border border-[var(--border)] mt-2">
-          <p className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-primary)]">
-            <User className="h-3.5 w-3.5 text-[var(--orange)]" />
-            <span className="truncate">{order.customer.name || 'Cliente'}</span>
+      <div className="bg-[var(--bg-input)] rounded-xl p-2.5 space-y-1.5 border border-[var(--border)] mt-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-primary)] min-w-0">
+            <User className="h-3.5 w-3.5 text-[var(--orange)] shrink-0" />
+            <span className="truncate">{order.customer?.name || 'Cliente'}</span>
           </p>
-          {order.delivery_address && (
-            <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)] truncate">
-              <MapPin className="h-3.5 w-3.5 text-[var(--orange)] shrink-0" />
-              <span className="truncate">{order.delivery_address}</span>
-            </p>
-          )}
-          {order.customer.phone && order.customer.phone !== '0000000000' && (
-            <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)]">
-              <Phone className="h-3.5 w-3.5 text-[var(--orange)]" />
-              {order.customer.phone}
-            </p>
-          )}
+          {paymentBadge && <div className="shrink-0">{paymentBadge}</div>}
         </div>
-      ) : order.delivery_address ? (
-        <div className="bg-[var(--bg-input)] rounded-xl p-2.5 space-y-1.5 border border-[var(--border)] mt-2">
+        {order.delivery_address && (
           <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)] truncate">
             <MapPin className="h-3.5 w-3.5 text-[var(--orange)] shrink-0" />
             <span className="truncate">{order.delivery_address}</span>
           </p>
-        </div>
-      ) : null}
+        )}
+        {order.customer?.phone && order.customer.phone !== '0000000000' && (
+          <p className="flex items-center gap-2 text-[10px] font-medium text-[var(--text-muted)]">
+            <Phone className="h-3.5 w-3.5 text-[var(--orange)] shrink-0" />
+            <span>{order.customer.phone}</span>
+          </p>
+        )}
+      </div>
 
       <div className="flex items-center justify-between pt-3 border-t border-[var(--border)] mt-1">
         <span className="text-sm font-black text-[var(--text-primary)]">{formatCurrency(order.total)}</span>

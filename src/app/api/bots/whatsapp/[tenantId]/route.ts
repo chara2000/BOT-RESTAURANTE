@@ -71,6 +71,81 @@ async function getTenantCreds(tenantId: string) {
   return null;
 }
 
+// Cache active option buttons per chat for number-based selection (1, 2, 3...)
+const lastChatButtons = new Map<string, Array<{ text: string; callback_data: string }>>();
+
+function cleanWAButtonTitle(text: string): string {
+  let cleaned = (text || '').trim();
+  if (cleaned.length <= 20) return cleaned;
+
+  // Remove price or quantity suffix if title is too long (e.g. " (+2 disp.)" or " (+$3.000)")
+  cleaned = cleaned.replace(/\s*\(\+?\$?[\d.,]+\s*disp\.?\)/gi, '').replace(/\s*\(\+?\$?[\d.,]+\)/gi, '');
+  if (cleaned.length <= 20) return cleaned;
+
+  // Smart truncation at word boundary
+  const words = cleaned.split(' ');
+  let result = '';
+  for (const word of words) {
+    if ((result + ' ' + word).trim().length <= 20) {
+      result = (result + ' ' + word).trim();
+    } else {
+      break;
+    }
+  }
+  return result.trim() || cleaned.slice(0, 20);
+}
+
+function formatWhatsAppResponse(
+  chatIdStr: string,
+  rawText: string,
+  replyMarkup: any
+): { text: string; buttons?: Array<{ text: string; callback_data: string }> } {
+  if (!replyMarkup || !replyMarkup.inline_keyboard) {
+    lastChatButtons.delete(chatIdStr);
+    return { text: rawText };
+  }
+
+  const rows: any[][] = replyMarkup.inline_keyboard || [];
+  const flatButtons: Array<{ text: string; callback_data: string }> = rows
+    .flat()
+    .filter(b => b.callback_data)
+    .map(b => ({ text: (b.text || '').trim(), callback_data: b.callback_data }));
+
+  if (flatButtons.length === 0) {
+    lastChatButtons.delete(chatIdStr);
+    return { text: rawText };
+  }
+
+  lastChatButtons.set(chatIdStr, flatButtons);
+
+  let formattedText = rawText;
+  let buttons: Array<{ text: string; callback_data: string }> | undefined;
+
+  if (flatButtons.length <= 3) {
+    buttons = flatButtons.map(b => ({
+      text: cleanWAButtonTitle(b.text),
+      callback_data: b.callback_data,
+    }));
+  } else {
+    // Append numbered list for ALL options so nothing is cut off
+    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+    const listLines = flatButtons.map((b, idx) => {
+      const emoji = numberEmojis[idx] || `${idx + 1}.`;
+      return `${emoji} ${b.text}`;
+    });
+
+    formattedText += `\n\n📌 *Opciones disponibles:*\n` + listLines.join('\n') + `\n\n_Escribe el número de la opción (1-${flatButtons.length}) o toca un botón:_`;
+
+    // Send 3 primary buttons
+    buttons = flatButtons.slice(0, 3).map((b, idx) => ({
+      text: cleanWAButtonTitle(`${idx + 1}. ${b.text}`),
+      callback_data: b.callback_data,
+    }));
+  }
+
+  return { text: formattedText, buttons };
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ tenantId: string }> }
@@ -153,6 +228,32 @@ export async function POST(
 
   if (msgType === 'text') {
     text = message.text?.body || '';
+    const trimmed = text.trim();
+    const num = parseInt(trimmed, 10);
+    const cachedBtns = lastChatButtons.get(chatIdStr);
+
+    // Number shortcut: user typed "1", "2", "3", etc. corresponding to active options
+    if (!isNaN(num) && cachedBtns && num >= 1 && num <= cachedBtns.length && /^\d+$/.test(trimmed)) {
+      const btn = cachedBtns[num - 1];
+      if (btn?.callback_data) {
+        try {
+          const response = await processCallback(chatId, btn.callback_data, username, tenantId);
+          if (response.text) {
+            const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
+            await sendWhatsAppMessage({
+              from: senderFrom,
+              to: recipientTo,
+              text: formatted.text,
+              buttons: formatted.buttons,
+              apiKey: creds.apiKey,
+            });
+          }
+          return NextResponse.json({ ok: true });
+        } catch (err) {
+          console.error('[bot/whatsapp] number shortcut callback error:', (err as Error).message);
+        }
+      }
+    }
   } else if (msgType === 'interactive') {
     // Button reply from our interactive message
     const btnReply = message.interactive?.buttonReply || message.interactive?.button_reply || message.button;
@@ -162,11 +263,12 @@ export async function POST(
       try {
         const response = await processCallback(chatId, btnId, username, tenantId);
         if (response.text) {
+          const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
           await sendWhatsAppMessage({
             from: senderFrom,
             to: recipientTo,
-            text: response.text,
-            buttons: response.reply_markup ? extractWAButtons(response.reply_markup) : undefined,
+            text: formatted.text,
+            buttons: formatted.buttons,
             apiKey: creds.apiKey,
           });
         }
@@ -193,11 +295,12 @@ export async function POST(
     );
 
     if (response.text) {
+      const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
       await sendWhatsAppMessage({
         from: senderFrom,
         to: recipientTo,
-        text: response.text,
-        buttons: response.reply_markup ? extractWAButtons(response.reply_markup) : undefined,
+        text: formatted.text,
+        buttons: formatted.buttons,
         apiKey: creds.apiKey,
       });
     }
@@ -212,16 +315,4 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true });
-}
-
-// Converts Telegram inline_keyboard to YCloud-compatible button array (max 3)
-function extractWAButtons(replyMarkup: any): Array<{ text: string; callback_data: string }> | undefined {
-  try {
-    const rows: any[][] = replyMarkup.inline_keyboard || [];
-    const flat = rows.flat().filter(b => b.callback_data); // Only reply buttons (not URL buttons)
-    if (flat.length === 0) return undefined;
-    return flat.slice(0, 3).map(b => ({ text: (b.text || '').slice(0, 20), callback_data: b.callback_data }));
-  } catch {
-    return undefined;
-  }
 }

@@ -22,8 +22,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Cache tenant credentials: tenantId → { apiKey, webhookSecret }
-const tenantCredCache = new Map<string, { apiKey: string; webhookSecret: string | null; at: number }>();
+// Cache tenant credentials: tenantId → { apiKey, phone, webhookSecret }
+const tenantCredCache = new Map<string, { apiKey: string; phone: string | null; webhookSecret: string | null; at: number }>();
 const CACHE_TTL = 60_000;
 
 async function getTenantCreds(tenantId: string) {

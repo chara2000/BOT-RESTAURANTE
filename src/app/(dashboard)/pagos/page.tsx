@@ -8,7 +8,7 @@ import { formatCurrency } from '@/lib/utils';
 import type { Order, PaymentMethod } from '@/types';
 
 export default function PagosPage() {
-  const { orders, updateOrderStatus, cashSession } = useAppData();
+  const { orders, updateOrderStatus, cashSession, activeTenantId } = useAppData();
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<{ id: string; type: 'ok' | 'err'; text: string } | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -51,10 +51,16 @@ export default function PagosPage() {
     try {
       const res = await fetch(`/api/orders/${order.id}/payment`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeTenantId ? { 'x-tenant-id': activeTenantId } : {}),
+        },
         body: JSON.stringify({ payment_status: action === 'approve' ? 'paid' : 'failed', notes: updatedNotes }),
       });
-      if (!res.ok) throw new Error('Error al actualizar');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || 'Error al actualizar');
+      }
 
       await updateOrderStatus(order.id, newStatus as any);
 

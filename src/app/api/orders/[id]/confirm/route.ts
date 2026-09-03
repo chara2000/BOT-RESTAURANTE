@@ -23,14 +23,15 @@ export async function POST(
     // 1. Obtener la orden y validar el PIN
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, delivery_pin, status, customers(telegram_chat_id)')
+      .select('id, delivery_pin, status, tenant_id, notes, customers(telegram_chat_id)')
       .eq('id', id)
-      .eq('tenant_id', tenantId)
-      .single();
+      .maybeSingle();
 
     if (orderError || !order) {
       return NextResponse.json({ error: 'Pedido no encontrado' }, { status: 404 });
     }
+
+    const effectiveTenantId = order.tenant_id || tenantId;
 
     // Si el pedido ya está entregado
     if (order.status === 'delivered') {
@@ -49,12 +50,10 @@ export async function POST(
     }
 
     // 2. Si el PIN es correcto, cambiar estado a 'delivered'
-    // Llamaremos al endpoint interno de status o lo haremos directo para reusar lógica de eventos
     const { data: updateData, error: updateError } = await supabase
       .from('orders')
       .update({ status: 'delivered', updated_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('tenant_id', tenantId)
       .select('id, status, notes, customers(telegram_chat_id)')
       .single();
 
@@ -65,7 +64,7 @@ export async function POST(
     // Registrar evento de cambio de estado
     await supabase.from('order_events').insert({
       order_id: id,
-      tenant_id: tenantId,
+      tenant_id: effectiveTenantId,
       event_type: 'status_change',
       from_value: order.status,
       to_value: 'delivered',

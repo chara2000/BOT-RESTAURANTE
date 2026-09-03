@@ -92,8 +92,7 @@ export async function POST(req: NextRequest) {
   // Upsert tenant settings
   const { error: upsertError } = await supabase
     .from('tenant_settings')
-    .update(updates)
-    .eq('tenant_id', tenantId);
+    .upsert({ tenant_id: tenantId, ...updates }, { onConflict: 'tenant_id' });
 
   if (upsertError) {
     return NextResponse.json({ error: upsertError.message }, { status: 500 });

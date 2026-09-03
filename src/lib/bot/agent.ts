@@ -515,9 +515,9 @@ async function askItemNoteScreen(session: BotSession, qty: number, productId?: s
 
   const buttons: { text: string; callback_data: string }[][] = [];
   if (availableAdditions.length > 0) {
-    buttons.push([{ text: `🧀 Agregar adición (+${availableAdditions.length} disp.)`, callback_data: `show_additions:${qty}:${p.id}` }]);
+    buttons.push([{ text: `🧀 Ver Adiciones (${availableAdditions.length})`, callback_data: `show_additions:${qty}:${p.id}` }]);
   }
-  buttons.push([{ text: '⏭️ Omitir y agregar al carrito', callback_data: `skip_note:${qty}:${p.id}` }]);
+  buttons.push([{ text: '⏭️ Omitir / Agregar', callback_data: `skip_note:${qty}:${p.id}` }]);
   buttons.push([{ text: '↩️ Cancelar', callback_data: 'menu' }]);
 
   const additionsHint = availableAdditions.length > 0 
@@ -525,7 +525,7 @@ async function askItemNoteScreen(session: BotSession, qty: number, productId?: s
     : '';
 
   return {
-    text: `Has elegido *${qty}x ${p.name}*.\n\n📝 *¿Deseas agregar una instrucción especial o adición?*${additionsHint}\n\nEscribe tu nota ahora, o toca un botón:`,
+    text: `Has elegido *${qty}x ${p.name}*.\n\n📝 *¿Deseas agregar una instrucción especial o adición?*${additionsHint}\n\n_Escribe tu nota ahora (ej: "sin cebolla") o selecciona una opción:_`,
     reply_markup: {
       inline_keyboard: buttons,
     },
@@ -551,7 +551,7 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
       text: `🧀 *El platillo "${productName}" no tiene adiciones configuradas.*\n\n¿Deseas agregarlo directamente al carrito?`,
       reply_markup: {
         inline_keyboard: [
-          [{ text: '✅ Sí, agregar al carrito', callback_data: `skip_note:${qty}:${productId}` }],
+          [{ text: '✅ Sí, agregar', callback_data: `skip_note:${qty}:${productId}` }],
           [{ text: '↩️ Volver', callback_data: `ask_note:${qty}:${productId}` }],
         ],
       },
@@ -560,28 +560,19 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
 
   const buttons: { text: string; callback_data: string }[][] = [];
   
-  for (let i = 0; i < additionsList.length; i += 2) {
-    const row: { text: string; callback_data: string }[] = [];
-    const a1 = additionsList[i];
-    row.push({
-      text: `${a1.name} (+$${a1.price.toLocaleString('es-CO')})`,
-      callback_data: `add_ad:${a1.id}:${qty}:${productId.slice(0, 8)}`,
-    });
-    if (additionsList[i + 1]) {
-      const a2 = additionsList[i + 1];
-      row.push({
-        text: `${a2.name} (+$${a2.price.toLocaleString('es-CO')})`,
-        callback_data: `add_ad:${a2.id}:${qty}:${productId.slice(0, 8)}`,
-      });
-    }
-    buttons.push(row);
+  for (let i = 0; i < additionsList.length; i++) {
+    const a = additionsList[i];
+    buttons.push([{
+      text: `${a.name} (+$${a.price.toLocaleString('es-CO')})`,
+      callback_data: `add_ad:${a.id || a.name}:${qty}:${productId}`,
+    }]);
   }
 
-  buttons.push([{ text: '⏭️ Omitir adiciones y agregar', callback_data: `skip_note:${qty}:${productId}` }]);
+  buttons.push([{ text: '⏭️ Omitir Adiciones', callback_data: `skip_note:${qty}:${productId}` }]);
   buttons.push([{ text: '↩️ Volver', callback_data: `ask_note:${qty}:${productId}` }]);
 
   return {
-    text: `🧀 *Adiciones disponibles para:* ${qty}x ${productName}\n\nSelecciona una o más adiciones:`,
+    text: `🧀 *Adiciones disponibles para:* ${qty}x ${productName}\n\nSelecciona una adición:`,
     reply_markup: { inline_keyboard: buttons },
   };
 }
@@ -641,10 +632,11 @@ function cartScreen(session: BotSession): BotResponse {
   const deliveryFee = 5000;
   const finalTotal = subtotal + deliveryFee;
   
-  const buttons = session.cart.map(i => [{ text: `❌ Quitar ${i.product.name}`, callback_data: `rm:${i.id}` }]);
-  buttons.push([{ text: '➕ Seguir comprando', callback_data: 'menu' }]);
-  buttons.push([{ text: '💳 Proceder al Pago', callback_data: 'pay' }]);
-  buttons.push([{ text: '🗑️ Vaciar todo el carrito', callback_data: 'clear_cart' }]);
+  const buttons = [
+    [{ text: '💳 Proceder al Pago', callback_data: 'pay' }],
+    [{ text: '🍽️ Seguir Pidiendo', callback_data: 'menu' }],
+    [{ text: '🗑️ Vaciar Carrito', callback_data: 'clear_cart' }],
+  ];
 
   return {
     text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n📦 *Productos:* $${subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio estimado:* $${deliveryFee.toLocaleString('es-CO')}\n💰 *TOTAL FINAL: $${finalTotal.toLocaleString('es-CO')}*`,
@@ -1038,9 +1030,9 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
     ].filter(l => l !== '').join('\n'),
     reply_markup: {
       inline_keyboard: [
-        ...(isDelivery ? [[{ text: '🛵 Rastrear en tiempo real 📍', url: trackingUrl }]] : []),
-        [{ text: '❌ Cancelar mi pedido', callback_data: `cancel_order:${orderId}` }],
-        [{ text: '🏠 Hacer otro pedido', callback_data: 'menu' }]
+        [{ text: '📦 Rastrear Pedido', callback_data: `track:${shortId}` }],
+        [{ text: '🍽️ Hacer otro Pedido', callback_data: 'menu' }],
+        [{ text: '🙋 Hablar con el encargado', callback_data: 'contact_manager' }],
       ],
     },
   };
@@ -1700,14 +1692,22 @@ async function handleProcessCallback(
     const parts = callbackData.replace('add_ad:', '').split(':');
     const addId = parts[0];
     const qty = parseInt(parts[1]) || 1;
+    const prodId = parts[2];
     let p = session.selectedProduct;
+    if (!p && prodId) {
+      const { data } = await supabase.from('products').select('*').like('id', `${prodId}%`).limit(1).maybeSingle();
+      if (data) {
+        session.selectedProduct = data as Product;
+        p = data as Product;
+      }
+    }
     if (!p && session.pendingItem) {
       p = session.pendingItem.product;
     }
-    const addition = (p?.additions || []).find((a: AdditionItem) => a.id === addId);
+    const addition = (p?.additions || []).find((a: AdditionItem) => a.id === addId || a.name === addId);
     const additionName = addition?.name || 'Adición Extra';
     const additionPrice = addition?.price || 0;
-    return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, p?.id, additionPrice);
+    return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, p?.id || prodId, additionPrice);
   }
 
   if (callbackData.startsWith('add_addition:')) {

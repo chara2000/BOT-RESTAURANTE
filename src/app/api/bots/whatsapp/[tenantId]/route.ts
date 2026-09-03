@@ -121,53 +121,59 @@ function formatWhatsAppResponse(
   let formattedText = rawText;
   let buttons: Array<{ text: string; callback_data: string }> | undefined;
 
-  // Separate action/navigation buttons (like menu, cart, cancel, skip) from option items
-  const actionButtons = flatButtons.filter(b => 
-    b.callback_data === 'menu' || 
-    b.callback_data === 'cart' || 
-    b.callback_data === 'cancel' || 
-    b.callback_data === 'skip_note' || 
-    b.callback_data === 'confirm_order' || 
-    b.callback_data === 'confirm_cancel' ||
-    b.callback_data === 'abort_cancel'
-  );
+  const isQuantityPrompt = flatButtons.some(b => b.callback_data.startsWith('qty:'));
 
-  // If there are list options (categories, products, quantities, additions)
-  const isListOptions = flatButtons.length > 3 || flatButtons.some(b => 
+  if (isQuantityPrompt) {
+    // For quantity selection: don't list numbers 1..6 in text; give a clean prompt & simple buttons
+    formattedText = rawText + `\n\n_👉 Escribe la cantidad deseada (ej: 1, 2, 3...) o toca un botón:_`;
+    buttons = [
+      { text: '1️⃣ 1 unidad', callback_data: flatButtons[0]?.callback_data || 'qty:1' },
+      { text: '2️⃣ 2 unidades', callback_data: flatButtons[1]?.callback_data || 'qty:2' },
+      { text: '↩️ Volver al Menú', callback_data: 'menu' },
+    ];
+    return { text: formattedText, buttons };
+  }
+
+  // Check if options are list items (categories, products, additions)
+  const isListOptions = flatButtons.some(b => 
     b.callback_data.startsWith('cat:') || 
     b.callback_data.startsWith('product:') || 
     b.callback_data.startsWith('add_ad:') ||
-    b.callback_data.startsWith('add_addition:') ||
-    b.callback_data.startsWith('show_additions:')
+    b.callback_data.startsWith('add_addition:')
   );
 
   if (isListOptions) {
-    // Append numbered list for ALL options so nothing is cut off and text is super clean & organized
+    // Only list item options in the numbered text
+    const itemButtons = flatButtons.filter(b => 
+      b.callback_data.startsWith('cat:') || 
+      b.callback_data.startsWith('product:') || 
+      b.callback_data.startsWith('add_ad:') ||
+      b.callback_data.startsWith('add_addition:')
+    );
+
+    const actionButtons = flatButtons.filter(b => !itemButtons.includes(b));
+
     const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
-    const listLines = flatButtons.map((b, idx) => {
+    const listLines = itemButtons.map((b, idx) => {
       const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
       return `${emoji} ${b.text}`;
     });
 
-    formattedText += `\n\n📋 *Selecciona una opción:*\n` + listLines.join('\n') + `\n\n_👉 Responde enviando solo el número (1 - ${flatButtons.length})._`;
+    formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde enviando solo el número (1 - ${itemButtons.length})._`;
 
-    // Only provide buttons if there are clean action buttons (e.g. Omitir, Cancelar)
-    if (actionButtons.length > 0 && actionButtons.length <= 3) {
-      buttons = actionButtons.map(b => ({
+    // Only action buttons (Omitir, Cancelar, Volver, Carrito) are shown as WhatsApp quick buttons
+    if (actionButtons.length > 0) {
+      buttons = actionButtons.slice(0, 3).map(b => ({
         text: cleanWAButtonTitle(b.text),
         callback_data: b.callback_data,
       }));
     } else {
-      buttons = undefined; // No overcrowded option buttons, clean organized text list!
+      buttons = undefined;
     }
-  } else if (actionButtons.length > 0 && actionButtons.length <= 3) {
-    // Simple 1-3 action prompt (e.g. Confirmar / Cancelar)
-    buttons = actionButtons.map(b => ({
-      text: cleanWAButtonTitle(b.text),
-      callback_data: b.callback_data,
-    }));
-  } else if (flatButtons.length <= 3) {
-    buttons = flatButtons.map(b => ({
+  } else {
+    // Non-list screen (Cart, Ask Note, Confirm Order, Payment Methods, etc.)
+    // Show up to 3 clean action buttons directly
+    buttons = flatButtons.slice(0, 3).map(b => ({
       text: cleanWAButtonTitle(b.text),
       callback_data: b.callback_data,
     }));
@@ -255,6 +261,7 @@ export async function POST(
   let text = '';
   let isPhoto = false;
   let photoId: string | undefined;
+  let location: { latitude: number; longitude: number } | undefined;
 
   if (msgType === 'text') {
     text = message.text?.body || '';
@@ -307,13 +314,22 @@ export async function POST(
       }
       return NextResponse.json({ ok: true });
     }
+  } else if (msgType === 'location') {
+    const loc = (message as any).location || (message as any).whatsapp?.location;
+    if (loc && loc.latitude && loc.longitude) {
+      location = {
+        latitude: parseFloat(loc.latitude),
+        longitude: parseFloat(loc.longitude),
+      };
+      text = loc.address || loc.name || `Ubicación GPS (${location.latitude}, ${location.longitude})`;
+    }
   } else if (msgType === 'image') {
     isPhoto = true;
     photoId = message.image?.id || message.image?.link || message.image?.url;
     text = message.image?.caption || '';
   }
 
-  if (!text && !isPhoto) return NextResponse.json({ ok: true });
+  if (!text && !isPhoto && !location) return NextResponse.json({ ok: true });
 
   try {
     const response = await processMessage(
@@ -321,7 +337,7 @@ export async function POST(
       text,
       username,
       tenantId,
-      { isPhoto, photoId }
+      { isPhoto, photoId, location }
     );
 
     if (response.text) {

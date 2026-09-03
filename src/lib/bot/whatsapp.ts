@@ -16,12 +16,14 @@ export interface WhatsAppButton {
  * Sends a plain text message (or with up to 3 quick-reply buttons) via YCloud.
  */
 export async function sendWhatsAppMessage({
+  from,
   to,
   text,
   buttons,
   apiKey,
 }: {
-  to: string;           // Phone number in E.164 format: +573001234567
+  from?: string;        // Sender phone number in E.164 (e.g. +573116215266)
+  to: string;           // Recipient phone number in E.164 format: +573001234567
   text: string;
   buttons?: WhatsAppButton[];  // Max 3 for WhatsApp interactive buttons
   apiKey: string;
@@ -30,6 +32,9 @@ export async function sendWhatsAppMessage({
     console.warn('[ycloud] Missing apiKey or recipient number — message not sent', { apiKey: !!apiKey, to });
     return false;
   }
+
+  // Format sender phone number E.164 if provided
+  let cleanFrom = from ? (from.startsWith('+') ? from : `+${from.replace(/\D/g, '')}`) : undefined;
 
   // Strip Markdown formatting that Telegram uses but WhatsApp doesn't support
   const cleanText = text
@@ -50,6 +55,7 @@ export async function sendWhatsAppMessage({
     }));
 
     body = {
+      ...(cleanFrom ? { from: cleanFrom } : {}),
       to,
       type: 'interactive',
       interactive: {
@@ -61,6 +67,7 @@ export async function sendWhatsAppMessage({
   } else {
     // Plain text message
     body = {
+      ...(cleanFrom ? { from: cleanFrom } : {}),
       to,
       type: 'text',
       text: { body: cleanText },

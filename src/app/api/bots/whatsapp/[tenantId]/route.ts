@@ -33,13 +33,14 @@ async function getTenantCreds(tenantId: string) {
   // 1. Try exact tenant query
   const { data } = await supabase
     .from('tenant_settings')
-    .select('ycloud_api_key, ycloud_webhook_secret')
+    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
     .eq('tenant_id', tenantId)
     .maybeSingle();
 
   if (data?.ycloud_api_key) {
     const entry = {
       apiKey: data.ycloud_api_key,
+      phone: data.ycloud_phone_number || null,
       webhookSecret: data.ycloud_webhook_secret || null,
       at: Date.now(),
     };
@@ -50,7 +51,7 @@ async function getTenantCreds(tenantId: string) {
   // 2. Fallback: Query first configured tenant with non-null ycloud_api_key
   const { data: fallback } = await supabase
     .from('tenant_settings')
-    .select('ycloud_api_key, ycloud_webhook_secret')
+    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
     .not('ycloud_api_key', 'is', null)
     .limit(1)
     .maybeSingle();
@@ -58,6 +59,7 @@ async function getTenantCreds(tenantId: string) {
   if (fallback?.ycloud_api_key) {
     const entry = {
       apiKey: fallback.ycloud_api_key,
+      phone: fallback.ycloud_phone_number || null,
       webhookSecret: fallback.ycloud_webhook_secret || null,
       at: Date.now(),
     };
@@ -132,12 +134,14 @@ export async function POST(
 
   if (!message) return NextResponse.json({ ok: true });
 
-  const from: string = message.from || message.whatsapp?.from || '';
-  if (!from) return NextResponse.json({ ok: true });
+  const recipientTo: string = message.from || message.whatsapp?.from || '';
+  if (!recipientTo) return NextResponse.json({ ok: true });
+
+  const senderFrom: string | undefined = message.to || creds.phone || undefined;
 
   // YCloud uses E.164 numbers as chat IDs — convert to number for session key
   // We prefix with 'wa_' to avoid collision with Telegram IDs
-  const chatIdStr = `wa_${from.replace(/\D/g, '')}`;
+  const chatIdStr = `wa_${recipientTo.replace(/\D/g, '')}`;
   const chatId = parseInt(chatIdStr.replace('wa_', ''), 10);
   const rawName = message.customerProfile?.name || message.customerName || message.from || 'Cliente WhatsApp';
   const username = sanitizeUsername(rawName);
@@ -159,7 +163,8 @@ export async function POST(
         const response = await processCallback(chatId, btnId, username, tenantId);
         if (response.text) {
           await sendWhatsAppMessage({
-            to: from,
+            from: senderFrom,
+            to: recipientTo,
             text: response.text,
             buttons: response.reply_markup ? extractWAButtons(response.reply_markup) : undefined,
             apiKey: creds.apiKey,
@@ -189,7 +194,8 @@ export async function POST(
 
     if (response.text) {
       await sendWhatsAppMessage({
-        to: from,
+        from: senderFrom,
+        to: recipientTo,
         text: response.text,
         buttons: response.reply_markup ? extractWAButtons(response.reply_markup) : undefined,
         apiKey: creds.apiKey,
@@ -198,7 +204,8 @@ export async function POST(
   } catch (err) {
     console.error('[bot/whatsapp] processMessage error:', (err as Error).message);
     await sendWhatsAppMessage({
-      to: from,
+      from: senderFrom,
+      to: recipientTo,
       text: '⚠️ Ocurrió un error. Escribe *hola* para reiniciar.',
       apiKey: creds.apiKey,
     });

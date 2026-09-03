@@ -624,10 +624,10 @@ export default function PedidosPage() {
 
       {/* Edit Order Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
+          <div className="w-full max-w-lg rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
             {/* Modal header */}
-            <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex justify-between items-center border-b px-6 py-4 sm:py-5 shrink-0" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <h3 className="text-lg font-black text-[var(--text-primary)]">
                   Pedido {selectedOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${selectedOrder.id.slice(0,6).toUpperCase()}`}
@@ -832,7 +832,7 @@ export default function PedidosPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="flex justify-between items-center border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex justify-between items-center border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <button
                 onClick={handleDeleteOrder}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-red-500 hover:bg-red-500/10 text-xs font-black transition-colors cursor-pointer"
@@ -852,9 +852,9 @@ export default function PedidosPage() {
 
       {/* Create Order Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <form onSubmit={handleCreateOrderSubmit} className="w-full max-w-xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh]" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
-            <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
+          <form onSubmit={handleCreateOrderSubmit} className="w-full max-w-xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto" style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}>
+            <div className="flex justify-between items-center border-b px-6 py-4 sm:py-5 shrink-0" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <h3 className="text-lg font-black text-[var(--text-primary)]">Nuevo Pedido</h3>
                 <p className="text-xs font-bold mt-0.5" style={{ color: 'var(--text-muted)' }}>Agrega un pedido manualmente al sistema</p>
@@ -992,7 +992,7 @@ export default function PedidosPage() {
               )}
             </div>
 
-            <div className="flex justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex justify-end gap-2 border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <button type="button" onClick={() => setShowCreateModal(false)}
                 className="px-4 py-2.5 rounded-xl border text-xs font-black hover:bg-[var(--bg-input)] cursor-pointer transition-colors" style={{ borderColor: 'var(--border)' }}>
                 Cancelar

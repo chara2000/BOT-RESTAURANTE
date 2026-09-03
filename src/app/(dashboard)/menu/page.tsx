@@ -321,13 +321,13 @@ export default function MenuPage() {
 
         {/* Create / Edit Product Modal */}
         {showForm && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
             <div
-              className="w-full max-w-2xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[92vh] overflow-hidden"
+              className="w-full max-w-2xl rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto"
               style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
             >
               {/* Modal Header */}
-              <div className="flex justify-between items-center border-b px-6 py-5" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex justify-between items-center border-b px-6 py-4 sm:py-5 shrink-0" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[var(--orange-soft)] text-[var(--orange)]">
                     <Utensils className="w-5 h-5" />
@@ -518,7 +518,7 @@ export default function MenuPage() {
               </form>
 
               {/* Modal Footer */}
-              <div className="flex justify-end items-center gap-3 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex justify-end items-center gap-3 border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}

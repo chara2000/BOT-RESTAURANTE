@@ -26,7 +26,7 @@ export function ThermalTicketModal({ order, settings, onClose }: ThermalTicketMo
   });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in p-3 sm:p-4">
       {/* Estilos para impresión aislada (solo imprime el ticket) */}
       <style jsx global>{`
         @media print {
@@ -50,9 +50,9 @@ export function ThermalTicketModal({ order, settings, onClose }: ThermalTicketMo
         }
       `}</style>
 
-      <div className="relative w-full max-w-sm rounded-3xl bg-[var(--bg-card)] border border-[var(--border)] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-sm rounded-3xl bg-[var(--bg-card)] border border-[var(--border)] shadow-2xl overflow-hidden flex flex-col max-h-[88dvh] sm:max-h-[90vh] my-auto">
         {/* Header Modal */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-input)]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--bg-input)] shrink-0">
           <div className="flex items-center gap-2">
             <Printer className="w-5 h-5 text-[var(--orange)]" />
             <h3 className="text-sm font-black text-[var(--text-primary)]">Comanda / Ticket Térmico</h3>
@@ -137,7 +137,7 @@ export function ThermalTicketModal({ order, settings, onClose }: ThermalTicketMo
         </div>
 
         {/* Action Bar */}
-        <div className="p-4 bg-[var(--bg-input)] border-t border-[var(--border)] flex gap-3">
+        <div className="p-4 bg-[var(--bg-input)] border-t border-[var(--border)] flex gap-3 shrink-0">
           <button
             onClick={handlePrint}
             className="flex-1 py-3 rounded-2xl bg-[var(--orange)] hover:bg-[var(--orange-dark)] text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-[var(--orange)]/30 transition-all active:scale-95"

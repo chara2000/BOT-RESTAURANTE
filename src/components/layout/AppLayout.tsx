@@ -109,7 +109,7 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
         )}
 
         <Sidebar />
-        <main className="flex-1 flex flex-col overflow-hidden w-full relative z-0 md:pb-0" style={{ paddingBottom: 'max(calc(4.5rem + env(safe-area-inset-bottom, 0px)), 80px)' }}>
+        <main className="flex-1 flex flex-col overflow-hidden w-full relative md:pb-0" style={{ paddingBottom: 'max(calc(4.5rem + env(safe-area-inset-bottom, 0px)), 80px)' }}>
           {(selectedTenantId || isBypassedRoute) ? children : <NoTenantBlockedScreen />}
         </main>
       </div>

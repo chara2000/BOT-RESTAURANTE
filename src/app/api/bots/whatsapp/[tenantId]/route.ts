@@ -121,24 +121,54 @@ function formatWhatsAppResponse(
   let formattedText = rawText;
   let buttons: Array<{ text: string; callback_data: string }> | undefined;
 
-  if (flatButtons.length <= 3) {
-    buttons = flatButtons.map(b => ({
-      text: cleanWAButtonTitle(b.text),
-      callback_data: b.callback_data,
-    }));
-  } else {
-    // Append numbered list for ALL options so nothing is cut off
+  // Separate action/navigation buttons (like menu, cart, cancel, skip) from option items
+  const actionButtons = flatButtons.filter(b => 
+    b.callback_data === 'menu' || 
+    b.callback_data === 'cart' || 
+    b.callback_data === 'cancel' || 
+    b.callback_data === 'skip_note' || 
+    b.callback_data === 'confirm_order' || 
+    b.callback_data === 'confirm_cancel' ||
+    b.callback_data === 'abort_cancel'
+  );
+
+  // If there are list options (categories, products, quantities, additions)
+  const isListOptions = flatButtons.length > 3 || flatButtons.some(b => 
+    b.callback_data.startsWith('cat:') || 
+    b.callback_data.startsWith('product:') || 
+    b.callback_data.startsWith('add_ad:') ||
+    b.callback_data.startsWith('add_addition:') ||
+    b.callback_data.startsWith('show_additions:')
+  );
+
+  if (isListOptions) {
+    // Append numbered list for ALL options so nothing is cut off and text is super clean & organized
     const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
     const listLines = flatButtons.map((b, idx) => {
-      const emoji = numberEmojis[idx] || `${idx + 1}.`;
+      const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
       return `${emoji} ${b.text}`;
     });
 
-    formattedText += `\n\n📌 *Opciones disponibles:*\n` + listLines.join('\n') + `\n\n_Escribe el número de la opción (1-${flatButtons.length}) o toca un botón:_`;
+    formattedText += `\n\n📋 *Selecciona una opción:*\n` + listLines.join('\n') + `\n\n_👉 Responde enviando solo el número (1 - ${flatButtons.length})._`;
 
-    // Send 3 primary buttons
-    buttons = flatButtons.slice(0, 3).map((b, idx) => ({
-      text: cleanWAButtonTitle(`${idx + 1}. ${b.text}`),
+    // Only provide buttons if there are clean action buttons (e.g. Omitir, Cancelar)
+    if (actionButtons.length > 0 && actionButtons.length <= 3) {
+      buttons = actionButtons.map(b => ({
+        text: cleanWAButtonTitle(b.text),
+        callback_data: b.callback_data,
+      }));
+    } else {
+      buttons = undefined; // No overcrowded option buttons, clean organized text list!
+    }
+  } else if (actionButtons.length > 0 && actionButtons.length <= 3) {
+    // Simple 1-3 action prompt (e.g. Confirmar / Cancelar)
+    buttons = actionButtons.map(b => ({
+      text: cleanWAButtonTitle(b.text),
+      callback_data: b.callback_data,
+    }));
+  } else if (flatButtons.length <= 3) {
+    buttons = flatButtons.map(b => ({
+      text: cleanWAButtonTitle(b.text),
       callback_data: b.callback_data,
     }));
   }

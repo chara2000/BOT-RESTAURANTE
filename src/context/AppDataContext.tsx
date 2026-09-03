@@ -745,24 +745,60 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [dataSource]);
 
   const closeCashRegister = useCallback(async (actualCash: number) => {
+    // 1. Cerrar caja en Supabase o local
     if (dataSource === 'supabase') {
       const closed = await cashService.close(cashSession, actualCash);
       setCashSession((prev) => ({ ...prev, ...closed }));
-      return;
+    } else {
+      setCashSession((prev) => {
+        const income = prev.transactions.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+        const expense = prev.transactions.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
+        const expected = prev.opening_balance + income - expense;
+        return {
+          ...prev,
+          status: 'closed',
+          closing_balance: expected,
+          actual_cash: actualCash,
+          difference: actualCash - expected,
+          closed_at: new Date().toISOString(),
+        };
+      });
     }
-    setCashSession((prev) => {
-      const income = prev.transactions.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
-      const expense = prev.transactions.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
-      const expected = prev.opening_balance + income - expense;
-      return {
-        ...prev,
-        status: 'closed',
-        closing_balance: expected,
-        actual_cash: actualCash,
-        difference: actualCash - expected,
-        closed_at: new Date().toISOString(),
-      };
-    });
+
+    // 2. Cierre de Venta / Jornada en memoria:
+    // Todos los pedidos activos pasan a finalizados ('delivered') para que el tablero Kanban quede en 0
+    setOrders((prev) =>
+      prev.map((o) =>
+        ['pending', 'confirmed', 'preparing', 'ready', 'shipping'].includes(o.status)
+          ? {
+              ...o,
+              status: 'delivered',
+              notes: (o.notes || '') + '\n[CIERRE_JORNADA: Finalizado en cierre de venta diario]',
+            }
+          : o
+      )
+    );
+
+    // 3. Los domicilios activos pasan a completados
+    setDeliveries((prev) =>
+      prev.map((d) =>
+        d.status !== 'delivered'
+          ? { ...d, status: 'delivered' }
+          : d
+      )
+    );
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('show_toast', {
+          detail: {
+            title: '🏁 Cierre de Venta y Jornada',
+            message: 'Caja cerrada y tablero reiniciado a 0 pedidos activos. Los pedidos del día se conservan durante 3 meses para reportes y auditoría.',
+            type: 'success',
+          },
+        })
+      );
+    }
   }, [cashSession, dataSource]);
 
   const updateSettings = useCallback(async (partial: Partial<TenantSettings>) => {

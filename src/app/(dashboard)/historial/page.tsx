@@ -78,6 +78,29 @@ export default function HistorialPage() {
 
       <div className="flex-1 flex flex-col min-h-0 p-5 lg:p-8 space-y-5 z-10 relative overflow-y-auto">
 
+        {/* Banner de Advertencia y Política de Retención 3 Meses */}
+        <div className="p-4 rounded-3xl border bg-amber-500/10 border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in-up">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-black text-[var(--text-primary)]">
+                Registro Histórico y Auditoría: Conservación por 3 Meses (90 Días)
+              </p>
+              <p className="text-[11px] font-bold text-[var(--text-muted)] mt-0.5">
+                Los pedidos finalizados se preservan 90 días para auditoría contable y reportes. Transcurrido este plazo, los registros antiguos son depurados automáticamente.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={exportCSV}
+            className="text-xs font-black px-4 py-2 rounded-xl border border-amber-500/30 bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/30 transition-all cursor-pointer shrink-0"
+          >
+            📥 Respaldar / Exportar CSV
+          </button>
+        </div>
+
         {/* Filters & Actions Bar */}
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-between animate-fade-in-up">
           <div className="relative flex-1 max-w-md w-full">
@@ -346,9 +369,10 @@ export default function HistorialPage() {
 
       {/* Modal Detalle de Pedido */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={() => setSelectedOrder(null)}>
-          <div className="relative w-full max-w-lg bg-[var(--bg-card)] rounded-3xl border shadow-2xl p-6 space-y-5" style={{ borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in" onClick={() => setSelectedOrder(null)}>
+          <div className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <span className="text-xs font-black uppercase text-[var(--orange)] bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/30">
                   {selectedOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${selectedOrder.id.slice(0, 6).toUpperCase()}`}
@@ -357,47 +381,50 @@ export default function HistorialPage() {
                   Registrado: {new Date(selectedOrder.created_at).toLocaleString('es-CO')}
                 </p>
               </div>
-              <button onClick={() => setSelectedOrder(null)} className="p-2 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer" style={{ color: 'var(--text-muted)' }}>
-                <X className="w-4 h-4" />
+              <button onClick={() => setSelectedOrder(null)} className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Customer & Address */}
-            <div className="p-4 rounded-2xl border space-y-2 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-xs font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                <User className="w-4 h-4 text-[var(--orange)]" /> {selectedOrder.customer?.name || 'Anónimo'}
-              </p>
-              {selectedOrder.customer?.phone && (
-                <p className="text-xs font-medium flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
-                  <Phone className="w-3.5 h-3.5 text-[var(--orange)]" /> {selectedOrder.customer.phone}
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              {/* Customer & Address */}
+              <div className="p-4 rounded-2xl border space-y-2 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-xs font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                  <User className="w-4 h-4 text-[var(--orange)]" /> {selectedOrder.customer?.name || 'Anónimo'}
                 </p>
-              )}
-              {selectedOrder.delivery_address && (
-                <p className="text-xs font-medium flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
-                  <MapPin className="w-3.5 h-3.5 text-[var(--orange)] shrink-0" /> {selectedOrder.delivery_address}
-                </p>
-              )}
+                {selectedOrder.customer?.phone && (
+                  <p className="text-xs font-medium flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <Phone className="w-3.5 h-3.5 text-[var(--orange)]" /> {selectedOrder.customer.phone}
+                  </p>
+                )}
+                {selectedOrder.delivery_address && (
+                  <p className="text-xs font-medium flex items-center gap-2" style={{ color: 'var(--text-muted)' }}>
+                    <MapPin className="w-3.5 h-3.5 text-[var(--orange)] shrink-0" /> {selectedOrder.delivery_address}
+                  </p>
+                )}
+              </div>
+
+              {/* Items Breakdown */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Items del Pedido</p>
+                {selectedOrder.items && selectedOrder.items.length > 0 ? (
+                  selectedOrder.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl border bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+                      <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {item.quantity}x {item.product?.name || (item as any).name || 'Producto'}
+                      </span>
+                      <span className="text-xs font-black text-[var(--orange)]">{formatCurrency(item.unit_price * item.quantity)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>Sin desglose detallado de items.</p>
+                )}
+              </div>
             </div>
 
-            {/* Items Breakdown */}
-            <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Items del Pedido</p>
-              {selectedOrder.items && selectedOrder.items.length > 0 ? (
-                selectedOrder.items.map((item, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2.5 rounded-xl border bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
-                    <span className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                      {item.quantity}x {item.product?.name || (item as any).name || 'Producto'}
-                    </span>
-                    <span className="text-xs font-black text-[var(--orange)]">{formatCurrency(item.unit_price * item.quantity)}</span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>Sin desglose detallado de items.</p>
-              )}
-            </div>
-
-            {/* Summary */}
-            <div className="pt-3 border-t flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+            {/* Footer */}
+            <div className="border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)] flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-muted)' }}>Método de Pago</span>
                 <span className="text-xs font-black uppercase text-[var(--text-primary)]">{selectedOrder.payment_method}</span>

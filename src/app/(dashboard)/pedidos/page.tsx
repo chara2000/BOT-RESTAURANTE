@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search } from 'lucide-react';
+import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search, AlertCircle } from 'lucide-react';
 import { ridersService } from '@/services/api';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
@@ -64,12 +64,22 @@ const DELIVERY_SUB_LABELS: Record<string, { label: string; color: string }> = {
   arrived_at_customer: { label: '🔔 En la Puerta', color: 'bg-sky-500/10 text-sky-500 border-sky-500/30' },
 };
 
-function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
+function OrderCard({ 
+  order, 
+  deliveryStatus, 
+  riderName, 
+  onOpenModal, 
+  onPrint,
+  isSelected,
+  onToggleSelect,
+}: {
   order: Order;
   deliveryStatus?: string;
   riderName?: string;
   onOpenModal: () => void;
   onPrint?: () => void;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
   const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
@@ -77,14 +87,67 @@ function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
   const hasUserNotes = userNotes.length > 0;
   const subLabel = deliveryStatus ? DELIVERY_SUB_LABELS[deliveryStatus] : null;
 
+  // Distintivos de métodos de pago electrónico
+  const isTransfer = order.payment_method === 'transfer' || /transferencia|nequi|daviplata|bancolombia/i.test(order.notes || '');
+  const isNequi = order.payment_method === 'nequi' || /nequi/i.test(order.notes || '');
+  const isDaviplata = order.payment_method === 'daviplata' || /daviplata/i.test(order.notes || '');
+  const isPendingVerification = (order as any).payment_status === 'pending_verification' || /pendiente de validaci[oó]n/i.test(order.notes || '');
+
+  let paymentAccentClass = 'border-l-4 border-l-transparent';
+  let paymentBadge = null;
+
+  if (isNequi) {
+    paymentAccentClass = 'border-l-4 border-l-fuchsia-500';
+    paymentBadge = (
+      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400 border border-fuchsia-500/30 flex items-center gap-1">
+        📱 Nequi
+      </span>
+    );
+  } else if (isDaviplata) {
+    paymentAccentClass = 'border-l-4 border-l-red-500';
+    paymentBadge = (
+      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/30 flex items-center gap-1">
+        📱 Daviplata
+      </span>
+    );
+  } else if (isTransfer) {
+    paymentAccentClass = 'border-l-4 border-l-sky-500';
+    paymentBadge = (
+      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 flex items-center gap-1">
+        💳 Transferencia
+      </span>
+    );
+  } else if (order.payment_method === 'cash') {
+    paymentAccentClass = 'border-l-4 border-l-emerald-500';
+    paymentBadge = (
+      <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+        💵 Efectivo
+      </span>
+    );
+  }
+
   return (
     <div
       onClick={onOpenModal}
-      className="card p-4 space-y-3 cursor-pointer active:cursor-grabbing hover:ring-2 hover:ring-[var(--orange-soft)] group relative transition-all duration-300"
+      className={`card p-4 space-y-3 cursor-pointer active:cursor-grabbing hover:ring-2 hover:ring-[var(--orange-soft)] group relative transition-all duration-300 ${paymentAccentClass} ${isSelected ? 'ring-2 ring-[var(--orange)] bg-[var(--orange-soft)]/20' : ''}`}
     >
-      <div className="flex items-center justify-between pb-2 border-b border-[var(--border)]">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-black tracking-wider drop-shadow-sm" style={{ color: 'var(--orange)' }}>
+      <div className="flex items-center justify-between pb-2 border-b border-[var(--border)] gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {onToggleSelect && (
+            <div 
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect();
+              }}
+              className="p-1 -ml-1 rounded-md hover:bg-[var(--bg-input)] cursor-pointer shrink-0"
+              title="Seleccionar pedido"
+            >
+              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-[var(--orange)] border-[var(--orange)] text-white' : 'border-[var(--border)] bg-[var(--bg-card)]'}`}>
+                {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+              </div>
+            </div>
+          )}
+          <span className="text-sm font-black tracking-wider drop-shadow-sm truncate" style={{ color: 'var(--orange)' }}>
             {orderNumber}
           </span>
           {onPrint && (
@@ -94,25 +157,35 @@ function OrderCard({ order, deliveryStatus, riderName, onOpenModal, onPrint }: {
                 onPrint();
               }}
               title="Imprimir comanda térmica"
-              className="p-1 rounded-lg hover:bg-[var(--orange-soft)] text-[var(--text-muted)] hover:text-[var(--orange)] transition-colors"
+              className="p-1 rounded-lg hover:bg-[var(--orange-soft)] text-[var(--text-muted)] hover:text-[var(--orange)] transition-colors shrink-0"
             >
               <Printer className="w-3.5 h-3.5" />
             </button>
           )}
           {hasUserNotes && (
-            <div className="relative flex items-center justify-center p-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors">
+            <div className="relative flex items-center justify-center p-1 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors shrink-0">
               <MessageSquare className="w-3.5 h-3.5" />
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full animate-ping" />
               <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-red-500 rounded-full" />
             </div>
           )}
         </div>
-        <span className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border shadow-sm transition-colors group-hover:border-[var(--orange)]"
-              style={{ background: 'var(--orange-soft)', color: 'var(--orange)', borderColor: 'var(--border)' }}>
-          {getOrderTypeIcon(order.type)} {getOrderTypeLabel(order.type)}
-        </span>
-
+        <div className="flex items-center gap-1.5 shrink-0">
+          {paymentBadge}
+          <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-lg border shadow-sm transition-colors group-hover:border-[var(--orange)]"
+                style={{ background: 'var(--orange-soft)', color: 'var(--orange)', borderColor: 'var(--border)' }}>
+            {getOrderTypeIcon(order.type)} {getOrderTypeLabel(order.type)}
+          </span>
+        </div>
       </div>
+
+      {/* Alerta de pago pendiente de verificación */}
+      {isPendingVerification && (
+        <div className="flex items-center gap-1.5 text-[9px] font-black px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 animate-pulse">
+          <AlertCircle className="w-3 h-3 shrink-0" />
+          Comprobante digital por verificar
+        </div>
+      )}
 
       {/* Sub-estado de entrega en tiempo real (solo en columna shipping) */}
       {order.status === 'shipping' && subLabel && (
@@ -241,6 +314,53 @@ export default function PedidosPage() {
   const [newItems, setNewItems] = useState<{ product: Product; quantity: number }[]>([]);
   const [newProductSearch, setNewProductSearch] = useState('');
   const [editProductSearch, setEditProductSearch] = useState('');
+
+  // Multi-selección para actualización masiva en Kanban
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+
+  const toggleSelectOrder = (id: string) => {
+    setSelectedOrderIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedOrderIds(new Set());
+  };
+
+  const handleBatchStatusUpdate = async (newStatus: OrderStatus) => {
+    if (selectedOrderIds.size === 0) return;
+    const ids = Array.from(selectedOrderIds);
+    try {
+      await Promise.all(ids.map(id => updateOrderStatus(id, newStatus)));
+      clearSelection();
+    } catch (err) {
+      console.error('Error en cambio masivo de estado:', err);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedOrderIds.size === 0) return;
+    const ok = await showConfirm({
+      title: `¿Eliminar ${selectedOrderIds.size} pedidos seleccionados?`,
+      message: 'Esta acción no se puede deshacer y retirará estos pedidos de la jornada.',
+      confirmText: 'Sí, Eliminar',
+      cancelText: 'Cancelar',
+      isDanger: true,
+    });
+    if (ok) {
+      const ids = Array.from(selectedOrderIds);
+      try {
+        await Promise.all(ids.map(id => deleteOrder(id)));
+        clearSelection();
+      } catch (err) {
+        console.error('Error en eliminación masiva:', err);
+      }
+    }
+  };
 
   // Órdenes filtradas por tipo, categoría y búsqueda (aplica a Kanban y Lista)
   const baseFilteredOrders = orders.filter(o => {
@@ -518,7 +638,7 @@ export default function PedidosPage() {
                   <Droppable droppableId={status}>
                     {(provided, snapshot) => (
                       <div ref={provided.innerRef} {...provided.droppableProps}
-                           className="flex-1 space-y-4 min-h-[200px] p-3 rounded-3xl transition-all duration-300 border backdrop-blur-md"
+                           className="flex-1 space-y-3 min-h-[200px] max-h-[calc(100dvh-260px)] overflow-y-auto pr-1.5 scrollbar-thin p-3 rounded-3xl transition-all duration-300 border backdrop-blur-md"
                            style={{
                              background: snapshot.isDraggingOver ? 'var(--orange-soft)' : 'var(--bg-input)',
                              borderColor: snapshot.isDraggingOver ? 'var(--orange)' : 'var(--border)',
@@ -544,6 +664,8 @@ export default function PedidosPage() {
                                   order={order}
                                   deliveryStatus={deliveryMap.get(order.id)?.status}
                                   riderName={deliveryMap.get(order.id)?.riderName}
+                                  isSelected={selectedOrderIds.has(order.id)}
+                                  onToggleSelect={() => toggleSelectOrder(order.id)}
                                   onOpenModal={() => handleOpenEdit(order)}
                                   onPrint={() => setPrintingOrder(order)}
                                 />
@@ -619,6 +741,67 @@ export default function PedidosPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Floating Batch Action Bar */}
+      {selectedOrderIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[90] bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--orange)] shadow-2xl rounded-2xl px-5 py-3.5 flex items-center gap-3 animate-fade-in-up max-w-[95vw] overflow-x-auto">
+          <div className="flex items-center gap-2 pr-3 border-r border-[var(--border)] shrink-0">
+            <span className="w-6 h-6 rounded-full text-white text-xs font-black flex items-center justify-center shadow-sm" style={{ background: 'var(--orange)' }}>
+              {selectedOrderIds.size}
+            </span>
+            <span className="text-xs font-bold text-[var(--text-primary)] whitespace-nowrap">
+              {selectedOrderIds.size === 1 ? 'Pedido seleccionado' : 'Pedidos seleccionados'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-nowrap shrink-0">
+            <button
+              onClick={() => handleBatchStatusUpdate('confirmed')}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-blue-500/15 text-blue-600 dark:text-blue-400 hover:bg-blue-500/25 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              ✓ Confirmar
+            </button>
+            <button
+              onClick={() => handleBatchStatusUpdate('preparing')}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-purple-500/15 text-purple-600 dark:text-purple-400 hover:bg-purple-500/25 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              🍳 A Cocina
+            </button>
+            <button
+              onClick={() => handleBatchStatusUpdate('ready')}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              🔔 Listo
+            </button>
+            <button
+              onClick={() => handleBatchStatusUpdate('shipping')}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/25 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              🛵 En Reparto
+            </button>
+            <button
+              onClick={() => handleBatchStatusUpdate('delivered')}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-green-500/15 text-green-600 dark:text-green-400 hover:bg-green-500/25 transition-colors cursor-pointer whitespace-nowrap"
+            >
+              🎉 Entregado
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              className="px-3 py-1.5 rounded-xl text-[11px] font-black bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25 transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap"
+            >
+              <Trash2 className="w-3 h-3" /> Eliminar
+            </button>
+          </div>
+
+          <button
+            onClick={clearSelection}
+            className="p-1.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-input)] transition-colors cursor-pointer ml-1 shrink-0"
+            title="Deseleccionar todos"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

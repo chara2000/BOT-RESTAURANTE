@@ -482,27 +482,16 @@ function buildUserMessage(
 
   switch (status) {
     case 'AI_VERIFIED':
-      return [
-        `✅ *¡Comprobante verificado automáticamente!*`,
-        ``,
-        `📊 Confianza: ${score}/100`,
-        extracted?.transaction_id ? `🔖 Referencia: \`${extracted.transaction_id}\`` : '',
-        ``,
-        `Tu pedido ha sido registrado y está siendo preparado.`,
-        `En unos momentos recibirás la confirmación del encargado.`,
-      ].filter(Boolean).join('\n');
-
     case 'MANUAL_REVIEW':
       return [
-        `📋 *Comprobante recibido — En revisión*`,
+        `📸 *¡Comprobante recibido con éxito!*`,
         ``,
-        `Tu comprobante fue enviado al encargado para su validación.`,
-        `Recibirás una confirmación en cuanto lo revisen.`,
+        extracted?.transaction_id ? `🔖 Referencia detectada: \`${extracted.transaction_id}\`` : '',
+        `📋 Tu comprobante ha sido enviado al restaurante para su validación.`,
+        `🍳 En cuanto el encargado apruebe el pago, tu pedido pasará a cocina inmediatamente.`,
         ``,
-        `⏱️ Tiempo estimado de revisión: *5-10 minutos*`,
-        ``,
-        `📍 Tu pedido queda registrado mientras tanto.`,
-      ].join('\n');
+        `⏳ *Estado:* Pendiente de confirmación.`,
+      ].filter(Boolean).join('\n');
 
     case 'REJECTED':
       return [

@@ -419,19 +419,21 @@ export default function RepartidoresPage() {
 
       {/* MODAL EDIT / CREATE */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <form onSubmit={handleSubmit} className="card p-6 max-w-lg w-full animate-fade-in-up space-y-4 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
-              <h3 className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+          <form onSubmit={handleSubmit} className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-base font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                 <Bike className="w-5 h-5 text-[var(--orange)]" />
                 {editingRider ? `Editar Repartidor: ${editingRider.name}` : 'Nuevo Repartidor'}
               </h3>
-              <button type="button" onClick={() => setShowModal(false)} className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-[var(--bg-input)] transition-all cursor-pointer" style={{ color: 'var(--text-muted)' }}>
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => setShowModal(false)} className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] transition-all cursor-pointer text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               <div>
                 <label className={labelCls} style={labelStyle}>Nombre Completo *</label>
                 <input type="text" value={formData.name} required onChange={(e) => setFormData({ ...formData, name: e.target.value })} className={inputCls} style={inputStyle} placeholder="ej. Pedro Infante" />
@@ -468,11 +470,12 @@ export default function RepartidoresPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
-              <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2.5 rounded-xl text-xs font-bold border cursor-pointer hover:bg-[var(--bg-input)] transition-all" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-xl text-xs font-bold border cursor-pointer hover:bg-[var(--bg-input)] transition-all" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
                 Cancelar
               </button>
-              <button type="submit" disabled={submitLoading} className="px-6 py-2.5 rounded-xl text-xs font-black text-white shadow-md flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-95 transition-all" style={{ background: 'var(--orange)' }}>
+              <button type="submit" disabled={submitLoading} className="px-6 py-2.5 rounded-xl text-xs font-black text-white shadow-md flex items-center gap-2 cursor-pointer hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50" style={{ background: 'var(--orange)' }}>
                 {submitLoading && <CheckCircle2 className="w-3.5 h-3.5 animate-spin" />}
                 {editingRider ? 'Guardar Cambios' : 'Crear Repartidor'}
               </button>

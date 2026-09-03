@@ -157,13 +157,15 @@ function formatWhatsAppResponse(
 
     const actionButtons = flatButtons.filter(b => !itemButtons.includes(b));
 
+    lastChatButtons.set(chatIdStr, itemButtons);
+
     const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
     const listLines = itemButtons.map((b, idx) => {
       const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
       return `${emoji} ${b.text}`;
     });
 
-    formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde enviando solo el número (1 - ${itemButtons.length})._`;
+    formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde con el número de tu opción (ej: 1 o varios: 1, 2)._`;
 
     // Action buttons (Ver todo el menú, Ver Carrito, Omitir, Cancelar, Volver) are shown as WhatsApp quick buttons
     if (actionButtons.length > 0) {
@@ -270,17 +272,52 @@ export async function POST(
   if (msgType === 'text') {
     text = message.text?.body || '';
     const trimmed = text.trim();
-    const num = parseInt(trimmed, 10);
     const cachedBtns = lastChatButtons.get(chatIdStr);
 
-    // Number shortcut: user typed "1", "2", "3", etc. corresponding to active options
-    if (!isNaN(num) && cachedBtns && num >= 1 && num <= cachedBtns.length && /^\d+$/.test(trimmed)) {
-      const btn = cachedBtns[num - 1];
-      if (btn?.callback_data) {
+    // Parse tokens like "1", "1, 2", "1 y 3", "2 4"
+    const numTokens = trimmed.split(/[\s,yY+]+/).filter(Boolean);
+    const nums = numTokens.map(t => parseInt(t, 10)).filter(n => !isNaN(n));
+
+    // Number shortcut: user typed single or multiple numbers
+    if (nums.length > 0 && cachedBtns && nums.every(n => n >= 1 && n <= cachedBtns.length)) {
+      if (nums.length === 1) {
+        const btn = cachedBtns[nums[0] - 1];
+        if (btn?.callback_data) {
+          try {
+            const response = await processCallback(chatId, btn.callback_data, username, tenantId);
+            if (response.text) {
+              const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
+              await sendWhatsAppMessage({
+                from: senderFrom,
+                to: recipientTo,
+                text: formatted.text,
+                buttons: formatted.buttons,
+                apiKey: creds.apiKey,
+              });
+            }
+            return NextResponse.json({ ok: true });
+          } catch (err) {
+            console.error('[bot/whatsapp] number shortcut callback error:', (err as Error).message);
+          }
+        }
+      } else {
+        // Multi-select dishes (e.g. "1, 2" or "1 y 3")
         try {
-          const response = await processCallback(chatId, btn.callback_data, username, tenantId);
-          if (response.text) {
-            const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
+          const addedNames: string[] = [];
+          for (const n of nums) {
+            const btn = cachedBtns[n - 1];
+            if (btn && btn.callback_data.startsWith('product:')) {
+              const prodId = btn.callback_data.replace('product:', '');
+              await processCallback(chatId, btn.callback_data, username, tenantId);
+              await processCallback(chatId, `qty:1:${prodId}`, username, tenantId);
+              await processCallback(chatId, `skip_note:1:${prodId}`, username, tenantId);
+              addedNames.push(btn.text);
+            }
+          }
+          if (addedNames.length > 0) {
+            const cartRes = await processCallback(chatId, 'cart', username, tenantId);
+            const multiMsg = `✅ *¡${addedNames.length} productos agregados al carrito!*\n${addedNames.map(i => `• 1x ${i}`).join('\n')}\n\n${cartRes.text}`;
+            const formatted = formatWhatsAppResponse(chatIdStr, multiMsg, cartRes.reply_markup);
             await sendWhatsAppMessage({
               from: senderFrom,
               to: recipientTo,
@@ -288,10 +325,10 @@ export async function POST(
               buttons: formatted.buttons,
               apiKey: creds.apiKey,
             });
+            return NextResponse.json({ ok: true });
           }
-          return NextResponse.json({ ok: true });
-        } catch (err) {
-          console.error('[bot/whatsapp] number shortcut callback error:', (err as Error).message);
+        } catch (multiErr) {
+          console.error('[bot/whatsapp] multi-select error:', (multiErr as Error).message);
         }
       }
     }
@@ -329,8 +366,38 @@ export async function POST(
     }
   } else if (msgType === 'image') {
     isPhoto = true;
-    photoId = message.image?.id || message.image?.link || message.image?.url;
+    const mediaId = message.image?.id;
+    const mediaLink = message.image?.link || message.image?.url;
     text = message.image?.caption || '';
+
+    // If YCloud provided a media ID, fetch binary and upload to Supabase Storage receipts bucket
+    if (mediaId && creds.apiKey) {
+      try {
+        const ycloudRes = await fetch(`https://api.ycloud.com/v2/whatsapp/media/${mediaId}`, {
+          headers: { 'X-API-Key': creds.apiKey },
+        });
+        if (ycloudRes.ok) {
+          const arrayBuffer = await ycloudRes.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          const fileName = `whatsapp_${chatId}_${Date.now()}.jpg`;
+          const { error: upErr } = await supabase.storage.from('receipts').upload(fileName, buffer, {
+            contentType: 'image/jpeg',
+            upsert: true,
+          });
+          if (!upErr) {
+            photoId = supabase.storage.from('receipts').getPublicUrl(fileName).data.publicUrl;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to upload YCloud media to Supabase:', e);
+      }
+    }
+    if (!photoId && mediaLink) {
+      photoId = mediaLink;
+    }
+    if (!photoId && mediaId) {
+      photoId = mediaId;
+    }
   }
 
   if (!text && !isPhoto && !location) return NextResponse.json({ ok: true });

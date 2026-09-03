@@ -73,6 +73,7 @@ export async function PATCH(request: Request) {
   const actualCash = Number(body.actual_cash ?? 0);
   const expected = Number(body.expected ?? actualCash);
 
+  // 1. Cerrar la sesión de caja
   const { data, error } = await supabase
     .from('cash_registers')
     .update({
@@ -88,5 +89,62 @@ export async function PATCH(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json(data);
+
+  let archivedOrdersCount = 0;
+  let purgedOrdersCount = 0;
+
+  try {
+    // 2. Cierre de Venta / Jornada: Finalizar todos los pedidos y domicilios activos
+    // Para que la siguiente apertura inicie en CERO pedidos pendientes
+    const { data: activeOrders } = await supabase
+      .from('orders')
+      .select('id, notes')
+      .eq('tenant_id', tenantId)
+      .in('status', ['pending', 'confirmed', 'preparing', 'ready', 'shipping']);
+
+    if (activeOrders && activeOrders.length > 0) {
+      archivedOrdersCount = activeOrders.length;
+      const activeIds = activeOrders.map((o) => o.id);
+
+      // Actualizar pedidos activos a entregados / archivados
+      await supabase
+        .from('orders')
+        .update({
+          status: 'delivered',
+        })
+        .in('id', activeIds);
+
+      // Actualizar domicilios activos asociados a entregados
+      await supabase
+        .from('delivery_details')
+        .update({ status: 'delivered', updated_at: new Date().toISOString() })
+        .in('order_id', activeIds);
+    }
+
+    // 3. Regla de retención contable de 3 meses (90 días):
+    // Eliminar pedidos con más de 90 días de antigüedad
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: oldOrders } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .lt('created_at', ninetyDaysAgo);
+
+    if (oldOrders && oldOrders.length > 0) {
+      purgedOrdersCount = oldOrders.length;
+      const oldIds = oldOrders.map((o) => o.id);
+      await supabase.from('order_items').delete().in('order_id', oldIds);
+      await supabase.from('delivery_details').delete().in('order_id', oldIds);
+      await supabase.from('orders').delete().in('id', oldIds);
+      console.log(`[CierreVenta] Purga de retención (3 meses): ${purgedOrdersCount} pedidos eliminados para ${tenantId}`);
+    }
+  } catch (archiveErr) {
+    console.warn('[CierreVenta] Error al archivar/purgar pedidos durante cierre:', archiveErr);
+  }
+
+  return NextResponse.json({
+    ...data,
+    archived_orders_count: archivedOrdersCount,
+    purged_orders_count: purgedOrdersCount,
+  });
 }

@@ -24,6 +24,51 @@ export function ImageInputPicker({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const compressImage = (file: File, maxWidth = 1200, quality = 0.8): Promise<{ blob: Blob; base64: string }> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve({ blob: file, base64: event.target?.result as string });
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const mimeType = 'image/jpeg';
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const base64 = canvas.toDataURL(mimeType, quality);
+                resolve({ blob, base64 });
+              } else {
+                resolve({ blob: file, base64: event.target?.result as string });
+              }
+            },
+            mimeType,
+            quality
+          );
+        };
+        img.onerror = () => resolve({ blob: file, base64: event.target?.result as string });
+      };
+      reader.onerror = () => resolve({ blob: file, base64: '' });
+    });
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -31,21 +76,17 @@ export function ImageInputPicker({
     setUploadError(null);
     setIsUploading(true);
 
-    const convertToBase64 = (f: File): Promise<string> => {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(f);
-      });
-    };
-
     try {
+      // Comprimir imagen para optimizar carga y peso en base de datos
+      const { blob: compressedBlob, base64: compressedBase64 } = await compressImage(file);
       let uploadedUrl: string | null = null;
 
       try {
         const formData = new FormData();
-        formData.append('file', file);
+        const compressedFile = new File([compressedBlob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+          type: 'image/jpeg',
+        });
+        formData.append('file', compressedFile);
         formData.append('bucket', bucket);
 
         const res = await fetch('/api/storage/upload', {
@@ -61,9 +102,9 @@ export function ImageInputPicker({
         // Fallback local
       }
 
-      // Si falla la API, usar Base64 localmente
+      // Si falla la API de storage, usar la versión comprimida en Base64
       if (!uploadedUrl) {
-        uploadedUrl = await convertToBase64(file);
+        uploadedUrl = compressedBase64;
       }
 
       if (uploadedUrl) {

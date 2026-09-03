@@ -16,8 +16,10 @@ export type BotState =
   | 'idle'
   | 'selecting_quantity'
   | 'selecting_item_note'
-  | 'checkout_cash_amount'
+  | 'checkout_delivery_mode'
   | 'checkout_address'
+  | 'checkout_home_address'
+  | 'checkout_cash_amount'
   | 'tracking_order'
   | 'awaiting_cancel_confirm'
   | 'contacting_manager'
@@ -37,6 +39,9 @@ export interface BotSession {
   paymentReceiptId?: string;
   pendingCancelOrderId?: string; // ID del pedido pendiente de cancelar
   location?: { latitude: number; longitude: number };
+  deliveryMode?: 'delivery' | 'pickup';
+  deliveryAddress?: string;
+  pendingReverseAddress?: string;
   pendingRatingOrderId?: string; // ID del pedido que el cliente va a calificar
   pendingRiderName?: string;     // Nombre del repartidor que va a calificar
   lastActivityTimestamp?: number; // Marca de tiempo de la última interacción
@@ -450,7 +455,7 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
       reply_markup: { inline_keyboard: buttons },
     };
   } else {
-    let query = supabase.from('products').select('id, name, price, image_url').eq('is_available', true).eq('tenant_id', tenantId);
+    let query = supabase.from('products').select('id, name, price, image_url').eq('is_available', true).eq('tenant_id', tenantId).order('created_at', { ascending: true });
     if (categoryId !== 'all') {
       query = query.eq('category_id', categoryId);
     }
@@ -541,6 +546,9 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
       p = data as Product;
     }
   }
+  if (!session.pendingItem && p) {
+    session.pendingItem = { product: p, quantity: qty };
+  }
   const productName = p?.name || 'este platillo';
 
   // Dish-level additions
@@ -564,7 +572,7 @@ async function showAdditionsScreen(session: BotSession, qty: number, productId: 
     const a = additionsList[i];
     buttons.push([{
       text: `${a.name} (+$${a.price.toLocaleString('es-CO')})`,
-      callback_data: `add_ad:${a.id || a.name}:${qty}:${productId}`,
+      callback_data: `add_ad:${i}:${qty}`,
     }]);
   }
 
@@ -629,18 +637,53 @@ function cartScreen(session: BotSession): BotResponse {
   }
 
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = 5000;
-  const finalTotal = subtotal + deliveryFee;
-  
   const buttons = [
-    [{ text: '💳 Proceder al Pago', callback_data: 'pay' }],
+    [{ text: '💳 Proceder al Pago', callback_data: 'choose_mode' }],
     [{ text: '🍽️ Seguir Pidiendo', callback_data: 'menu' }],
     [{ text: '🗑️ Vaciar Carrito', callback_data: 'clear_cart' }],
   ];
 
   return {
-    text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n📦 *Productos:* $${subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio estimado:* $${deliveryFee.toLocaleString('es-CO')}\n💰 *TOTAL FINAL: $${finalTotal.toLocaleString('es-CO')}*`,
+    text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n📦 *Subtotal:* $${subtotal.toLocaleString('es-CO')}\n\n_👉 Toca "Proceder al Pago" para elegir si deseas Domicilio o Recoger en local._`,
     reply_markup: { inline_keyboard: buttons },
+  };
+}
+
+async function deliveryModeScreen(session: BotSession, tenantId: string): Promise<BotResponse> {
+  if (session.cart.length === 0) return cartScreen(session);
+  session.state = 'checkout_delivery_mode';
+  const settings = await getTenantSettings(tenantId);
+  const subtotal = cartTotal(session.cart);
+  const deliveryFee = settings.delivery_fee ?? 5000;
+
+  return {
+    text: `🛵 *¿Cómo deseas recibir tu pedido?*\n\nSubtotal: *$${subtotal.toLocaleString('es-CO')}*\n\n1️⃣ *🛵 A Domicilio* (+ $${deliveryFee.toLocaleString('es-CO')})\n2️⃣ *🏪 Recoger en Punto Físico* (Sin costo de envío)`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🛵 A Domicilio', callback_data: 'mode_delivery' }],
+        [{ text: '🏪 Recoger en Punto Físico', callback_data: 'mode_pickup' }],
+        [{ text: '🛒 Volver al Carrito', callback_data: 'cart' }],
+      ],
+    },
+  };
+}
+
+function promptDeliveryAddressScreen(session: BotSession): BotResponse {
+  session.state = 'checkout_address';
+  return {
+    text: `📍 *Entrega a Domicilio*\n\nPara que tu pedido llegue con total exactitud:\n\n🗺️ Por favor comparte tu *ubicación GPS* tocando el botón abajo, o escribe tu dirección:`,
+    reply_markup: {
+      keyboard: [
+        [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
+        [{ text: '🏪 Prefiero recoger en el local' }],
+      ],
+      inline_keyboard: [
+        [{ text: '🏪 Cambiar a recoger en el local', callback_data: 'mode_pickup' }],
+        [{ text: '🛒 Volver al carrito', callback_data: 'cart' }],
+      ],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    },
   };
 }
 
@@ -648,17 +691,22 @@ async function paymentOptionsScreen(session: BotSession, tenantId: string): Prom
   if (session.cart.length === 0) return cartScreen(session);
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = settings.delivery_fee ?? 5000;
+  const isPickup = session.deliveryMode === 'pickup';
+  const deliveryFee = isPickup ? 0 : (settings.delivery_fee ?? 5000);
   const finalTotal = subtotal + deliveryFee;
 
+  const modeText = isPickup
+    ? '🏪 *Modalidad:* Para recoger en el local ($0 costo de envío)'
+    : `🛵 *Modalidad:* Domicilio ($${deliveryFee.toLocaleString('es-CO')})\n📍 *Destino:* ${session.deliveryAddress || 'Dirección registrada'}`;
+
   return {
-    text: `🛒 *Resumen del Pedido*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*\n💰 *Total Final: $${finalTotal.toLocaleString('es-CO')}*\n\n¿Confirmas tu pedido por *$${finalTotal.toLocaleString('es-CO')}*?\n\nSelecciona tu método de pago:`,
+    text: `🛒 *Resumen del Pedido*\n\n📦 Subtotal: *$${subtotal.toLocaleString('es-CO')}*\n${modeText}\n💰 *Total Final: $${finalTotal.toLocaleString('es-CO')}*\n\nSelecciona tu método de pago:`,
     reply_markup: {
       inline_keyboard: [
         [{ text: '💵 Efectivo', callback_data: 'pay_cash' }],
         [{ text: '📱 Nequi / Daviplata / Bancolombia', callback_data: 'pay_digital' }],
         [{ text: '💳 Pago Contra Entrega', callback_data: 'pay_ondelivery' }],
-        [{ text: '↩️ Volver al carrito', callback_data: 'cart' }],
+        [{ text: '↩️ Volver', callback_data: 'choose_mode' }],
       ],
     },
   };
@@ -668,13 +716,14 @@ async function cashAmountScreen(session: BotSession, tenantId: string): Promise<
   session.state = 'checkout_cash_amount';
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = settings.delivery_fee ?? 5000;
+  const isPickup = session.deliveryMode === 'pickup';
+  const deliveryFee = isPickup ? 0 : (settings.delivery_fee ?? 5000);
   const finalTotal = subtotal + deliveryFee;
 
   return {
-    text: `💵 *Pago en Efectivo*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*\n💰 *Total a Pagar: $${finalTotal.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar\n_(ej: 50000 o 100000)_`,
+    text: `💵 *Pago en Efectivo*\n\n📦 Subtotal: *$${subtotal.toLocaleString('es-CO')}*\n${isPickup ? '🏪 Modalidad: Recoger en local' : `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*`}\n💰 *Total a Pagar: $${finalTotal.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar para alistar tu cambio\n_(ej: 50000 o 100000)_`,
     reply_markup: {
-      inline_keyboard: [[{ text: '↩️ Cancelar y volver al menú', callback_data: 'menu' }]],
+      inline_keyboard: [[{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }]],
     },
   };
 }
@@ -682,8 +731,8 @@ async function cashAmountScreen(session: BotSession, tenantId: string): Promise<
 async function handleCashAmount(session: BotSession, text: string, tenantId: string): Promise<BotResponse> {
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  // Usar integer para evitar errores de punto flotante
-  const deliveryFee = Math.round(settings.delivery_fee ?? 5000);
+  const isPickup = session.deliveryMode === 'pickup';
+  const deliveryFee = isPickup ? 0 : Math.round(settings.delivery_fee ?? 5000);
   const finalTotal = Math.round(subtotal) + deliveryFee;
 
   // Usar InputValidator.validateAmount (aritmética de enteros COP)
@@ -695,25 +744,13 @@ async function handleCashAmount(session: BotSession, text: string, tenantId: str
     };
   }
 
-  // Aritmética de enteros — sin floats
   session.changeAmount = amountResult.value.change;
   session.paymentMethod = 'cash';
   session.paymentStatus = 'pending';
-  session.state = 'checkout_address';
 
-  return {
-    text: `✅ ¡Listo! Le devolveremos *$${session.changeAmount.toLocaleString('es-CO')}* de cambio.\n\n📍 ¿A dónde enviamos tu pedido?\n\n🗺️ Puedes escribir tu dirección *O* compartir tu ubicación GPS para mayor precisión:`,
-    reply_markup: {
-      keyboard: [
-        [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-        [{ text: '🏪 Voy a recoger en el local' }],
-      ],
-      one_time_keyboard: true,
-      resize_keyboard: true,
-    },
-  };
+  const defaultAddr = isPickup ? 'Para Recoger en el local' : (session.deliveryAddress || 'Ubicación registrada');
+  return confirmOrderScreen(session, defaultAddr, tenantId);
 }
-
 
 async function digitalPaymentScreen(session: BotSession, tenantId: string): Promise<BotResponse> {
   session.paymentMethod = 'transfer';
@@ -721,21 +758,24 @@ async function digitalPaymentScreen(session: BotSession, tenantId: string): Prom
   session.state = 'awaiting_payment_receipt';
 
   const settings = await getTenantSettings(tenantId);
+  const isPickup = session.deliveryMode === 'pickup';
+  const deliveryFee = isPickup ? 0 : (settings.delivery_fee ?? 5000);
+  const finalTotal = cartTotal(session.cart) + deliveryFee;
+
   const nequi = settings.nequi_number || '300 123 4567';
   const bancoNum = settings.bancolombia_number || '123-456789-00';
   const bancoType = settings.bancolombia_type || 'Ahorros';
 
   return {
-    text: `📱 *Pago Digital*\n\n🏦 *Nequi / Daviplata:* ${nequi}\n💳 *Bancolombia (${bancoType}):* ${bancoNum}\n\n📸 Realiza la transferencia y **envíame una foto del comprobante** por aquí mismo para continuar.\n\n_(O toca el botón para cancelar)_`,
+    text: `📱 *Pago Digital*\n\n💰 *Total a Transferir: $${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 Realiza la transferencia y **envíame una foto del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca el botón para cancelar)_`,
     reply_markup: {
       inline_keyboard: [
-        [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
+        [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
+        [{ text: '❌ Cancelar pedido', callback_data: 'menu' }]
       ],
     },
   };
 }
-
-
 
 async function handlePaymentReceipt(
   session: BotSession,
@@ -745,7 +785,7 @@ async function handlePaymentReceipt(
 ): Promise<BotResponse> {
   if (!isPhoto || !photoId) {
     return {
-      text: '⚠️ *No detectamos una imagen.*\n\nPor favor, envía una *foto o captura de pantalla* del comprobante de pago aprobado para continuar.',
+      text: '⚠️ *No detectamos una imagen.*\n\nPor favor, envía una *foto o captura de pantalla* del comprobante de pago para continuar.',
       reply_markup: {
         inline_keyboard: [
           [{ text: '📱 Intentar de nuevo', callback_data: 'pay_digital' }],
@@ -758,7 +798,8 @@ async function handlePaymentReceipt(
   // Obtener total esperado para validación del comprobante
   const settings = await getTenantSettings(tenantId);
   const subtotal = Math.round(cartTotal(session.cart));
-  const deliveryFee = Math.round(settings.delivery_fee ?? 5000);
+  const isPickup = session.deliveryMode === 'pickup';
+  const deliveryFee = isPickup ? 0 : Math.round(settings.delivery_fee ?? 5000);
   const expectedTotal = subtotal + deliveryFee;
 
   // Validar comprobante con PaymentProofValidator
@@ -773,7 +814,6 @@ async function handlePaymentReceipt(
     });
   } catch (err) {
     console.error('[handlePaymentReceipt] PaymentProofValidator error:', (err as Error).message);
-    // Fallback seguro: ir a revisión manual
     proofResult = null;
   }
 
@@ -793,46 +833,19 @@ async function handlePaymentReceipt(
 
   // Guardar datos del comprobante en la sesión
   session.paymentReceiptId = photoId;
-  // Guardar estado de verificación para el pedido
   (session as any).proofStatus = proofResult?.status ?? 'MANUAL_REVIEW';
   (session as any).proofScore = proofResult?.score ?? 50;
-  session.state = 'checkout_address';
 
-  const statusMsg = proofResult?.user_message ?? [
-    `✅ *¡Comprobante recibido!*`,
-    ``,
-    `📋 Ha sido enviado al encargado para su validación.`,
-  ].join('\n');
-
-  return {
-    text: `${statusMsg}\n\n📍 *¿A dónde enviamos tu pedido?*\n\n🗺️ Escribe tu dirección *O* comparte tu ubicación GPS:`,
-    reply_markup: {
-      keyboard: [
-        [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-        [{ text: '🏪 Voy a recoger en el local' }],
-      ],
-      one_time_keyboard: true,
-      resize_keyboard: true,
-    },
-  };
+  const defaultAddr = isPickup ? 'Para Recoger en el local' : (session.deliveryAddress || 'Ubicación registrada');
+  return confirmOrderScreen(session, defaultAddr, tenantId);
 }
 
-function onDeliveryScreen(session: BotSession): BotResponse {
+function onDeliveryScreen(session: BotSession, tenantId: string): Promise<BotResponse> {
   session.paymentMethod = 'ondelivery';
   session.paymentStatus = 'pending';
-  session.state = 'checkout_address';
-
-  return {
-    text: `💳 *Pago Contra Entrega*\n\nPodrás pagar en efectivo o con datáfono cuando recibas tu pedido.\n\n📍 ¿A dónde enviamos tu pedido?\n\n🗺️ Puedes escribir tu dirección *O* compartir tu ubicación GPS para mayor precisión:`,
-    reply_markup: {
-      keyboard: [
-        [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-        [{ text: '🏪 Voy a recoger en el local' }],
-      ],
-      one_time_keyboard: true,
-      resize_keyboard: true,
-    },
-  };
+  const isPickup = session.deliveryMode === 'pickup';
+  const defaultAddr = isPickup ? 'Para Recoger en el local' : (session.deliveryAddress || 'Ubicación registrada');
+  return confirmOrderScreen(session, defaultAddr, tenantId);
 }
 
 async function getOrCreateCustomer(session: BotSession, tenantId: string): Promise<string> {
@@ -892,9 +905,13 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
 
   // 1. Obtener configuración del tenant (delivery_fee, etc.)
   const tenantSettings = await getTenantSettings(tenantId);
-  const deliveryFee = /recoger|mesa|pickup/i.test(address) ? 0 : tenantSettings.delivery_fee;
-  const orderType: 'delivery' | 'pickup' | 'dine_in' = /recoger|mesa|pickup/i.test(address) ? 'dine_in' : 'delivery';
+  const isPickup = session.deliveryMode === 'pickup' || /recoger|mesa|pickup/i.test(address);
+  const deliveryFee = isPickup ? 0 : (tenantSettings.delivery_fee ?? 5000);
+  const orderType: 'delivery' | 'pickup' | 'dine_in' = isPickup ? 'pickup' : 'delivery';
   const finalTotal = total + deliveryFee;
+  if (isPickup) {
+    notes += ` | [RECOGER EN LOCAL]`;
+  }
 
   // Fetch default branch for this tenant (use first branch or fallback)
   let branchId = 'b0000000-0000-4000-8000-000000000001';
@@ -1007,6 +1024,9 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
   session.changeAmount = undefined;
   session.paymentReceiptId = undefined;
   session.location = undefined;
+  session.deliveryMode = undefined;
+  session.deliveryAddress = undefined;
+  session.pendingReverseAddress = undefined;
 
   const isDelivery = orderType === 'delivery';
 
@@ -1015,17 +1035,17 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
       `🎉 *¡Pedido Confirmado!*`,
       ``,
       `📋 Código: *${shortId}*`,
-      `📍 Dirección: ${address}`,
+      isPickup ? `🏪 Modalidad: *Recoger en punto físico (Local)*` : `📍 Dirección: ${address}`,
       ``,
       `🛒 *Resumen de tu pedido:*`,
       cartSummaryText(cartSnapshot),
       ``,
-      deliveryFee > 0 ? `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*` : `🏪 Recoges en el local (sin cargo de domicilio)`,
+      deliveryFee > 0 ? `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*` : `🏪 Sin costo de domicilio`,
       `💰 *TOTAL: $${finalTotal.toLocaleString('es-CO')}*`,
       ``,
       `⏱️ Tiempo estimado: *${etaText}*`,
       ``,
-      isDelivery ? `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.` : '',
+      isDelivery ? `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.` : `🏪 Te esperamos en nuestro local cuando esté listo.`,
       `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
     ].filter(l => l !== '').join('\n'),
     reply_markup: {
@@ -1359,6 +1379,18 @@ async function handleProcessMessage(
     return handleCashAmount(session, text.trim(), tenantId);
   }
 
+  if (session.state === 'checkout_home_address') {
+    const homeDetails = text.trim();
+    if (/recoger|pickup|voy a recoger/i.test(homeDetails)) {
+      session.deliveryMode = 'pickup';
+      session.deliveryAddress = 'Para Recoger en el local';
+      return paymentOptionsScreen(session, tenantId);
+    }
+    const reverse = session.pendingReverseAddress || '';
+    session.deliveryAddress = reverse ? `${homeDetails} (${reverse})` : homeDetails;
+    return paymentOptionsScreen(session, tenantId);
+  }
+
   if (session.state === 'checkout_address') {
     // 1. Detectar si el usuario envió una ubicación GPS compartida
     if (extra?.location) {
@@ -1375,7 +1407,7 @@ async function handleProcessMessage(
           text: `⚠️ *Fuera de Cobertura*\n\nTu ubicación se encuentra a *${distance.toFixed(1)} km* de nuestro local, lo cual excede nuestro límite de cobertura de *8 km*.\n\n¿Deseas recoger el pedido en nuestro local?`,
           reply_markup: {
             inline_keyboard: [
-              [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
+              [{ text: '🏪 Voy a recoger en el local', callback_data: 'mode_pickup' }],
               [{ text: '↩️ Cancelar pedido', callback_data: 'menu' }]
             ]
           }
@@ -1399,13 +1431,27 @@ async function handleProcessMessage(
       }
 
       session.location = extra.location;
-      return confirmOrderScreen(session, reverseAddress, tenantId);
+      session.pendingReverseAddress = reverseAddress;
+      session.state = 'checkout_home_address';
+
+      return {
+        text: `📍 *Ubicación GPS detectada:*\n_${reverseAddress}_\n\n🏠 *Ahora indícanos los datos exactos de tu casa:*\n_(Ej: Carrera 5 # 12-34, Casa 3, Apto 201, Conjunto Residencial o punto de referencia)_`,
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Usar solo ubicación GPS', callback_data: 'use_gps_only' }],
+            [{ text: '🏪 Prefiero recoger en el local', callback_data: 'mode_pickup' }],
+            [{ text: '↩️ Cancelar', callback_data: 'menu' }],
+          ],
+        },
+      };
     }
 
     let address = text.trim();
     // Detectar botón de teclado de recoger (reply keyboard envía texto, no callback)
     if (/recoger|pickup|voy a recoger/i.test(address)) {
-      address = 'Para Recoger en el local';
+      session.deliveryMode = 'pickup';
+      session.deliveryAddress = 'Para Recoger en el local';
+      return paymentOptionsScreen(session, tenantId);
     }
     // Solo validar cobertura si NO es para recoger
     if (!/recoger|mesa|pickup/i.test(address)) {
@@ -1452,7 +1498,8 @@ async function handleProcessMessage(
         }
       }
     }
-    return confirmOrderScreen(session, address, tenantId);
+    session.deliveryAddress = address;
+    return paymentOptionsScreen(session, tenantId);
   }
 
   // Si la sesión está en 'idle' pero el usuario envía un texto
@@ -1655,11 +1702,29 @@ async function handleProcessCallback(
     session.pendingItem = undefined;
     return cartScreen(session);
   }
-  if (callbackData === 'pay') return paymentOptionsScreen(session, tenantId);
+  if (callbackData === 'choose_mode') return deliveryModeScreen(session, tenantId);
+  if (callbackData === 'mode_delivery') {
+    session.deliveryMode = 'delivery';
+    return promptDeliveryAddressScreen(session);
+  }
+  if (callbackData === 'mode_pickup' || callbackData === 'recoger') {
+    session.deliveryMode = 'pickup';
+    session.deliveryAddress = 'Para Recoger en el local';
+    return paymentOptionsScreen(session, tenantId);
+  }
+  if (callbackData === 'use_gps_only') {
+    session.deliveryAddress = session.pendingReverseAddress || 'Ubicación GPS compartida';
+    return paymentOptionsScreen(session, tenantId);
+  }
+  if (callbackData === 'pay') {
+    if (!session.deliveryMode && !session.deliveryAddress) {
+      return deliveryModeScreen(session, tenantId);
+    }
+    return paymentOptionsScreen(session, tenantId);
+  }
   if (callbackData === 'pay_cash') return cashAmountScreen(session, tenantId);
   if (callbackData === 'pay_digital') return digitalPaymentScreen(session, tenantId);
-  if (callbackData === 'pay_ondelivery') return onDeliveryScreen(session);
-  if (callbackData === 'recoger') return confirmOrderScreen(session, 'Para Recoger en el local', tenantId);
+  if (callbackData === 'pay_ondelivery') return onDeliveryScreen(session, tenantId);
   if (callbackData === 'clear_cart') {
     session.cart = [];
     session.state = 'idle';
@@ -1697,10 +1762,10 @@ async function handleProcessCallback(
 
   if (callbackData.startsWith('add_ad:')) {
     const parts = callbackData.replace('add_ad:', '').split(':');
-    const addId = parts[0];
+    const addIdx = parseInt(parts[0], 10);
     const qty = parseInt(parts[1]) || 1;
     const prodId = parts[2];
-    let p = session.selectedProduct;
+    let p = session.selectedProduct || session.pendingItem?.product;
     if (!p && prodId) {
       const { data } = await supabase.from('products').select('*').like('id', `${prodId}%`).limit(1).maybeSingle();
       if (data) {
@@ -1708,10 +1773,10 @@ async function handleProcessCallback(
         p = data as Product;
       }
     }
-    if (!p && session.pendingItem) {
-      p = session.pendingItem.product;
-    }
-    const addition = (p?.additions || []).find((a: AdditionItem) => a.id === addId || a.name === addId);
+    const additions = (p?.additions || []).filter((a: AdditionItem) => a.is_available !== false);
+    const addition = !isNaN(addIdx) && additions[addIdx]
+      ? additions[addIdx]
+      : (p?.additions || []).find((a: AdditionItem) => a.id === parts[0] || a.name === parts[0]);
     const additionName = addition?.name || 'Adición Extra';
     const additionPrice = addition?.price || 0;
     return addToCartAndConfirm(session, `Con adición: ${additionName}`, qty, p?.id || prodId, additionPrice);

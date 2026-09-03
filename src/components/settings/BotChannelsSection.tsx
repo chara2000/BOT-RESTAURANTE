@@ -40,7 +40,9 @@ export function BotChannelsSection({ tenantId }: { tenantId: string }) {
   async function fetchStatus() {
     setLoading(true);
     try {
-      const res = await fetch('/api/settings/bots');
+      const res = await fetch(`/api/settings/bots${tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''}`, {
+        headers: tenantId ? { 'x-tenant-id': tenantId } : {},
+      });
       if (res.ok) setStatus(await res.json());
     } catch { /* ignore */ }
     setLoading(false);
@@ -54,10 +56,14 @@ export function BotChannelsSection({ tenantId }: { tenantId: string }) {
       const body: Record<string, string> = {};
       if (tgToken) body.telegram_bot_token = tgToken;
       if (tgAdmin) body.telegram_admin_chat_id = tgAdmin;
+      if (tenantId) body.tenant_id = tenantId;
 
       const res = await fetch('/api/settings/bots', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
+        },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -88,10 +94,14 @@ export function BotChannelsSection({ tenantId }: { tenantId: string }) {
       if (waApiKey) body.ycloud_api_key = waApiKey;
       if (waPhone) body.ycloud_phone_number = waPhone;
       if (waSecret) body.ycloud_webhook_secret = waSecret;
+      if (tenantId) body.tenant_id = tenantId;
 
       const res = await fetch('/api/settings/bots', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
+        },
         body: JSON.stringify(body),
       });
       const data = await res.json();

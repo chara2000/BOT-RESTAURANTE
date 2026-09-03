@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { PosSalePanel } from '@/components/pos/PosSalePanel';
 import { StatCard } from '@/components/ui/StatCard';
@@ -9,7 +9,7 @@ import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
 
 export default function CajaPage() {
-  const { cashSession, addCashTransaction, openCashRegister, closeCashRegister } = useAppData();
+  const { cashSession, addCashTransaction, openCashRegister, closeCashRegister, orders } = useAppData();
   const [activeTab, setActiveTab] = useState<'pos' | 'admin'>('pos');
   const [txAmount, setTxAmount] = useState('');
   const [txDesc, setTxDesc] = useState('');
@@ -250,7 +250,8 @@ export default function CajaPage() {
                         e.preventDefault();
                         try {
                           await closeCashRegister(Number(closeCash));
-                          setMessage('Cierre de caja realizado exitosamente.');
+                          setCloseCash('');
+                          setMessage('Cierre de jornada realizado: Caja cerrada, tablero reiniciado a 0 pedidos activos y registros preservados por 3 meses.');
                         } catch (err) {
                           setMessage(err instanceof Error ? err.message : 'Error en cierre de caja.');
                         }
@@ -261,9 +262,27 @@ export default function CajaPage() {
                             <Lock className="h-5 w-5" />
                           </div>
                           <div>
-                            <h3 className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>Cierre de Jornada</h3>
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Bloquear e imprimir arqueo</p>
+                            <h3 className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>Cierre de Venta y Jornada</h3>
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-400">Arqueo, archivo a 0 pedidos y retención 3 meses</p>
                           </div>
+                        </div>
+
+                        {/* Indicador de pedidos del día a archivar */}
+                        <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-xs">
+                          <span className="font-bold text-[var(--text-primary)]">Pedidos activos en tablero:</span>
+                          <span className="font-black px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-500 border border-amber-500/30">
+                            {orders.filter(o => ['pending', 'confirmed', 'preparing', 'ready', 'shipping'].includes(o.status)).length} pedidos
+                          </span>
+                        </div>
+
+                        {/* Banner de retención de 3 meses */}
+                        <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 space-y-1.5 text-[11px] leading-relaxed text-sky-400">
+                          <p className="font-black flex items-center gap-1.5 text-sky-400">
+                            <Shield className="w-3.5 h-3.5" /> Política de Retención Contable (3 Meses)
+                          </p>
+                          <p className="text-[10px] opacity-90 text-[var(--text-muted)]">
+                            Al confirmar el cierre, los pedidos activos se archivan en el Historial y el tablero iniciará mañana en limpio con 0 pedidos y 0 domicilios pendientes. La información se conserva 90 días (3 meses) para auditoría e informes antes de su depuración automática.
+                          </p>
                         </div>
 
                         <div className="space-y-3">
@@ -271,7 +290,7 @@ export default function CajaPage() {
                             className="w-full text-xs font-semibold px-4 py-3 rounded-xl border border-rose-500/30 focus:outline-none focus:ring-2 focus:ring-rose-400 bg-[var(--bg-input)]" style={{ color: 'var(--text-primary)' }} />
                           
                           <button type="submit" className="w-full text-xs font-black py-3.5 rounded-xl text-white bg-rose-500 hover:bg-rose-600 shadow-md transition-all active:scale-95 cursor-pointer">
-                            Procesar Arqueo y Cerrar
+                            Procesar Cierre de Venta y Jornada
                           </button>
                           
                           {cashSession.difference !== undefined && (

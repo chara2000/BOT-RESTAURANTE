@@ -677,15 +677,16 @@ export default function MenuPage() {
 
       {/* Modal de Gestión de Adiciones por Plato */}
       {showAdditionsModal && selectedProductForAdditions && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="card p-6 max-w-lg w-full animate-fade-in-up space-y-5 border shadow-2xl" style={{ borderColor: 'var(--border)' }}>
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl overflow-hidden shrink-0 border" style={{ borderColor: 'var(--border)' }}>
                   <img src={selectedProductForAdditions.image_url} alt="" className="w-full h-full object-cover" />
                 </div>
                 <div>
-                  <h3 className="text-base font-black flex items-center gap-2">
+                  <h3 className="text-base font-black flex items-center gap-2 text-[var(--text-primary)]">
                     <Layers className="w-5 h-5 text-[var(--orange)]" />
                     Adiciones de "{selectedProductForAdditions.name}"
                   </h3>
@@ -696,85 +697,100 @@ export default function MenuPage() {
               </div>
               <button
                 onClick={() => setShowAdditionsModal(false)}
-                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer p-1"
+                className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               >
-                ✕ Cerrar
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Formulario de Nueva Adición para el Plato */}
-            <form onSubmit={handleAddDishAddition} className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-xs font-black text-[var(--text-primary)] flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4 text-[var(--orange)]" /> Nueva Adición para este Plato
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <input
-                  type="text"
-                  placeholder="Nombre (ej: Extra Queso)"
-                  value={newAddName}
-                  onChange={(e) => setNewAddName(e.target.value)}
-                  required
-                  className="sm:col-span-2 text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-                <input
-                  type="number"
-                  placeholder="Precio COP"
-                  value={newAddPrice}
-                  onChange={(e) => setNewAddPrice(e.target.value)}
-                  required
-                  className="text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                  style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={savingAdd}
-                className="w-full text-xs font-black py-2.5 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
-                style={{ background: 'var(--orange)' }}
-              >
-                {savingAdd ? 'Guardando...' : '➕ Agregar Adición a este Plato'}
-              </button>
-            </form>
-
-            {/* Lista de Adiciones del Plato */}
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {dishAdditions.length === 0 ? (
-                <p className="text-xs font-bold text-center text-[var(--text-muted)] py-4">
-                  No hay adiciones configuradas para este plato.<br />¡Agrega la primera usando el formulario superior!
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              {/* Formulario de Nueva Adición para el Plato */}
+              <form onSubmit={handleAddDishAddition} className="p-4 rounded-2xl border space-y-3 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-xs font-black text-[var(--text-primary)] flex items-center gap-1.5">
+                  <PlusCircle className="w-4 h-4 text-[var(--orange)]" /> Nueva Adición para este Plato
                 </p>
-              ) : (
-                dishAdditions.map((addition) => (
-                  <div
-                    key={addition.id}
-                    className="flex items-center justify-between p-3 rounded-xl border bg-[var(--bg-card)] hover:border-[var(--orange)] transition-colors"
-                    style={{ borderColor: 'var(--border)' }}
-                  >
-                    <div className="flex items-center gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nombre (ej: Extra Queso)"
+                    value={newAddName}
+                    onChange={(e) => setNewAddName(e.target.value)}
+                    required
+                    className="sm:col-span-2 text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Precio COP"
+                    value={newAddPrice}
+                    onChange={(e) => setNewAddPrice(e.target.value)}
+                    required
+                    className="text-xs font-semibold px-3 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    style={{ background: 'var(--bg-card)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={savingAdd}
+                  className="w-full text-xs font-black py-2.5 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
+                  style={{ background: 'var(--orange)' }}
+                >
+                  {savingAdd ? 'Guardando...' : '➕ Agregar Adición a este Plato'}
+                </button>
+              </form>
+
+              {/* Lista de Adiciones del Plato */}
+              <div className="space-y-2">
+                {dishAdditions.length === 0 ? (
+                  <p className="text-xs font-bold text-center text-[var(--text-muted)] py-6">
+                    No hay adiciones configuradas para este plato.<br />¡Agrega la primera usando el formulario superior!
+                  </p>
+                ) : (
+                  dishAdditions.map((addition) => (
+                    <div
+                      key={addition.id}
+                      className="flex items-center justify-between p-3 rounded-xl border bg-[var(--bg-card)] hover:border-[var(--orange)] transition-colors"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleDishAddition(addition.id)}
+                          className="text-[var(--orange)] cursor-pointer"
+                          title={addition.is_available ? 'Disponible' : 'No disponible'}
+                        >
+                          {addition.is_available ? <ToggleRight className="w-5 h-5 text-emerald-400" /> : <ToggleLeft className="w-5 h-5 text-rose-400" />}
+                        </button>
+                        <div>
+                          <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{addition.name}</p>
+                          <p className="text-[10px] font-bold text-[var(--orange)]">+{formatCurrency(addition.price)}</p>
+                        </div>
+                      </div>
+
                       <button
                         type="button"
-                        onClick={() => handleToggleDishAddition(addition.id)}
-                        className="text-[var(--orange)] cursor-pointer"
-                        title={addition.is_available ? 'Disponible' : 'No disponible'}
+                        onClick={() => handleDeleteDishAddition(addition.id, addition.name)}
+                        className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
                       >
-                        {addition.is_available ? <ToggleRight className="w-5 h-5 text-emerald-400" /> : <ToggleLeft className="w-5 h-5 text-rose-400" />}
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                      <div>
-                        <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{addition.name}</p>
-                        <p className="text-[10px] font-bold text-[var(--orange)]">+{formatCurrency(addition.price)}</p>
-                      </div>
                     </div>
+                  ))
+                )}
+              </div>
+            </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteDishAddition(addition.id, addition.name)}
-                      className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))
-              )}
+            {/* Footer */}
+            <div className="flex justify-end items-center border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => setShowAdditionsModal(false)}
+                className="px-5 py-2 text-xs font-black rounded-xl border hover:bg-[var(--bg-input)] cursor-pointer transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>
@@ -782,80 +798,91 @@ export default function MenuPage() {
 
       {/* Modal de Categorías */}
       {showCatModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="card p-6 max-w-md w-full animate-fade-in-up space-y-4">
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-sm font-black flex items-center gap-2">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-md rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-black flex items-center gap-2 text-[var(--text-primary)]">
                 <FolderPlus className="w-4 h-4 text-[var(--orange)]" /> Administrar Categorías
               </p>
               <button
                 type="button"
                 onClick={() => { setShowCatModal(false); setEditingCat(null); setNewCatName(''); }}
-                className="text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Formulario de Categoría */}
-            <form onSubmit={handleSaveCat} className="flex gap-2">
-              <input
-                type="text"
-                placeholder={editingCat ? `Renombrar "${editingCat.name}"` : 'Nueva categoría...'}
-                value={newCatName}
-                onChange={(e) => setNewCatName(e.target.value)}
-                required
-                className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
-                style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-              />
-              <button
-                type="submit"
-                disabled={savingCat}
-                className="px-4 py-2.5 rounded-xl text-white text-xs font-black shadow-md hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                style={{ background: 'var(--orange)' }}
-              >
-                {savingCat ? '...' : editingCat ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-              </button>
-              {editingCat && (
-                <button
-                  type="button"
-                  onClick={() => { setEditingCat(null); setNewCatName(''); }}
-                  className="px-3 py-2.5 rounded-xl border text-xs font-bold cursor-pointer"
-                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </form>
-
-            {/* Listado de Categorías */}
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {categories.map((cat) => (
-                <div
-                  key={cat.id}
-                  className="flex items-center justify-between p-3 rounded-xl border"
-                  style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}
-                >
-                  <span className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingCat(cat); setNewCatName(cat.name); }}
-                      className="p-1.5 rounded-lg border hover:bg-[var(--bg-card)] cursor-pointer"
-                      style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteCat(cat)}
-                      className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              {/* Formulario de Categoría */}
+              <form onSubmit={handleSaveCat} className="space-y-3">
+                <label className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-muted)' }}>
+                  {editingCat ? `Editar Categoría "${editingCat.name}"` : 'Nueva Categoría'}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nombre (ej: Hamburguesas, Bebidas)"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    required
+                    className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={savingCat}
+                    className="text-xs font-black px-4 py-2.5 rounded-xl text-white shadow-md transition-transform active:scale-95 cursor-pointer disabled:opacity-50"
+                    style={{ background: 'var(--orange)' }}
+                  >
+                    {savingCat ? '...' : editingCat ? '✓' : '+'}
+                  </button>
                 </div>
-              ))}
+              </form>
+
+              {/* Listado de Categorías */}
+              <div className="space-y-2">
+                {categories.map((cat) => (
+                  <div
+                    key={cat.id}
+                    className="flex items-center justify-between p-3 rounded-xl border"
+                    style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}
+                  >
+                    <span className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>{cat.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => { setEditingCat(cat); setNewCatName(cat.name); }}
+                        className="p-1.5 rounded-lg border hover:bg-[var(--bg-card)] cursor-pointer"
+                        style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCat(cat)}
+                        className="p-1.5 rounded-lg border border-rose-500/20 text-rose-500 hover:bg-rose-500/10 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end items-center border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={() => { setShowCatModal(false); setEditingCat(null); setNewCatName(''); }}
+                className="px-5 py-2 text-xs font-black rounded-xl border hover:bg-[var(--bg-input)] cursor-pointer transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

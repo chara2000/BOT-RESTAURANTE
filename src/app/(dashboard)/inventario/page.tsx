@@ -519,13 +519,13 @@ export default function InventarioPage() {
 
       {/* Modal: Create / Edit Insumo */}
       {modal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md animate-fade-in p-4" onClick={closeModal}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in" onClick={closeModal}>
           <div
-            className="relative w-full max-w-md rounded-3xl border shadow-2xl p-6 space-y-5"
-            style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
+            className="w-full max-w-md rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+            {/* Header */}
+            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <h3 className="text-base font-black text-[var(--text-primary)]">
                   {modal === 'create' ? '+ Nuevo Insumo' : '✎ Editar Insumo'}
@@ -534,12 +534,13 @@ export default function InventarioPage() {
                   {modal === 'create' ? 'Agrega un nuevo ítem al inventario' : `Editando: ${form.name}`}
                 </p>
               </div>
-              <button onClick={closeModal} className="p-2 rounded-xl hover:bg-[var(--bg-input)] transition-colors cursor-pointer" style={{ color: 'var(--text-muted)' }}>
-                <X className="h-4 w-4" />
+              <button onClick={closeModal} className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] transition-colors text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer">
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="space-y-4">
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               <div>
                 <label className="text-[10px] font-black uppercase tracking-widest mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Nombre del Insumo *</label>
                 <input
@@ -556,7 +557,7 @@ export default function InventarioPage() {
                 <select
                   value={form.unit ?? 'unidades'}
                   onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
-                  className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 >
                   {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -589,10 +590,11 @@ export default function InventarioPage() {
               </div>
             </div>
 
-            <div className="flex gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+            {/* Footer */}
+            <div className="flex justify-end items-center gap-3 border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <button
                 onClick={closeModal}
-                className="flex-1 py-3 rounded-xl font-black text-xs border transition-all hover:bg-[var(--bg-input)] cursor-pointer"
+                className="px-5 py-2.5 rounded-xl font-black text-xs border transition-all hover:bg-[var(--bg-input)] cursor-pointer"
                 style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               >
                 Cancelar
@@ -600,7 +602,7 @@ export default function InventarioPage() {
               <button
                 onClick={handleSave}
                 disabled={saving || !form.name}
-                className="flex-1 py-3 rounded-xl font-black text-xs text-white transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 shadow-md cursor-pointer"
+                className="px-6 py-2.5 rounded-xl font-black text-xs text-white transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 shadow-md cursor-pointer"
                 style={{ background: 'var(--orange)' }}
               >
                 {saving ? 'Guardando...' : modal === 'create' ? 'Crear Insumo' : 'Guardar Cambios'}

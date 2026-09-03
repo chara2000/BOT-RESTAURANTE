@@ -39,7 +39,13 @@ export default function PagosPage() {
   const extractReceiptUrl = (notes?: string) => {
     if (!notes) return null;
     const match = notes.match(/\[COMPROBANTE:\s*([^\]]+)\]/i);
-    return match ? match[1].trim() : null;
+    if (!match) return null;
+    const raw = match[1].trim();
+    if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('data:')) {
+      return raw;
+    }
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://fqclycbmwawphkghrvue.supabase.co';
+    return `${supabaseUrl}/storage/v1/object/public/receipts/${raw}`;
   };
 
   const handleUpdatePaymentStatus = async (order: Order, action: 'approve' | 'reject') => {
@@ -432,13 +438,37 @@ export default function PagosPage() {
 
       {/* Modal Receipt Viewer */}
       {selectedReceipt && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in" onClick={() => setSelectedReceipt(null)}>
-          <div className="relative max-w-2xl w-full max-h-[90vh] mx-4 bg-[var(--bg-card)] p-2 rounded-3xl shadow-2xl flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setSelectedReceipt(null)} className="absolute -top-12 right-0 p-2 text-white/70 hover:text-white bg-black/40 hover:bg-black/80 rounded-full transition-all cursor-pointer">
-              <XCircle className="w-8 h-8" />
-            </button>
-            <div className="flex-1 overflow-hidden rounded-2xl bg-black/10 flex items-center justify-center">
-              <img src={selectedReceipt} alt="Comprobante de Pago" className="max-w-full max-h-[85vh] object-contain rounded-2xl" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in" onClick={() => setSelectedReceipt(null)}>
+          <div className="relative max-w-2xl w-full max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] rounded-2xl sm:rounded-3xl shadow-2xl border border-[var(--border-color)] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)] shrink-0 bg-[var(--bg-card)]">
+              <h3 className="text-base font-bold text-[var(--text-primary)] flex items-center gap-2">
+                📸 Comprobante de Pago
+              </h3>
+              <button onClick={() => setSelectedReceipt(null)} className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-all cursor-pointer">
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 bg-black/5 flex items-center justify-center min-h-[300px]">
+              <img 
+                src={selectedReceipt} 
+                alt="Comprobante de Pago" 
+                className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-md"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                  const parent = (e.target as HTMLElement).parentElement;
+                  if (parent) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'text-center p-6 text-sm text-[var(--text-secondary)]';
+                    fallback.innerHTML = '⚠️ No se pudo previsualizar la imagen directamente.<br><a href="' + selectedReceipt + '" target="_blank" rel="noopener noreferrer" class="text-[var(--color-primary)] underline mt-2 inline-block font-semibold">Abrir enlace directo del comprobante</a>';
+                    parent.appendChild(fallback);
+                  }
+                }} 
+              />
+            </div>
+            <div className="px-6 py-3 border-t border-[var(--border-color)] bg-[var(--bg-card)] flex justify-end shrink-0">
+              <button onClick={() => setSelectedReceipt(null)} className="px-4 py-2 text-sm font-semibold rounded-xl bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--border-color)] transition-colors cursor-pointer">
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

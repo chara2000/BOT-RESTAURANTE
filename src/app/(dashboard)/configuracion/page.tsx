@@ -121,8 +121,9 @@ const AVAILABLE_MODULES = [
 ];
 
 export default function ConfiguracionPage() {
-  const { settings, updateSettings, selectedTenantId } = useAppData();
+  const { settings, updateSettings, activeTenantId, selectedTenantId } = useAppData();
   const [saved, setSaved] = useState(false);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [geolocating, setGeolocating] = useState(false);
   const [geoError, setGeoError] = useState('');
   const [mapReady, setMapReady] = useState(false);
@@ -130,9 +131,7 @@ export default function ConfiguracionPage() {
   const [mapLat, setMapLat] = useState(settings.restaurant_lat ?? 4.7110);
   const [mapLng, setMapLng] = useState(settings.restaurant_lng ?? -74.0721);
 
-
   // Team management state now handled inside <TeamManagementSection />
-
 
   useEffect(() => {
     if (settings.restaurant_lat) setMapLat(settings.restaurant_lat);
@@ -152,10 +151,21 @@ export default function ConfiguracionPage() {
     document.head.appendChild(link);
   }, []);
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    setSavingSettings(true);
+    try {
+      await updateSettings({
+        restaurant_lat: mapLat,
+        restaurant_lng: mapLng,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      console.error('Error al guardar configuración:', err);
+    } finally {
+      setSavingSettings(false);
+    }
   };
 
   const DEFAULT_BUSINESS_HOURS = [
@@ -299,7 +309,7 @@ export default function ConfiguracionPage() {
           </div>
 
           {/* Bots & IA */}
-          <BotChannelsSection tenantId={selectedTenantId ?? ''} />
+          <BotChannelsSection tenantId={activeTenantId ?? ''} />
 
           {/* Configuración de Logística y Domicilios */}
           <div className="card p-6 rounded-3xl space-y-5 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>

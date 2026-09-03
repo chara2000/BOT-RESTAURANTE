@@ -148,7 +148,10 @@ function UserModal({
       if (mode === 'create') {
         const res = await fetch('/api/users', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
+          },
           body: JSON.stringify({ name, email, password, role, allowed_modules: modules, tenant_id: tenantId }),
         });
         const data = await res.json();
@@ -156,8 +159,11 @@ function UserModal({
       } else {
         const res = await fetch('/api/users', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user!.id, role, allowed_modules: modules }),
+          headers: { 
+            'Content-Type': 'application/json',
+            ...(tenantId ? { 'x-tenant-id': tenantId } : {}),
+          },
+          body: JSON.stringify({ userId: user!.id, role, allowed_modules: modules, tenant_id: tenantId }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Error actualizando');
@@ -179,7 +185,7 @@ function UserModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
       <div
-        className="w-full max-w-lg rounded-3xl border shadow-2xl flex flex-col max-h-[92vh] animate-fade-in-up overflow-hidden"
+        className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl flex flex-col max-h-[88dvh] sm:max-h-[92vh] animate-fade-in-up overflow-hidden my-auto"
         style={{ background: 'var(--bg-card)', borderColor: 'var(--border)' }}
       >
         {/* Header */}
@@ -438,7 +444,7 @@ function UserCard({
 
 // ── Componente principal del equipo ───────────────────────────────────────
 export function TeamManagementSection() {
-  const { selectedTenantId } = useAppData();
+  const { selectedTenantId, activeTenantId } = useAppData();
   const { user } = useAuth();
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -446,13 +452,15 @@ export function TeamManagementSection() {
   const [editUser, setEditUser] = useState<TeamUser | undefined>(undefined);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const tenantId = selectedTenantId || '';
+  const tenantId = activeTenantId || selectedTenantId || '';
   const isAdminOrSuper = user?.role === 'admin' || user?.role === 'super_admin';
 
   async function fetchTeam() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/users?tenant_id=${tenantId}`);
+      const res = await fetch(`/api/users?tenant_id=${encodeURIComponent(tenantId)}`, {
+        headers: tenantId ? { 'x-tenant-id': tenantId } : {},
+      });
       const data = await res.json();
       setUsers(data.users || []);
     } catch { /* ignore */ }
@@ -464,7 +472,10 @@ export function TeamManagementSection() {
   async function handleDelete(userId: string) {
     if (!confirm('¿Eliminar el acceso de este usuario? Esta acción no se puede deshacer.')) return;
     setDeleting(userId);
-    await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
+    await fetch(`/api/users?id=${userId}&tenant_id=${encodeURIComponent(tenantId)}`, { 
+      method: 'DELETE',
+      headers: tenantId ? { 'x-tenant-id': tenantId } : {},
+    });
     await fetchTeam();
     setDeleting(null);
   }

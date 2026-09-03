@@ -617,7 +617,7 @@ async function addToCartAndConfirm(
     reply_markup: {
       inline_keyboard: [
         [{ text: '➕ Agregar más', callback_data: 'menu' }],
-        [{ text: '🛒 Ver Carrito y Pagar', callback_data: 'cart' }],
+        [{ text: '🛒 Carrito y Pago', callback_data: 'cart' }],
       ],
     },
   };
@@ -719,7 +719,7 @@ async function cashAmountScreen(session: BotSession, tenantId: string): Promise<
   return {
     text: `💵 *Pago en Efectivo*\n\n📦 Subtotal: *$${subtotal.toLocaleString('es-CO')}*\n${isPickup ? '🏪 Modalidad: Recoger en local' : `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*`}\n💰 *Total a Pagar: $${finalTotal.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar para alistar tu cambio\n_(ej: 50000 o 100000)_`,
     reply_markup: {
-      inline_keyboard: [[{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }]],
+      inline_keyboard: [[{ text: '↩️ Cambiar método', callback_data: 'pay' }]],
     },
   };
 }
@@ -766,7 +766,7 @@ async function digitalPaymentScreen(session: BotSession, tenantId: string): Prom
     text: `📱 *Pago Digital*\n\n💰 *Total a Transferir: $${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 Realiza la transferencia y **envíame una foto del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca el botón para cancelar)_`,
     reply_markup: {
       inline_keyboard: [
-        [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
+        [{ text: '↩️ Cambiar pago', callback_data: 'pay' }],
         [{ text: '❌ Cancelar pedido', callback_data: 'menu' }]
       ],
     },
@@ -785,7 +785,7 @@ async function handlePaymentReceipt(
       reply_markup: {
         inline_keyboard: [
           [{ text: '📱 Intentar de nuevo', callback_data: 'pay_digital' }],
-          [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
+          [{ text: '↩️ Cambiar método', callback_data: 'pay' }],
         ],
       },
     };
@@ -821,7 +821,7 @@ async function handlePaymentReceipt(
         inline_keyboard: [
           [{ text: '📸 Enviar otro comprobante', callback_data: 'pay_digital' }],
           [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
-          [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
+          [{ text: '↩️ Cambiar método', callback_data: 'pay' }],
         ],
       },
     };
@@ -1047,7 +1047,7 @@ async function confirmOrderScreen(session: BotSession, address: string, tenantId
     reply_markup: {
       inline_keyboard: [
         [{ text: '📦 Rastrear Pedido', callback_data: `track:${shortId}` }],
-        [{ text: '🍽️ NuevoPedido', callback_data: 'menu' }],
+        [{ text: '🍽️ Nuevo Pedido', callback_data: 'menu' }],
         [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
       ],
     },

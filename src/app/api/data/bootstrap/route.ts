@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 
   const orderIds = (ordersRes.data ?? []).map((o: any) => String(o.id));
 
-  const [categoriesRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes] = await Promise.all([
+  const [categoriesRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes, stockRes, allTenantsRes] = await Promise.all([
     supabase
       .from('categories')
       .select('*')
@@ -98,6 +98,10 @@ export async function GET(request: Request) {
       .select('*, inventory(name, tenant_id)')
       .order('created_at', { ascending: false })
       .limit(50),
+    supabase
+      .from('tenants')
+      .select('id, name, subdomain, plan_type')
+      .order('name'),
   ]);
 
   const errors = [categoriesRes, ordersRes, productsRes, customersRes, inventoryRes, settingsRes, tenantRes, cashRes, deliveryRes]
@@ -268,5 +272,6 @@ export async function GET(request: Request) {
     cashSession,
     deliveries: finalDeliveries,
     stockMovements,
+    allTenants: allTenantsRes?.data ?? [],
   });
 }

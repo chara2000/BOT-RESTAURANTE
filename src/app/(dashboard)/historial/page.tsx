@@ -4,12 +4,12 @@ import { useState } from 'react';
 import {
   Search, Calendar, FileText, ChevronLeft, ChevronRight, LayoutGrid, Table as TableIcon,
   Filter, Download, Eye, CheckCircle2, XCircle, Clock, User, Phone, MapPin, DollarSign, X,
-  ShoppingBag, TrendingUp, CreditCard, Layers
+  ShoppingBag, TrendingUp, CreditCard, Layers, RotateCcw
 } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useOrders } from '@/hooks/useOrders';
 import { formatCurrency, formatTimeAgo } from '@/lib/utils';
-import { ORDER_STATUS_LABELS, type Order, type PaymentMethod, type OrderType } from '@/types';
+import { ORDER_STATUS_LABELS, type Order } from '@/types';
 
 export default function HistorialPage() {
   const { orders } = useOrders();
@@ -25,7 +25,7 @@ export default function HistorialPage() {
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(15);
 
   const PAYMENT_METHOD_LABELS: Record<string, string> = {
     cash: 'Efectivo',
@@ -42,11 +42,12 @@ export default function HistorialPage() {
     takeaway: 'Para Llevar',
   };
 
-  // Base history: delivered and cancelled orders
-  const historyOrders = orders.filter(o => ['delivered', 'cancelled'].includes(o.status));
+  // Base history includes ALL orders so nothing from past or present is hidden
+  const historyOrders = orders;
 
-  // Search & Filters
-  const filteredOrders = historyOrders.filter(o => {
+  // Search & Filters logic
+  const filteredOrders = historyOrders.filter((o) => {
+    // Text search
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       const idMatch = o.id.toLowerCase().includes(q);
@@ -58,6 +59,7 @@ export default function HistorialPage() {
       if (!idMatch && !nameMatch && !phoneMatch && !notesMatch && !addressMatch && !totalMatch) return false;
     }
 
+    // Date range filter
     if (dateFilter !== 'all') {
       const orderDate = new Date(o.created_at);
       const now = new Date();
@@ -81,39 +83,58 @@ export default function HistorialPage() {
       }
     }
 
-    if (statusFilter !== 'all' && o.status !== statusFilter) {
-      return false;
+    // Status filter
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'active') {
+        if (['delivered', 'cancelled'].includes(o.status)) return false;
+      } else if (o.status !== statusFilter) {
+        return false;
+      }
     }
 
+    // Payment method filter
     if (paymentMethodFilter !== 'all' && o.payment_method !== paymentMethodFilter) {
       return false;
     }
 
+    // Order type filter
     if (orderTypeFilter !== 'all' && o.type !== orderTypeFilter) {
       return false;
     }
 
     return true;
-  });
+  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const totalPages = Math.ceil(filteredOrders.length / pageSize) || 1;
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
   const paginatedOrders = filteredOrders.slice(startIndex, startIndex + pageSize);
 
-  // Statistics for symmetry with dashboard
+  // Statistics
   const totalFacturado = filteredOrders
     .filter(o => o.status === 'delivered')
     .reduce((sum, o) => sum + (o.total || 0), 0);
   const deliveredCount = filteredOrders.filter(o => o.status === 'delivered').length;
   const cancelledCount = filteredOrders.filter(o => o.status === 'cancelled').length;
+  const activeCount = filteredOrders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length;
   const avgTicket = deliveredCount > 0 ? Math.round(totalFacturado / deliveredCount) : 0;
 
+  const resetFilters = () => {
+    setSearch('');
+    setDateFilter('all');
+    setDateFrom('');
+    setDateTo('');
+    setStatusFilter('all');
+    setPaymentMethodFilter('all');
+    setOrderTypeFilter('all');
+    setCurrentPage(1);
+  };
+
   const exportCSV = () => {
-    const header = 'ID,Cliente,Telefono,Direccion,Tipo,Metodo Pago,Total,Estado,Fecha\n';
+    const header = 'ID,Fecha,Cliente,Telefono,Direccion,Tipo,Metodo Pago,Total,Estado\n';
     const rows = filteredOrders.map((o) => {
       const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0, 6).toUpperCase()}`;
-      return `"${shortId}","${o.customer?.name ?? 'Anónimo'}","${o.customer?.phone ?? ''}","${o.delivery_address ?? ''}","${ORDER_TYPE_LABELS[o.type] || o.type}","${PAYMENT_METHOD_LABELS[o.payment_method] || o.payment_method}",${o.total},"${ORDER_STATUS_LABELS[o.status]}","${new Date(o.created_at).toLocaleString('es-CO')}"`;
+      return `"${shortId}","${new Date(o.created_at).toLocaleString('es-CO')}","${o.customer?.name ?? 'Anónimo'}","${o.customer?.phone ?? ''}","${o.delivery_address ?? ''}","${ORDER_TYPE_LABELS[o.type] || o.type}","${PAYMENT_METHOD_LABELS[o.payment_method] || o.payment_method}",${o.total},"${ORDER_STATUS_LABELS[o.status] || o.status}"`;
     }).join('\n');
 
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
@@ -126,116 +147,119 @@ export default function HistorialPage() {
   };
 
   return (
-    <div className="relative flex-1 flex flex-col h-full overflow-hidden">
+    <div className="relative flex-1 flex flex-col h-full overflow-hidden bg-[var(--bg-app)]">
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-orange-500 opacity-[0.03] rounded-full blur-[140px] pointer-events-none" />
-      <Topbar title="Historial General" subtitle="Registro inmutable de pedidos entregados y cancelados" />
+      <Topbar title="Historial General" subtitle="Auditoría completa de pedidos anteriores y transacciones" />
 
-      <div className="flex-1 flex flex-col min-h-0 p-5 lg:p-8 space-y-5 z-10 relative overflow-y-auto">
+      {/* Main Content Scrollable Area */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6 z-10 relative">
 
-        {/* Banner de Advertencia y Política de Retención 3 Meses */}
-        <div className="p-4 rounded-3xl border bg-amber-500/10 border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in-up">
+        {/* Top Info Banner & Actions */}
+        <div className="p-4 rounded-2xl border bg-amber-500/10 border-amber-500/25 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
-              <Clock className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-500 flex items-center justify-center shrink-0">
+              <Clock className="w-4 h-4" />
             </div>
             <div>
               <p className="text-xs font-black text-[var(--text-primary)]">
-                Registro Histórico y Auditoría: Conservación por 3 Meses (90 Días)
+                Registro Histórico y Auditoría Completa
               </p>
-              <p className="text-[11px] font-bold text-[var(--text-muted)] mt-0.5">
-                Los pedidos finalizados se preservan 90 días para auditoría contable y reportes. Transcurrido este plazo, los registros antiguos son depurados automáticamente.
+              <p className="text-[11px] font-semibold text-[var(--text-muted)]">
+                Mostrando {historyOrders.length} pedidos registrados en la base de datos sin límite de corte.
               </p>
             </div>
           </div>
-          <button
-            onClick={exportCSV}
-            className="text-xs font-black px-4 py-2 rounded-xl border border-amber-500/30 bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/30 transition-all cursor-pointer shrink-0 flex items-center gap-1.5"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Respaldar / Exportar CSV</span>
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <button
+              onClick={exportCSV}
+              className="text-xs font-black px-4 py-2 rounded-xl border border-amber-500/30 bg-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/30 transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Exportar CSV</span>
+            </button>
+          </div>
         </div>
 
         {/* Dashboard Symmetry Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-fade-in-up">
-          <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Histórico Total</span>
+              <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total Pedidos</span>
               <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                 <ShoppingBag className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{filteredOrders.length}</p>
-            <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Pedidos filtrados</p>
+            <p className="text-xl sm:text-2xl font-black mt-2 text-[var(--text-primary)]">{filteredOrders.length}</p>
+            <p className="text-[10px] font-bold text-[var(--text-muted)] mt-0.5">En el filtro actual</p>
           </div>
 
-          <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+          <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Facturado Entregados</span>
               <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
                 <DollarSign className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-black mt-2 text-emerald-400">{formatCurrency(totalFacturado)}</p>
-            <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{deliveredCount} entregas completadas</p>
+            <p className="text-xl sm:text-2xl font-black mt-2 text-emerald-400">{formatCurrency(totalFacturado)}</p>
+            <p className="text-[10px] font-bold text-[var(--text-muted)] mt-0.5">{deliveredCount} órdenes entregadas</p>
           </div>
 
-          <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Cancelados</span>
-              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400">
-                <XCircle className="w-4 h-4" />
-              </div>
-            </div>
-            <p className="text-2xl font-black mt-2 text-rose-400">{cancelledCount}</p>
-            <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Órdenes anuladas</p>
-          </div>
-
-          <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+          <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm" style={{ borderColor: 'var(--border)' }}>
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ticket Promedio</span>
               <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                 <TrendingUp className="w-4 h-4" />
               </div>
             </div>
-            <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(avgTicket)}</p>
-            <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por pedido entregado</p>
+            <p className="text-xl sm:text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(avgTicket)}</p>
+            <p className="text-[10px] font-bold text-[var(--text-muted)] mt-0.5">Por entrega exitosa</p>
+          </div>
+
+          <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Cancelados / Activos</span>
+              <div className="p-2 rounded-xl bg-rose-500/10 text-rose-400">
+                <XCircle className="w-4 h-4" />
+              </div>
+            </div>
+            <p className="text-xl sm:text-2xl font-black mt-2 text-rose-400">{cancelledCount} <span className="text-xs text-[var(--text-muted)] font-normal">/ {activeCount} act.</span></p>
+            <p className="text-[10px] font-bold text-[var(--text-muted)] mt-0.5">Anulados o en proceso</p>
           </div>
         </div>
 
-        {/* Filters & Actions Bar */}
-        <div className="card p-5 rounded-3xl border bg-[var(--bg-card)] space-y-4 shadow-sm" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex flex-col lg:flex-row gap-4 items-stretch lg:items-center justify-between">
+        {/* Filters Card */}
+        <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm space-y-3" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
             {/* Search Box */}
             <div className="relative flex-1">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
               <input
                 type="text"
                 placeholder="Buscar por ID, Cliente, Teléfono, Dirección o monto..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                className="w-full text-xs font-semibold pl-11 pr-4 py-2.5 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                className="w-full text-xs font-semibold pl-10 pr-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                 style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               />
             </div>
 
             {/* Filter Dropdowns */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Date Filter */}
               <div className="relative">
                 <select
                   value={dateFilter}
                   onChange={(e) => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
-                  className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                  className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
-                  <option value="all">📅 Todas las fechas</option>
+                  <option value="all">📅 Todo el histórico</option>
                   <option value="today">Hoy</option>
                   <option value="week">Últimos 7 días</option>
                   <option value="month">Últimos 30 días</option>
                   <option value="custom">Rango Personalizado...</option>
                 </select>
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
               </div>
 
               {/* Status Filter */}
@@ -243,14 +267,15 @@ export default function HistorialPage() {
                 <select
                   value={statusFilter}
                   onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                  className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                  className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   <option value="all">Todos los estados</option>
                   <option value="delivered">🎉 Entregados</option>
                   <option value="cancelled">❌ Cancelados</option>
+                  <option value="active">⏳ En Preparación / Activos</option>
                 </select>
-                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
               </div>
 
               {/* Payment Method Filter */}
@@ -258,7 +283,7 @@ export default function HistorialPage() {
                 <select
                   value={paymentMethodFilter}
                   onChange={(e) => { setPaymentMethodFilter(e.target.value); setCurrentPage(1); }}
-                  className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                  className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   <option value="all">💳 Todos los pagos</option>
@@ -266,7 +291,7 @@ export default function HistorialPage() {
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
-                <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                <CreditCard className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
               </div>
 
               {/* Order Type Filter */}
@@ -274,7 +299,7 @@ export default function HistorialPage() {
                 <select
                   value={orderTypeFilter}
                   onChange={(e) => { setOrderTypeFilter(e.target.value); setCurrentPage(1); }}
-                  className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                  className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   <option value="all">🍽️ Todos los tipos</option>
@@ -282,46 +307,45 @@ export default function HistorialPage() {
                     <option key={key} value={key}>{label}</option>
                   ))}
                 </select>
-                <Layers className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                <Layers className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
               </div>
 
               {/* View Switcher */}
-              <div className="flex items-center gap-1 bg-[var(--bg-input)] p-1 rounded-2xl border" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-1 bg-[var(--bg-input)] p-1 rounded-xl border" style={{ borderColor: 'var(--border)' }}>
                 <button
                   onClick={() => setViewMode('table')}
-                  className={`p-1.5 rounded-xl transition-all cursor-pointer ${viewMode === 'table' ? 'bg-[var(--orange)] text-white' : 'text-[var(--text-muted)]'}`}
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'table' ? 'bg-[var(--orange)] text-white' : 'text-[var(--text-muted)]'}`}
                   title="Vista Tabla"
                 >
-                  <TableIcon className="w-4 h-4" />
+                  <TableIcon className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-xl transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-[var(--orange)] text-white' : 'text-[var(--text-muted)]'}`}
-                  title="Vista Cuadrícula Tarjetas"
+                  className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-[var(--orange)] text-white' : 'text-[var(--text-muted)]'}`}
+                  title="Vista Tarjetas"
                 >
-                  <LayoutGrid className="w-4 h-4" />
+                  <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
               </div>
 
-              {/* Page Size */}
-              <select
-                value={pageSize}
-                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-                className="px-3 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
-                style={{ borderColor: 'var(--border)' }}
-              >
-                <option value={5}>5 / pág</option>
-                <option value={10}>10 / pág</option>
-                <option value={25}>25 / pág</option>
-                <option value={50}>50 / pág</option>
-              </select>
+              {/* Reset Filters */}
+              {(search || dateFilter !== 'all' || statusFilter !== 'all' || paymentMethodFilter !== 'all' || orderTypeFilter !== 'all') && (
+                <button
+                  onClick={resetFilters}
+                  className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-colors text-xs font-bold flex items-center gap-1 cursor-pointer"
+                  title="Limpiar todos los filtros"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Limpiar</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Custom Date Range Pickers (shown only when 'custom' selected) */}
           {dateFilter === 'custom' && (
             <div className="flex flex-wrap items-center gap-3 pt-3 border-t animate-fade-in" style={{ borderColor: 'var(--border)' }}>
-              <span className="text-xs font-bold text-[var(--text-muted)]">Rango de fechas:</span>
+              <span className="text-xs font-bold text-[var(--text-muted)]">Rango específico:</span>
               <div className="flex items-center gap-2">
                 <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Desde:</label>
                 <input
@@ -342,89 +366,98 @@ export default function HistorialPage() {
                   style={{ borderColor: 'var(--border)' }}
                 />
               </div>
-              {(dateFrom || dateTo) && (
-                <button
-                  onClick={() => { setDateFrom(''); setDateTo(''); setCurrentPage(1); }}
-                  className="text-[11px] font-bold text-rose-400 hover:underline cursor-pointer ml-2"
-                >
-                  Limpiar fechas
-                </button>
-              )}
             </div>
           )}
         </div>
 
-        {/* Content Area */}
+        {/* Content Area: Table or Cards */}
         {paginatedOrders.length === 0 ? (
-          <div className="card p-14 text-center space-y-3 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
-            <FileText className="w-12 h-12 text-[var(--text-muted)] mx-auto opacity-50" />
-            <p className="text-sm font-black text-[var(--text-primary)]">No hay registros en el historial</p>
-            <p className="text-xs font-semibold text-[var(--text-muted)]">Prueba ajustando los filtros de búsqueda o fecha</p>
+          <div className="card p-12 text-center space-y-4 rounded-3xl border bg-[var(--bg-card)] shadow-sm" style={{ borderColor: 'var(--border)' }}>
+            <FileText className="w-12 h-12 text-[var(--text-muted)] mx-auto opacity-40" />
+            <div>
+              <p className="text-base font-black text-[var(--text-primary)]">No hay registros con los filtros seleccionados</p>
+              <p className="text-xs font-semibold text-[var(--text-muted)] mt-1">Prueba ampliando el rango de fechas o limpiando los filtros</p>
+            </div>
+            <button
+              onClick={resetFilters}
+              className="px-5 py-2.5 rounded-xl bg-[var(--orange)] text-white text-xs font-black shadow-md hover:scale-105 transition-all cursor-pointer inline-flex items-center gap-2"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Ver Todo el Histórico
+            </button>
           </div>
         ) : viewMode === 'table' ? (
           /* ─── TABLE VIEW ─── */
-          <div className="bg-[var(--bg-card)] rounded-3xl border shadow-sm flex flex-col overflow-hidden" style={{ borderColor: 'var(--border)' }}>
-            <div className="overflow-x-auto overflow-y-auto max-h-[560px]">
-              <table className="w-full text-left border-collapse min-w-[800px]">
-                <thead className="bg-[var(--bg-input)] border-b sticky top-0 z-20 backdrop-blur-md" style={{ borderColor: 'var(--border)' }}>
-                  <tr>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">ID Pedido</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Cliente</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Tipo & Pago</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Estado</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Fecha & Hora</th>
-                    <th className="px-6 py-4 text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)] text-right">Detalle</th>
+          <div className="bg-[var(--bg-card)] rounded-2xl border shadow-sm overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[750px]">
+                <thead>
+                  <tr className="border-b text-[11px] uppercase tracking-wider font-black bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                    <th className="px-5 py-3.5">ID Pedido</th>
+                    <th className="px-5 py-3.5">Fecha & Hora</th>
+                    <th className="px-5 py-3.5">Cliente</th>
+                    <th className="px-5 py-3.5">Tipo & Pago</th>
+                    <th className="px-5 py-3.5">Estado</th>
+                    <th className="px-5 py-3.5 text-right">Total</th>
+                    <th className="px-5 py-3.5 text-center">Acción</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                <tbody className="divide-y text-xs" style={{ borderColor: 'var(--border)' }}>
                   {paginatedOrders.map((order) => {
                     const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
                     const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
+                    const isDelivered = order.status === 'delivered';
+                    const isCancelled = order.status === 'cancelled';
 
                     return (
-                      <tr key={order.id} className="hover:bg-[var(--bg-input)] transition-colors">
-                        <td className="px-6 py-4">
-                          <span className="text-xs font-black text-[var(--orange)] bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/30 shadow-sm">
+                      <tr key={order.id} className="hover:bg-[var(--bg-input)]/60 transition-colors">
+                        <td className="px-5 py-3.5">
+                          <span className="font-black text-xs text-[var(--orange)] bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/30">
                             {orderNumber}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <p className="text-xs font-bold text-[var(--text-primary)]">{order.customer?.name || 'Anónimo'}</p>
-                          <p className="text-[10px] text-[var(--text-muted)] font-semibold mt-0.5">{order.customer?.phone}</p>
+                        <td className="px-5 py-3.5">
+                          <p className="font-bold text-[var(--text-primary)]">
+                            {new Date(order.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </p>
+                          <p className="text-[10px] text-[var(--text-muted)] font-medium">
+                            {new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })} ({formatTimeAgo(order.created_at)})
+                          </p>
                         </td>
-                        <td className="px-6 py-4">
-                          <span className="text-[10px] font-bold text-[var(--text-primary)] block">
+                        <td className="px-5 py-3.5">
+                          <p className="font-black text-[var(--text-primary)]">{order.customer?.name || 'Cliente Mostrador'}</p>
+                          <p className="text-[10px] text-[var(--text-muted)] font-semibold">{order.customer?.phone || 'Sin teléfono'}</p>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <span className="font-bold text-[var(--text-primary)] block">
                             {ORDER_TYPE_LABELS[order.type] || order.type}
                           </span>
-                          <span className="text-[9px] uppercase font-black text-[var(--text-muted)]">
+                          <span className="text-[10px] uppercase font-black text-[var(--text-muted)]">
                             {PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-5 py-3.5">
                           <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
-                            order.status === 'delivered' 
+                            isDelivered
                               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                              : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                              : isCancelled
+                              ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                           }`}>
-                            {ORDER_STATUS_LABELS[order.status]}
+                            {ORDER_STATUS_LABELS[order.status] || order.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
-                          <p className="text-xs font-black text-[var(--text-primary)]">{formatCurrency(order.total)}</p>
+                        <td className="px-5 py-3.5 text-right">
+                          <span className="font-black text-sm text-[var(--text-primary)]">{formatCurrency(order.total)}</span>
                         </td>
-                        <td className="px-6 py-4">
-                          <p className="text-xs font-bold text-[var(--text-primary)]">{new Date(order.created_at).toLocaleString('es-CO')}</p>
-                          <p className="text-[10px] text-[var(--text-muted)] font-medium mt-0.5">Hace {formatTimeAgo(order.created_at)}</p>
-                        </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-5 py-3.5 text-center">
                           <button
                             onClick={() => setSelectedOrder(order)}
-                            className="p-2 rounded-xl border hover:bg-[var(--bg-input)] transition-all cursor-pointer inline-flex items-center gap-1.5 text-xs font-bold"
+                            className="p-1.5 px-3 rounded-xl border hover:bg-[var(--bg-input)] transition-all cursor-pointer inline-flex items-center gap-1.5 text-xs font-bold"
                             style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                           >
                             <Eye className="w-3.5 h-3.5 text-[var(--orange)]" />
-                            <span>Ver</span>
+                            <span>Detalle</span>
                           </button>
                         </td>
                       </tr>
@@ -433,124 +466,135 @@ export default function HistorialPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Table Pagination Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3.5 border-t bg-[var(--bg-input)]/40" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-bold text-[var(--text-muted)]">
+                Mostrando {filteredOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, filteredOrders.length)} de {filteredOrders.length} registros
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={safePage <= 1}
+                  className="p-1.5 px-2.5 rounded-lg border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-card)] transition-all cursor-pointer"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-black px-2 text-[var(--text-primary)]">
+                  {safePage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={safePage >= totalPages}
+                  className="p-1.5 px-2.5 rounded-lg border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-card)] transition-all cursor-pointer"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         ) : (
           /* ─── GRID CARDS VIEW ─── */
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 animate-fade-in-up">
-            {paginatedOrders.map((order) => {
-              const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
-              const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
-              const isDelivered = order.status === 'delivered';
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {paginatedOrders.map((order) => {
+                const shortIdMatch = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i);
+                const orderNumber = shortIdMatch ? shortIdMatch[1] : `#${order.id.slice(0, 6).toUpperCase()}`;
+                const isDelivered = order.status === 'delivered';
+                const isCancelled = order.status === 'cancelled';
 
-              return (
-                <div
-                  key={order.id}
-                  className={`group relative flex flex-col rounded-3xl border overflow-hidden transition-all duration-300 ${
-                    isDelivered
-                      ? 'border-[var(--border)] hover:border-emerald-500/40 hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)]'
-                      : 'border-rose-500/30 hover:border-rose-500/50'
-                  }`}
-                  style={{ background: 'var(--bg-card)' }}
-                >
-                  {/* Header Gradient */}
+                return (
                   <div
-                    className="relative h-20 overflow-hidden flex items-end px-5 pb-3"
-                    style={{
-                      background: isDelivered
-                        ? 'linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.03) 100%)'
-                        : 'linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.03) 100%)',
-                    }}
+                    key={order.id}
+                    className="rounded-2xl border p-4 space-y-3 bg-[var(--bg-card)] shadow-sm hover:shadow-md transition-all"
+                    style={{ borderColor: 'var(--border)' }}
                   >
-                    <div className="relative z-10 flex items-center justify-between w-full">
-                      <span className="text-xs font-black uppercase tracking-wider text-[var(--orange)] bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-[var(--orange)] bg-orange-500/10 px-2 py-0.5 rounded-lg border border-orange-500/30">
                         {orderNumber}
                       </span>
-                      <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border ${
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
                         isDelivered
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          : isCancelled
+                          ? 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                       }`}>
-                        {ORDER_STATUS_LABELS[order.status]}
+                        {ORDER_STATUS_LABELS[order.status] || order.status}
                       </span>
                     </div>
-                  </div>
 
-                  {/* Body */}
-                  <div className="flex flex-col flex-1 p-5 pt-3 space-y-4">
                     <div>
-                      <h3 className="text-base font-black truncate text-[var(--text-primary)]">
-                        {order.customer?.name || 'Cliente Anónimo'}
-                      </h3>
-                      <p className="text-xs font-semibold flex items-center gap-1.5 mt-0.5 text-[var(--text-muted)]">
-                        <Phone className="w-3 h-3 text-[var(--orange)] shrink-0" />
-                        {order.customer?.phone || 'Sin teléfono'}
-                      </p>
+                      <h4 className="font-black text-sm text-[var(--text-primary)] truncate">{order.customer?.name || 'Cliente Mostrador'}</h4>
+                      <p className="text-[10px] text-[var(--text-muted)] font-semibold mt-0.5">{order.customer?.phone || 'Sin teléfono'}</p>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border flex items-center justify-between" style={{ background: 'var(--bg-input)', borderColor: 'var(--border)' }}>
+                    <div className="p-2.5 rounded-xl border flex items-center justify-between text-xs bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
                       <div>
-                        <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total Pedido</p>
-                        <p className="text-base font-black mt-0.5 text-[var(--text-primary)]">{formatCurrency(order.total)}</p>
+                        <p className="text-[9px] font-black uppercase text-[var(--text-muted)]">Fecha</p>
+                        <p className="font-bold text-[var(--text-primary)] mt-0.5">
+                          {new Date(order.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })}
+                        </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Método / Tipo</p>
-                        <p className="text-xs font-bold mt-0.5 text-[var(--text-primary)]">
-                          {PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method}
-                        </p>
+                        <p className="text-[9px] font-black uppercase text-[var(--text-muted)]">Total</p>
+                        <p className="font-black text-sm text-[var(--text-primary)] mt-0.5">{formatCurrency(order.total)}</p>
                       </div>
                     </div>
 
                     <button
                       onClick={() => setSelectedOrder(order)}
-                      className="w-full py-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                      className="w-full py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
                       style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                     >
                       <Eye className="w-3.5 h-3.5 text-[var(--orange)]" />
                       <span>Ver Detalle del Pedido</span>
                     </button>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+
+            {/* Grid Pagination Bar */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-5 py-3.5 rounded-2xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-bold text-[var(--text-muted)]">
+                Mostrando {filteredOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, filteredOrders.length)} de {filteredOrders.length} registros
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={safePage <= 1}
+                  className="p-1.5 px-2.5 rounded-lg border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs font-black px-2 text-[var(--text-primary)]">
+                  {safePage} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={safePage >= totalPages}
+                  className="p-1.5 px-2.5 rounded-lg border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
           </div>
         )}
-
-        {/* Pagination Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-xs font-bold text-[var(--text-muted)]">
-            Mostrando {filteredOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, filteredOrders.length)} de {filteredOrders.length} registros
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-              disabled={safePage <= 1}
-              className="p-2 rounded-xl border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-xs font-black px-3 text-[var(--text-primary)]">
-              Página {safePage} de {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-              disabled={safePage >= totalPages}
-              className="p-2 rounded-xl border text-xs font-bold disabled:opacity-40 hover:bg-[var(--bg-input)] transition-all cursor-pointer"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
 
       </div>
 
       {/* Modal Detalle de Pedido */}
       {selectedOrder && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 animate-fade-in" onClick={() => setSelectedOrder(null)}>
-          <div className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl animate-fade-in-up flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg rounded-2xl sm:rounded-3xl border shadow-2xl flex flex-col max-h-[88dvh] sm:max-h-[92vh] overflow-hidden my-auto bg-[var(--bg-card)] border-[var(--border)]" onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between border-b px-6 py-4 sm:py-5 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center justify-between border-b px-6 py-4 shrink-0 bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <span className="text-xs font-black uppercase text-[var(--orange)] bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/30">
                   {selectedOrder.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${selectedOrder.id.slice(0, 6).toUpperCase()}`}
@@ -569,7 +613,7 @@ export default function HistorialPage() {
               {/* Customer & Address */}
               <div className="p-4 rounded-2xl border space-y-2 bg-[var(--bg-input)]" style={{ borderColor: 'var(--border)' }}>
                 <p className="text-xs font-black flex items-center gap-2 text-[var(--text-primary)]">
-                  <User className="w-4 h-4 text-[var(--orange)]" /> {selectedOrder.customer?.name || 'Anónimo'}
+                  <User className="w-4 h-4 text-[var(--orange)]" /> {selectedOrder.customer?.name || 'Cliente Mostrador'}
                 </p>
                 {selectedOrder.customer?.phone && (
                   <p className="text-xs font-medium flex items-center gap-2 text-[var(--text-muted)]">
@@ -602,7 +646,7 @@ export default function HistorialPage() {
             </div>
 
             {/* Footer */}
-            <div className="border-t px-6 py-3.5 sm:py-4 shrink-0 bg-[var(--bg-card)] flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+            <div className="border-t px-6 py-4 shrink-0 bg-[var(--bg-card)] flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
               <div>
                 <span className="text-[10px] font-black uppercase tracking-wider block text-[var(--text-muted)]">Método de Pago</span>
                 <span className="text-xs font-black uppercase text-[var(--text-primary)]">

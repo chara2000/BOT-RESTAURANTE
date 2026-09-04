@@ -277,6 +277,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         });
       }
       if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
+      if (data.allTenants && data.allTenants.length > 0) setAllTenants(data.allTenants);
       setDataSource('supabase');
     } finally {
       if (!isBackground) setIsLoading(false);

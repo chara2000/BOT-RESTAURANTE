@@ -3,8 +3,12 @@
 import { useState } from 'react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
-import { CheckCircle, XCircle, Image as ImageIcon, Clock, AlertCircle, RefreshCw, Layers, CreditCard, ChevronLeft, ChevronRight } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import {
+  CheckCircle, XCircle, Image as ImageIcon, Clock, AlertCircle, RefreshCw,
+  Layers, CreditCard, ChevronLeft, ChevronRight, Search, Calendar, Filter,
+  Download, DollarSign, ArrowUpRight, TrendingUp, CheckCircle2
+} from 'lucide-react';
+import { formatCurrency, formatCompact } from '@/lib/utils';
 import type { Order, PaymentMethod } from '@/types';
 
 export default function PagosPage() {
@@ -13,28 +17,119 @@ export default function PagosPage() {
   const [actionMsg, setActionMsg] = useState<{ id: string; type: 'ok' | 'err'; text: string } | null>(null);
   const [processing, setProcessing] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pos' | 'caja'>('pos');
+  
+  // Filters state
+  const [search, setSearch] = useState('');
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  // Cash Tab filters
+  const [cashSearch, setCashSearch] = useState('');
+  const [cashTypeFilter, setCashTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+
+  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
-  // Filter orders to only the last 7 days (one week)
-  const oneWeekAgo = Date.now() - 7 * 86400000;
-  const recentOrders = orders.filter((o) => new Date(o.created_at).getTime() >= oneWeekAgo);
+  const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+    cash: 'Efectivo',
+    card: 'Tarjeta',
+    nequi: 'Nequi',
+    daviplata: 'Daviplata',
+    wompi: 'Wompi',
+    transfer: 'Transferencia',
+  };
 
-  // Group orders for "Terminal POS" tab
-  const posOrders = recentOrders.filter(
-    (o) => selectedMethod === 'all' || o.payment_method === selectedMethod
-  ).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Filter orders according to all active criteria - NO hardcoded 7-day cutoff!
+  const filteredPosOrders = orders.filter((o) => {
+    // Payment method filter
+    if (selectedMethod !== 'all' && o.payment_method !== selectedMethod) {
+      return false;
+    }
 
-  const totalPages = Math.ceil(posOrders.length / pageSize) || 1;
+    // Status filter
+    const isApproved = ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status);
+    const isRejected = o.status === 'cancelled';
+    const isPending = !isApproved && !isRejected;
+
+    if (statusFilter === 'approved' && !isApproved) return false;
+    if (statusFilter === 'rejected' && !isRejected) return false;
+    if (statusFilter === 'pending' && !isPending) return false;
+
+    // Date filter
+    if (dateFilter !== 'all') {
+      const orderDate = new Date(o.created_at);
+      const now = new Date();
+      if (dateFilter === 'today') {
+        if (orderDate.toDateString() !== now.toDateString()) return false;
+      } else if (dateFilter === 'week') {
+        const weekAgo = Date.now() - 7 * 86400000;
+        if (orderDate.getTime() < weekAgo) return false;
+      } else if (dateFilter === 'month') {
+        const monthAgo = Date.now() - 30 * 86400000;
+        if (orderDate.getTime() < monthAgo) return false;
+      } else if (dateFilter === 'custom') {
+        if (dateFrom) {
+          const from = new Date(`${dateFrom}T00:00:00`);
+          if (orderDate < from) return false;
+        }
+        if (dateTo) {
+          const to = new Date(`${dateTo}T23:59:59`);
+          if (orderDate > to) return false;
+        }
+      }
+    }
+
+    // Text search
+    if (search.trim()) {
+      const q = search.toLowerCase().trim();
+      const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1]?.toLowerCase() || `#${o.id.slice(0, 6).toLowerCase()}`;
+      const name = (o.customer?.name || '').toLowerCase();
+      const phone = (o.customer?.phone || '').toLowerCase();
+      const totalStr = String(o.total || '');
+      const notes = (o.notes || '').toLowerCase();
+      if (!shortId.includes(q) && !name.includes(q) && !phone.includes(q) && !totalStr.includes(q) && !notes.includes(q)) {
+        return false;
+      }
+    }
+
+    return true;
+  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const totalPages = Math.ceil(filteredPosOrders.length / pageSize) || 1;
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
-  const paginatedOrders = posOrders.slice(startIndex, startIndex + pageSize);
+  const paginatedOrders = filteredPosOrders.slice(startIndex, startIndex + pageSize);
 
-  // Filter pending transfers for validation
-  const pendingTransfers = recentOrders.filter(
+  // Global pending transfers count for notification badge
+  const pendingTransfers = orders.filter(
     (o) => o.payment_method === 'transfer' && o.status === 'pending'
   );
+
+  // Summary KPI stats based on filtered orders
+  const totalRecaudado = filteredPosOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const aprobadosCount = filteredPosOrders.filter((o) =>
+    ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status)
+  ).length;
+  const totalAprobado = filteredPosOrders
+    .filter((o) => ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status))
+    .reduce((sum, o) => sum + (o.total || 0), 0);
+  const avgTicket = filteredPosOrders.length > 0 ? Math.round(totalRecaudado / filteredPosOrders.length) : 0;
+
+  // Filtered cash transactions
+  const filteredCashTx = cashSession.transactions.filter((tx) => {
+    if (cashTypeFilter !== 'all' && tx.type !== cashTypeFilter) return false;
+    if (cashSearch.trim()) {
+      const q = cashSearch.toLowerCase();
+      if (!tx.description.toLowerCase().includes(q) && !String(tx.amount).includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   const extractReceiptUrl = (notes?: string) => {
     if (!notes) return null;
@@ -83,20 +178,29 @@ export default function PagosPage() {
     }
   };
 
+  const exportCSV = () => {
+    const header = 'ID Pedido,Fecha,Cliente,Telefono,Metodo de Pago,Monto,Estado\n';
+    const rows = filteredPosOrders.map((o) => {
+      const shortId = o.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${o.id.slice(0, 6).toUpperCase()}`;
+      const isApproved = ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status);
+      const isRejected = o.status === 'cancelled';
+      const statusText = isApproved ? 'Aprobado' : isRejected ? 'Rechazado' : 'Pendiente';
+      return `"${shortId}","${new Date(o.created_at).toLocaleString('es-CO')}","${o.customer?.name ?? 'Cliente Mostrador'}","${o.customer?.phone ?? ''}","${PAYMENT_METHOD_LABELS[o.payment_method] || o.payment_method}",${o.total},"${statusText}"`;
+    }).join('\n');
 
-  const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-    cash: 'Efectivo',
-    card: 'Tarjeta',
-    nequi: 'Nequi',
-    daviplata: 'Daviplata',
-    wompi: 'Wompi',
-    transfer: 'Transferencia',
+    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `registro-pagos-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div className="relative flex-1 flex flex-col h-full overflow-hidden">
       <div className="absolute top-[-100px] right-[-100px] w-96 h-96 bg-emerald-500 opacity-[0.04] blur-[100px] rounded-full pointer-events-none" />
-      <Topbar title="Registro de Pagos" subtitle="Historial de transacciones y conciliación de caja" />
+      <Topbar title="Registro de Pagos" subtitle="Historial de transacciones, conciliación digital y caja" />
 
       {/* Pill Tabs Switcher */}
       <div className="px-5 lg:px-8 py-3 shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -109,7 +213,7 @@ export default function PagosPage() {
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]/50'
             }`}
           >
-            <CreditCard className="w-4 h-4" /> Terminal POS
+            <CreditCard className="w-4 h-4" /> Transacciones & Pagos
           </button>
           <button
             onClick={() => setActiveTab('caja')}
@@ -124,9 +228,9 @@ export default function PagosPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5 lg:p-8 z-10 relative custom-scrollbar">
+      <div className="flex-1 overflow-y-auto p-5 lg:p-8 z-10 relative custom-scrollbar space-y-6">
         {actionMsg && (
-          <div className={`mb-4 flex items-center gap-3 p-4 rounded-2xl border font-bold text-sm animate-fade-in-up ${actionMsg.type === 'ok' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
+          <div className={`flex items-center gap-3 p-4 rounded-2xl border font-bold text-sm animate-fade-in-up ${actionMsg.type === 'ok' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border-rose-500/20'}`}>
             <AlertCircle className="w-4 h-4 shrink-0" />
             {actionMsg.text}
           </div>
@@ -134,45 +238,197 @@ export default function PagosPage() {
 
         {activeTab === 'pos' && (
           <div className="space-y-6">
-            {/* Filter Pills */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-black uppercase tracking-wider mr-2" style={{ color: 'var(--text-muted)' }}>Filtrar Pago:</span>
-              <button 
-                onClick={() => setSelectedMethod('all')}
-                className="text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer"
-                style={{ 
-                  background: selectedMethod === 'all' ? 'var(--orange)' : 'var(--bg-input)', 
-                  color: selectedMethod === 'all' ? '#fff' : 'var(--text-muted)',
-                  borderColor: selectedMethod === 'all' ? 'var(--orange)' : 'var(--border)'
-                }}
-              >
-                Todos
-              </button>
-              {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((method) => (
-                <button 
-                  key={method}
-                  onClick={() => setSelectedMethod(method)}
-                  className="text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer"
-                  style={{ 
-                    background: selectedMethod === method ? 'var(--orange)' : 'var(--bg-input)', 
-                    color: selectedMethod === method ? '#fff' : 'var(--text-muted)',
-                    borderColor: selectedMethod === method ? 'var(--orange)' : 'var(--border)'
-                  }}
-                >
-                  {PAYMENT_METHOD_LABELS[method]}
-                </button>
-              ))}
+            {/* KPI Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-fade-in-up">
+              <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total Transacciones</span>
+                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                    <DollarSign className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(totalRecaudado)}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{filteredPosOrders.length} registros según filtros</p>
+              </div>
+
+              <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Pagos Aprobados</span>
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black mt-2 text-emerald-400">{formatCurrency(totalAprobado)}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{aprobadosCount} órdenes confirmadas</p>
+              </div>
+
+              <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Transf. Pendientes</span>
+                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black mt-2 text-amber-500">{pendingTransfers.length}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Requieren verificación manual</p>
+              </div>
+
+              <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ticket Promedio</span>
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
+                </div>
+                <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(avgTicket)}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por pago registrado</p>
+              </div>
             </div>
 
-            {/* Desktop View */}
+            {/* Filter Bar */}
+            <div className="card p-5 rounded-3xl border bg-[var(--bg-card)] space-y-4 shadow-sm" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
+                {/* Search Bar */}
+                <div className="relative flex-1">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)] pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por ID, Cliente, Teléfono, Monto..."
+                    value={search}
+                    onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                    className="w-full text-xs font-semibold pl-11 pr-4 py-2.5 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+
+                {/* Dropdowns */}
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Date Filter */}
+                  <div className="relative">
+                    <select
+                      value={dateFilter}
+                      onChange={(e) => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
+                      className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      <option value="all">📅 Todo el histórico</option>
+                      <option value="today">Hoy</option>
+                      <option value="week">Últimos 7 días</option>
+                      <option value="month">Últimos 30 días</option>
+                      <option value="custom">Rango Personalizado...</option>
+                    </select>
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                  </div>
+
+                  {/* Status Filter */}
+                  <div className="relative">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => { setStatusFilter(e.target.value as any); setCurrentPage(1); }}
+                      className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      <option value="all">Todos los estados</option>
+                      <option value="approved">✓ Aprobados</option>
+                      <option value="pending">⏳ Pendientes</option>
+                      <option value="rejected">✕ Rechazados</option>
+                    </select>
+                    <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                  </div>
+
+                  {/* CSV Export */}
+                  <button
+                    onClick={exportCSV}
+                    className="px-4 py-2.5 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                    style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                  >
+                    <Download className="w-3.5 h-3.5 text-[var(--orange)]" />
+                    <span className="hidden sm:inline">Exportar CSV</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Date Range Pickers (shown only when 'custom' selected) */}
+              {dateFilter === 'custom' && (
+                <div className="flex flex-wrap items-center gap-3 pt-3 border-t animate-fade-in" style={{ borderColor: 'var(--border)' }}>
+                  <span className="text-xs font-bold text-[var(--text-muted)]">Rango de fechas:</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Desde:</label>
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-xl border bg-[var(--bg-input)] text-[var(--text-primary)] outline-none"
+                      style={{ borderColor: 'var(--border)' }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Hasta:</label>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
+                      className="text-xs font-bold px-3 py-1.5 rounded-xl border bg-[var(--bg-input)] text-[var(--text-primary)] outline-none"
+                      style={{ borderColor: 'var(--border)' }}
+                    />
+                  </div>
+                  {(dateFrom || dateTo) && (
+                    <button
+                      onClick={() => { setDateFrom(''); setDateTo(''); setCurrentPage(1); }}
+                      className="text-[11px] font-bold text-rose-400 hover:underline cursor-pointer ml-2"
+                    >
+                      Limpiar fechas
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Payment Method Filter Pills */}
+              <div className="flex flex-wrap items-center gap-2 pt-3 border-t" style={{ borderColor: 'var(--border)' }}>
+                <span className="text-xs font-black uppercase tracking-wider mr-2 text-[var(--text-muted)]">Método de Pago:</span>
+                <button 
+                  onClick={() => { setSelectedMethod('all'); setCurrentPage(1); }}
+                  className="text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer"
+                  style={{ 
+                    background: selectedMethod === 'all' ? 'var(--orange)' : 'var(--bg-input)', 
+                    color: selectedMethod === 'all' ? '#fff' : 'var(--text-muted)',
+                    borderColor: selectedMethod === 'all' ? 'var(--orange)' : 'var(--border)'
+                  }}
+                >
+                  Todos ({orders.length})
+                </button>
+                {(Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]).map((method) => {
+                  const count = orders.filter((o) => o.payment_method === method).length;
+                  return (
+                    <button 
+                      key={method}
+                      onClick={() => { setSelectedMethod(method); setCurrentPage(1); }}
+                      className="text-[10px] font-black uppercase tracking-wider px-3.5 py-1.5 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5"
+                      style={{ 
+                        background: selectedMethod === method ? 'var(--orange)' : 'var(--bg-input)', 
+                        color: selectedMethod === method ? '#fff' : 'var(--text-muted)',
+                        borderColor: selectedMethod === method ? 'var(--orange)' : 'var(--border)'
+                      }}
+                    >
+                      <span>{PAYMENT_METHOD_LABELS[method]}</span>
+                      <span className="opacity-70 text-[9px]">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Desktop View Table */}
             <div className="card bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm overflow-hidden hidden md:block">
               <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
                 <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                   <CreditCard className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-black text-[var(--text-primary)]">Historial de Pagos (Última Semana)</p>
-                  <p className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Se muestran registros ordenados por fecha</p>
+                  <p className="text-sm font-black text-[var(--text-primary)]">Historial Completo de Transacciones</p>
+                  <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                    Mostrando registros históricos ordenados cronológicamente ({filteredPosOrders.length} encontrados)
+                  </p>
                 </div>
                 {pendingTransfers.length > 0 && (
                   <span className="ml-auto text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-500 border border-amber-500/20 animate-pulse">
@@ -181,7 +437,7 @@ export default function PagosPage() {
                 )}
               </div>
 
-              <div className="overflow-x-auto max-h-[500px]">
+              <div className="overflow-x-auto max-h-[560px]">
                 <table className="w-full text-left border-collapse">
                   <thead className="sticky top-0 z-10 backdrop-blur-md">
                     <tr className="border-b text-[11px] uppercase tracking-wider font-black" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', background: 'var(--bg-input)' }}>
@@ -198,26 +454,33 @@ export default function PagosPage() {
                     {paginatedOrders.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
-                          Sin registros de pago de esta semana para el filtro seleccionado.
+                          Sin registros de pago para los filtros seleccionados. Prueba ampliando las fechas o el método de pago.
                         </td>
                       </tr>
                     ) : (
                       paginatedOrders.map((order) => {
                         const receiptUrl = extractReceiptUrl(order.notes);
                         const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order.id.slice(0, 6).toUpperCase()}`;
-                        const isApproved = order.status === 'delivered' || order.status === 'confirmed' || order.status === 'ready' || order.status === 'shipping' || order.status === 'preparing';
+                        const isApproved = ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(order.status);
                         const isRejected = order.status === 'cancelled';
                         const isProc = processing === order.id;
 
                         return (
                           <tr key={order.id} className="hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
                             <td className="py-4 px-6">
-                              <p className="font-black uppercase tracking-wider text-xs" style={{ color: 'var(--orange)' }}>{shortId}</p>
-                              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{new Date(order.created_at).toLocaleString('es-CO')}</p>
+                              <p className="font-black uppercase tracking-wider text-xs text-[var(--orange)]">{shortId}</p>
+                              <p className="text-[10px] mt-0.5 text-[var(--text-muted)]">{new Date(order.created_at).toLocaleString('es-CO')}</p>
                             </td>
-                            <td className="py-4 px-6 text-xs">{order.customer?.name ?? 'Cliente Mostrador'}</td>
-                            <td className="py-4 px-6 font-black text-xs">{formatCurrency(order.total)}</td>
-                            <td className="py-4 px-6 uppercase text-[10px] text-[var(--text-muted)] font-black">{PAYMENT_METHOD_LABELS[order.payment_method]}</td>
+                            <td className="py-4 px-6 text-xs">
+                              <p className="font-bold text-[var(--text-primary)]">{order.customer?.name ?? 'Cliente Mostrador'}</p>
+                              {order.customer?.phone && <p className="text-[10px] text-[var(--text-muted)]">{order.customer.phone}</p>}
+                            </td>
+                            <td className="py-4 px-6 font-black text-xs text-[var(--text-primary)]">{formatCurrency(order.total)}</td>
+                            <td className="py-4 px-6 uppercase text-[10px] text-[var(--text-muted)] font-black">
+                              <span className="px-2.5 py-1 rounded-lg bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
+                                {PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method}
+                              </span>
+                            </td>
                             <td className="py-4 px-6">
                               {isApproved ? (
                                 <span className="text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Aprobado</span>
@@ -233,7 +496,7 @@ export default function PagosPage() {
                                   <ImageIcon className="w-3.5 h-3.5" /> Ver Foto
                                 </button>
                               ) : (
-                                <span className="text-xs italic" style={{ color: 'var(--text-muted)' }}>Sin comprobante</span>
+                                <span className="text-xs italic text-[var(--text-muted)]">Sin comprobante</span>
                               )}
                             </td>
                             <td className="py-4 px-6 text-right">
@@ -278,8 +541,8 @@ export default function PagosPage() {
 
               {/* Pagination Bar */}
               <div className="flex items-center justify-between px-6 py-4 border-t bg-[var(--bg-input)]/50" style={{ borderColor: 'var(--border)' }}>
-                <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
-                  Mostrando {posOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, posOrders.length)} de {posOrders.length} pagos
+                <p className="text-xs font-bold text-[var(--text-muted)]">
+                  Mostrando {filteredPosOrders.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, filteredPosOrders.length)} de {filteredPosOrders.length} registros
                 </p>
                 <div className="flex items-center gap-2">
                   <button
@@ -290,7 +553,7 @@ export default function PagosPage() {
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
-                  <span className="text-xs font-black px-3" style={{ color: 'var(--text-primary)' }}>
+                  <span className="text-xs font-black px-3 text-[var(--text-primary)]">
                     Página {safePage} de {totalPages}
                   </span>
                   <button
@@ -305,51 +568,57 @@ export default function PagosPage() {
               </div>
             </div>
 
-            {/* Mobile View */}
+            {/* Mobile View Cards */}
             <div className="md:hidden space-y-4">
-              {posOrders.map((order) => {
-                const receiptUrl = extractReceiptUrl(order.notes);
-                const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order.id.slice(0, 6).toUpperCase()}`;
-                const isApproved = order.status === 'delivered' || order.status === 'confirmed' || order.status === 'ready' || order.status === 'shipping' || order.status === 'preparing';
-                const isRejected = order.status === 'cancelled';
-                const isProc = processing === order.id;
+              {paginatedOrders.length === 0 ? (
+                <div className="card p-8 text-center text-xs font-bold text-[var(--text-muted)]">
+                  Sin registros de pago para los filtros seleccionados.
+                </div>
+              ) : (
+                paginatedOrders.map((order) => {
+                  const receiptUrl = extractReceiptUrl(order.notes);
+                  const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order.id.slice(0, 6).toUpperCase()}`;
+                  const isApproved = ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(order.status);
+                  const isRejected = order.status === 'cancelled';
+                  const isProc = processing === order.id;
 
-                return (
-                  <div key={order.id} className="card p-4 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-black text-sm uppercase text-[var(--orange)]">{shortId}</p>
-                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{new Date(order.created_at).toLocaleString()}</p>
+                  return (
+                    <div key={order.id} className="card p-4 space-y-3 rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-black text-sm uppercase text-[var(--orange)]">{shortId}</p>
+                          <p className="text-[10px] text-[var(--text-muted)]">{new Date(order.created_at).toLocaleString()}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${
+                          isApproved ? 'bg-emerald-500/10 text-emerald-500' : isRejected ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
+                        }`}>{isApproved ? 'Aprobado' : isRejected ? 'Rechazado' : 'Pendiente'}</span>
                       </div>
-                      <span className={`px-2 py-1 rounded-lg text-[9px] font-black uppercase ${
-                        isApproved ? 'bg-emerald-500/10 text-emerald-500' : isRejected ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'
-                      }`}>{isApproved ? 'Aprobado' : isRejected ? 'Rechazado' : 'Pendiente'}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                      <div>
-                        <p style={{ color: 'var(--text-muted)' }}>{order.customer?.name ?? 'Cliente Mostrador'}</p>
-                        <p className="font-black text-sm">{formatCurrency(order.total)}</p>
+                      <div className="flex justify-between items-center text-xs pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                        <div>
+                          <p className="text-[var(--text-muted)] font-semibold">{order.customer?.name ?? 'Cliente Mostrador'}</p>
+                          <p className="font-black text-sm text-[var(--text-primary)]">{formatCurrency(order.total)}</p>
+                        </div>
+                        <p className="text-[10px] font-black uppercase text-[var(--text-muted)]">{PAYMENT_METHOD_LABELS[order.payment_method]}</p>
                       </div>
-                      <p className="text-[10px] font-black uppercase text-[var(--text-muted)]">{PAYMENT_METHOD_LABELS[order.payment_method]}</p>
-                    </div>
-                    {receiptUrl && (
-                      <button onClick={() => setSelectedReceipt(receiptUrl)} className="w-full flex justify-center items-center gap-1.5 py-2 rounded-xl text-xs font-bold border cursor-pointer" style={{ color: 'var(--orange)', borderColor: 'var(--border)' }}>
-                        <ImageIcon className="w-4 h-4" /> Comprobante
-                      </button>
-                    )}
-                    {(['nequi', 'daviplata', 'wompi', 'card', 'transfer'] as const).includes(order.payment_method as any) && order.status === 'pending' && (
-                      <div className="flex gap-2 pt-1">
-                        <button onClick={() => handleUpdatePaymentStatus(order, 'approve')} disabled={isProc} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-black rounded-xl bg-emerald-500 text-white cursor-pointer shadow-sm disabled:opacity-50">
-                          <CheckCircle className="w-3.5 h-3.5" /> Aprobar
+                      {receiptUrl && (
+                        <button onClick={() => setSelectedReceipt(receiptUrl)} className="w-full flex justify-center items-center gap-1.5 py-2 rounded-xl text-xs font-bold border cursor-pointer" style={{ color: 'var(--orange)', borderColor: 'var(--border)' }}>
+                          <ImageIcon className="w-4 h-4" /> Ver Comprobante
                         </button>
-                        <button onClick={() => handleUpdatePaymentStatus(order, 'reject')} disabled={isProc} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-black rounded-xl bg-rose-500 text-white cursor-pointer shadow-sm disabled:opacity-50">
-                          <XCircle className="w-3.5 h-3.5" /> Rechazar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                      )}
+                      {(['nequi', 'daviplata', 'wompi', 'card', 'transfer'] as const).includes(order.payment_method as any) && order.status === 'pending' && (
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => handleUpdatePaymentStatus(order, 'approve')} disabled={isProc} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-black rounded-xl bg-emerald-500 text-white cursor-pointer shadow-sm disabled:opacity-50">
+                            <CheckCircle className="w-3.5 h-3.5" /> Aprobar
+                          </button>
+                          <button onClick={() => handleUpdatePaymentStatus(order, 'reject')} disabled={isProc} className="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-black rounded-xl bg-rose-500 text-white cursor-pointer shadow-sm disabled:opacity-50">
+                            <XCircle className="w-3.5 h-3.5" /> Rechazar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -357,37 +626,64 @@ export default function PagosPage() {
         {activeTab === 'caja' && (
           <div className="space-y-6">
             {/* Cash Session Status Card */}
-            <div className="card p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="card p-6 grid grid-cols-1 md:grid-cols-4 gap-6 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Sesión de Caja</p>
+                <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Sesión de Caja</p>
                 <div className="flex items-center gap-2 mt-1">
                   <span className={`h-2.5 w-2.5 rounded-full ${cashSession.status === 'open' ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                  <p className="text-lg font-black capitalize">{cashSession.status === 'open' ? 'Abierta' : 'Cerrada'}</p>
+                  <p className="text-lg font-black capitalize text-[var(--text-primary)]">{cashSession.status === 'open' ? 'Abierta' : 'Cerrada'}</p>
                 </div>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Cajero Responsable</p>
+                <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Cajero Responsable</p>
                 <p className="text-base font-bold mt-1 text-[var(--text-primary)]">{cashSession.opened_by || 'Sin cajero'}</p>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Balance de Apertura</p>
+                <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Balance de Apertura</p>
                 <p className="text-base font-bold mt-1 text-[var(--text-primary)]">{formatCurrency(cashSession.opening_balance)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Apertura Registrada</p>
+                <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Apertura Registrada</p>
                 <p className="text-xs font-bold mt-1 text-[var(--text-muted)]">{new Date(cashSession.opened_at).toLocaleString()}</p>
               </div>
             </div>
 
-            {/* Cash Transactions List */}
+            {/* Cash Transactions List with Search and Filter */}
             <div className="card bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm overflow-hidden">
-              <div className="flex items-center gap-3 px-6 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
-                <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
-                  <Layers className="w-5 h-5" />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 px-6 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-[var(--text-primary)]">Movimientos de Caja</p>
+                    <p className="text-[10px] font-bold text-[var(--text-muted)]">Ingresos y egresos realizados dentro de la caja registradora</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-black text-[var(--text-primary)]">Movimientos de Caja (Última Semana)</p>
-                  <p className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>Ingresos y egresos realizados dentro de la caja registradora</p>
+
+                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                  <div className="relative flex-1 sm:w-48">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
+                    <input
+                      type="text"
+                      placeholder="Buscar movimiento..."
+                      value={cashSearch}
+                      onChange={(e) => setCashSearch(e.target.value)}
+                      className="w-full text-xs font-semibold pl-9 pr-3 py-2 rounded-xl border outline-none"
+                      style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    />
+                  </div>
+
+                  <select
+                    value={cashTypeFilter}
+                    onChange={(e) => setCashTypeFilter(e.target.value as any)}
+                    className="px-3 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none text-[var(--text-primary)]"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <option value="all">Todos los tipos</option>
+                    <option value="income">Ingresos (+)</option>
+                    <option value="expense">Egresos (-)</option>
+                  </select>
                 </div>
               </div>
 
@@ -403,17 +699,17 @@ export default function PagosPage() {
                     </tr>
                   </thead>
                   <tbody className="text-sm font-semibold divide-y" style={{ borderColor: 'var(--border)' }}>
-                    {cashSession.transactions.length === 0 ? (
+                    {filteredCashTx.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
-                          Sin transacciones de caja registradas esta semana.
+                        <td colSpan={5} className="text-center py-12 text-[var(--text-muted)]">
+                          Sin transacciones de caja registradas para el filtro seleccionado.
                         </td>
                       </tr>
                     ) : (
-                      cashSession.transactions.map((tx) => (
+                      filteredCashTx.map((tx) => (
                         <tr key={tx.id} className="hover:bg-[var(--bg-input)] transition-colors" style={{ borderColor: 'var(--border)' }}>
-                          <td className="py-4 px-6 font-black uppercase text-xs" style={{ color: 'var(--text-muted)' }}>#{tx.id.slice(-6)}</td>
-                          <td className="py-4 px-6">{tx.description}</td>
+                          <td className="py-4 px-6 font-black uppercase text-xs text-[var(--text-muted)]">#{tx.id.slice(-6)}</td>
+                          <td className="py-4 px-6 text-xs text-[var(--text-primary)] font-bold">{tx.description}</td>
                           <td className="py-4 px-6">
                             <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-lg ${
                               tx.type === 'income' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
@@ -422,7 +718,7 @@ export default function PagosPage() {
                           <td className={`py-4 px-6 font-black ${tx.type === 'income' ? 'text-emerald-500' : 'text-rose-500'}`}>
                             {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
                           </td>
-                          <td className="py-4 px-6 text-right text-xs" style={{ color: 'var(--text-muted)' }}>
+                          <td className="py-4 px-6 text-right text-xs text-[var(--text-muted)]">
                             {new Date(tx.created_at).toLocaleString()}
                           </td>
                         </tr>

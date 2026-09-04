@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2, Navigation, Target, Map, Truck } from 'lucide-react';
+import { CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2, Navigation, Target, Map, Truck, FileText, Upload, ExternalLink } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
+import { createClient } from '@/lib/supabase/client';
 import { PAYMENT_LABELS, type PaymentMethod } from '@/types';
 import { BotChannelsSection } from '@/components/settings/BotChannelsSection';
 import { TeamManagementSection } from '@/components/settings/TeamManagementSection';
@@ -130,6 +131,46 @@ export default function ConfiguracionPage() {
 
   const [mapLat, setMapLat] = useState(settings.restaurant_lat ?? 4.7110);
   const [mapLng, setMapLng] = useState(settings.restaurant_lng ?? -74.0721);
+
+  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [pdfUploadSuccess, setPdfUploadSuccess] = useState(false);
+
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      alert('Por favor selecciona un archivo PDF válido (.pdf)');
+      return;
+    }
+
+    setUploadingPdf(true);
+    setPdfUploadSuccess(false);
+
+    try {
+      const supabase = createClient();
+      if (!supabase) throw new Error('Supabase no inicializado');
+
+      const fileName = `menu_pdf_${activeTenantId || 'default'}_${Date.now()}.pdf`;
+      const { error } = await supabase.storage.from('receipts').upload(fileName, file, {
+        contentType: 'application/pdf',
+        upsert: true,
+      });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
+      if (publicUrlData?.publicUrl) {
+        await updateSettings({ menu_pdf_url: publicUrlData.publicUrl });
+        setPdfUploadSuccess(true);
+        setTimeout(() => setPdfUploadSuccess(false), 4000);
+      }
+    } catch (err: any) {
+      console.error('Error subiendo PDF:', err);
+      alert('No se pudo subir el archivo PDF: ' + (err.message || 'Error desconocido'));
+    } finally {
+      setUploadingPdf(false);
+    }
+  };
 
   // Team management state now handled inside <TeamManagementSection />
 
@@ -286,13 +327,13 @@ export default function ConfiguracionPage() {
               <CreditCard className="h-5 w-5 text-sky-500" /> Cuentas para Pago Digital (Nequi / Bancolombia)
             </p>
             <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-              Estos números aparecerán en el Bot de Telegram cuando el cliente elija pagar por transferencia.
+              Estos números aparecerán en WhatsApp y Telegram cuando el cliente elija pagar por transferencia.
             </p>
             <div className="space-y-4">
               <div>
                 <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Número Nequi / Daviplata</label>
                 <input type="text" placeholder="Ej: 300 123 4567"
-                  defaultValue={settings.nequi_number || '300 123 4567'}
+                  defaultValue={settings.nequi_number || ''}
                   onChange={(e) => updateSettings({ nequi_number: e.target.value })}
                   className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
@@ -300,10 +341,84 @@ export default function ConfiguracionPage() {
               <div>
                 <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Número Bancolombia</label>
                 <input type="text" placeholder="Ej: 123-456789-00"
-                  defaultValue={settings.bancolombia_number || '123-456789-00'}
+                  defaultValue={settings.bancolombia_number || ''}
                   onChange={(e) => updateSettings({ bancolombia_number: e.target.value })}
                   className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Tipo de Cuenta Bancolombia</label>
+                <select
+                  value={settings.bancolombia_type || 'Ahorros'}
+                  onChange={(e) => updateSettings({ bancolombia_type: e.target.value })}
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                >
+                  <option value="Ahorros">Cuenta de Ahorros</option>
+                  <option value="Corriente">Cuenta Corriente</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Carta / Menú en PDF para Clientes */}
+          <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up delay-100 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
+            <div className="flex items-center justify-between border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                <FileText className="h-5 w-5 text-[var(--orange)]" /> Carta / Menú Digital en PDF
+              </p>
+              {settings.menu_pdf_url && (
+                <a
+                  href={settings.menu_pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-black flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-orange-500/30 bg-orange-500/10 text-[var(--orange)] hover:bg-orange-500/20 transition-all cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Ver PDF actual
+                </a>
+              )}
+            </div>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+              El bot de WhatsApp y Telegram adjuntará y enviará este archivo PDF de forma automática cuando un cliente escriba por primera vez o solicite ver la carta.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                  Subir archivo PDF desde tu dispositivo
+                </label>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <label className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border border-dashed border-[var(--orange)] bg-[var(--bg-input)] hover:bg-[var(--orange-soft)] text-xs font-bold text-[var(--text-primary)] cursor-pointer transition-all">
+                    <Upload className="w-4 h-4 text-[var(--orange)]" />
+                    {uploadingPdf ? 'Subiendo archivo...' : 'Seleccionar archivo PDF (.pdf)'}
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      className="hidden"
+                      disabled={uploadingPdf}
+                      onChange={handlePdfUpload}
+                    />
+                  </label>
+                  {pdfUploadSuccess && (
+                    <span className="text-xs font-bold text-emerald-500 flex items-center gap-1">
+                      <CheckCircle2 className="w-4 h-4" /> ¡PDF cargado y guardado con éxito!
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
+                  O ingresar URL pública del PDF directamente
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://.../carta-restaurante.pdf"
+                  defaultValue={settings.menu_pdf_url || ''}
+                  onChange={(e) => updateSettings({ menu_pdf_url: e.target.value })}
+                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                />
               </div>
             </div>
           </div>

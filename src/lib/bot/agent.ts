@@ -54,6 +54,9 @@ export interface BotResponse {
   text: string;
   reply_markup?: object;
   image_url?: string;
+  document_url?: string;
+  document_filename?: string;
+  document_caption?: string;
 }
 
 // ─── Session Store (keyed by tenantId:chatId for multi-tenant isolation) ────────────────────
@@ -205,6 +208,7 @@ interface CachedSettings {
   nequi_number?: string;
   bancolombia_number?: string;
   bancolombia_type?: string;
+  menu_pdf_url?: string;
 }
 
 // Per-tenant settings cache: key = tenantId
@@ -220,7 +224,7 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
 
   const { data, error } = await supabase
     .from('tenant_settings')
-    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone')
+    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone, nequi_number, bancolombia_number, bancolombia_type, menu_pdf_url')
     .eq('tenant_id', tenantId)
     .single();
 
@@ -240,9 +244,10 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
     coverage_require_keywords: data?.coverage_require_keywords ?? false,
     restaurant_lat: data?.restaurant_lat != null ? Number(data.restaurant_lat) : undefined,
     restaurant_lng: data?.restaurant_lng != null ? Number(data.restaurant_lng) : undefined,
-    nequi_number: accounts.nequi_number,
-    bancolombia_number: accounts.bancolombia_number,
-    bancolombia_type: accounts.bancolombia_type,
+    nequi_number: data?.nequi_number || accounts.nequi_number,
+    bancolombia_number: data?.bancolombia_number || accounts.bancolombia_number,
+    bancolombia_type: data?.bancolombia_type || accounts.bancolombia_type || 'Ahorros',
+    menu_pdf_url: data?.menu_pdf_url || undefined,
   };
   _settingsCacheMap.set(tenantId, { data: settings, at: now });
   return settings;
@@ -402,30 +407,56 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 
 // ─── Screens ──────────────────────────────────────────────────────────────────
 
-function welcomeScreen(isReturning = false): BotResponse {
+async function welcomeScreen(isReturning = false, tenantId?: string): Promise<BotResponse> {
+  let menuPdfUrl: string | undefined;
+  if (tenantId) {
+    try {
+      const settings = await getTenantSettings(tenantId);
+      menuPdfUrl = settings.menu_pdf_url;
+    } catch {}
+  }
+
   const greeting = isReturning
     ? `👋 ¡Bienvenido de nuevo a *ChefFlow*! 👏\n\n¿Qué vas a pedir hoy?`
     : `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`;
+
+  const buttons: { text: string; callback_data: string }[][] = [
+    [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
+  ];
+
+  if (menuPdfUrl) {
+    buttons.push([{ text: '📄 Descargar Carta (PDF)', callback_data: 'view_pdf_menu' }]);
+  }
+
+  buttons.push([
+    { text: '🛒 Mi Carrito', callback_data: 'cart' },
+    { text: '📦 Rastrear', callback_data: 'track_prompt' },
+  ]);
+  buttons.push([{ text: '🙋 Contactar Encargado', callback_data: 'contact_manager' }]);
+
   return {
     text: greeting,
+    document_url: menuPdfUrl,
+    document_filename: 'Carta_Menu.pdf',
+    document_caption: '📖 Aquí tienes nuestra carta completa con todos los platillos y descripciones.',
     reply_markup: {
-      inline_keyboard: [
-        [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
-        [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
-        [{ text: '📦 Rastrear mi pedido', callback_data: 'track_prompt' }],
-        [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
-      ],
+      inline_keyboard: buttons,
     },
   };
 }
 
 async function menuScreen(tenantId: string, categoryId?: string): Promise<BotResponse> {
+  const settings = await getTenantSettings(tenantId).catch(() => null);
+
   if (!categoryId) {
     const { data, error } = await supabase.from('categories').select('id, name').eq('is_active', true).eq('tenant_id', tenantId).order('sort_order', { ascending: true });
     if (error || !data || data.length === 0) return { text: '⚠️ No hay menú disponible en este momento. Intenta más tarde.' };
 
     const buttons = data.map(c => [{ text: `📁 ${c.name}`, callback_data: `cat:${c.id}` }]);
     buttons.push([{ text: '🍔 Ver todo el menú', callback_data: 'cat:all' }]);
+    if (settings?.menu_pdf_url) {
+      buttons.push([{ text: '📄 Descargar Carta PDF', callback_data: 'view_pdf_menu' }]);
+    }
     buttons.push([{ text: '🛒 Ver Carrito', callback_data: 'cart' }]);
 
     // Obtener una imagen por defecto de algún producto disponible como banner del menú
@@ -451,7 +482,7 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
       reply_markup: { inline_keyboard: buttons },
     };
   } else {
-    let query = supabase.from('products').select('id, name, price, image_url').eq('is_available', true).eq('tenant_id', tenantId).order('created_at', { ascending: true });
+    let query = supabase.from('products').select('id, name, price, image_url, description').eq('is_available', true).eq('tenant_id', tenantId).order('created_at', { ascending: true });
     if (categoryId !== 'all') {
       query = query.eq('category_id', categoryId);
     }
@@ -488,8 +519,10 @@ async function productScreen(session: BotSession, productId: string): Promise<Bo
     ? `\n\n🛒 _Carrito actual: $${cartTotal.toLocaleString('es-CO')} (${session.cart.length} ${session.cart.length === 1 ? 'producto' : 'productos'})_`
     : '';
 
+  const descText = p.description ? `\n\n📝 _${p.description.trim()}_\n` : '';
+
   return {
-    text: `*${p.name}*\n💰 Precio: $${p.price.toLocaleString('es-CO')} c/u${cartInfo}\n\n¿Cuántas unidades deseas?`,
+    text: `*${p.name}*${descText}\n💰 Precio: $${p.price.toLocaleString('es-CO')} c/u${cartInfo}\n\n¿Cuántas unidades deseas?`,
     image_url: p.image_url || undefined,
     reply_markup: {
       inline_keyboard: [
@@ -763,10 +796,10 @@ async function digitalPaymentScreen(session: BotSession, tenantId: string): Prom
   const bancoType = settings.bancolombia_type || 'Ahorros';
 
   return {
-    text: `📱 *Pago Digital*\n\n💰 *Total a Transferir: $${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 Realiza la transferencia y **envíame una foto del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca el botón para cancelar)_`,
+    text: `📱 *Pago Digital por Transferencia*\n\n💰 *Total a Transferir:* *$${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 *Paso siguiente:* Realiza la transferencia y **envíame una foto o captura del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca un botón para cambiar o cancelar)_`,
     reply_markup: {
       inline_keyboard: [
-        [{ text: '↩️ Cambiar pago', callback_data: 'pay' }],
+        [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
         [{ text: '❌ Cancelar pedido', callback_data: 'menu' }]
       ],
     },
@@ -1544,19 +1577,37 @@ async function handleProcessMessage(
     if (['rastrear', 'rastrear pedido', 'donde esta mi pedido', 'estado'].includes(rawText)) {
       return promptTrackOrderScreen(session, tenantId);
     }
-    if (rawText !== 'start' && rawText !== '/start') {
-      return {
-        text: `🤔 *No logré entender esa opción.*\n\nUsa los botones del menú para realizar tu pedido:`,
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
-            [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
-            [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
-            [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
-          ],
-        },
-      };
+    if (['hola', 'buenas', 'buenos', 'hi', 'hello', 'start', '/start', 'saludos', 'buenas tardes', 'buenos dias', 'buenas noches', 'empezar'].some(w => rawText.startsWith(w) || rawText === w)) {
+      return welcomeScreen(false, tenantId);
     }
+    if (['carta', 'ver carta', 'pdf', 'ver pdf', 'menu pdf', 'carta pdf', 'descargar carta'].includes(rawText)) {
+      const settings = await getTenantSettings(tenantId);
+      if (settings.menu_pdf_url) {
+        return {
+          text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+          document_url: settings.menu_pdf_url,
+          document_filename: 'Carta_Menu.pdf',
+          document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🍽️ Ver Menú Interactivo', callback_data: 'menu' }],
+              [{ text: '🛒 Ver Carrito', callback_data: 'cart' }],
+            ],
+          },
+        };
+      }
+    }
+    return {
+      text: `👋 ¡Hola! ¿En qué te podemos colaborar?\n\nUsa los botones del menú para realizar tu pedido:`,
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
+          [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
+          [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
+          [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
+        ],
+      },
+    };
   }
 
   // Fallback para otros estados interactivos donde se espera una interacción con botones en lugar de texto
@@ -1568,7 +1619,7 @@ async function handleProcessMessage(
   }
 
   // Default
-  return welcomeScreen();
+  return welcomeScreen(false, tenantId);
 }
 
 async function handleRiderRating(session: BotSession, text: string, tenantId: string): Promise<BotResponse> {
@@ -1728,6 +1779,30 @@ async function handleProcessCallback(
     session.selectedProduct = undefined;
     session.pendingItem = undefined;
     return cartScreen(session);
+  }
+  if (callbackData === 'view_pdf_menu') {
+    const settings = await getTenantSettings(tenantId);
+    if (settings.menu_pdf_url) {
+      return {
+        text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+        document_url: settings.menu_pdf_url,
+        document_filename: 'Carta_Menu.pdf',
+        document_caption: '📖 Aquí tienes nuestra carta completa en PDF con las descripciones y precios.',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🍽️ Ver Menú Interactivo', callback_data: 'menu' }],
+            [{ text: '🛒 Ver Carrito', callback_data: 'cart' }],
+          ],
+        },
+      };
+    } else {
+      return {
+        text: '⚠️ La carta en PDF aún no ha sido cargada. Puedes consultar el menú interactivo tocando el botón abajo:',
+        reply_markup: {
+          inline_keyboard: [[{ text: '🍽️ Ver Menú', callback_data: 'menu' }]],
+        },
+      };
+    }
   }
   if (callbackData === 'choose_mode') return deliveryModeScreen(session, tenantId);
   if (callbackData === 'mode_delivery') {

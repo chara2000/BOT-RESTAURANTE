@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Edit2, Plus, Search, Trash2, ToggleLeft, ToggleRight, FolderPlus, X, Check, Tag, ChevronLeft, ChevronRight, Utensils, Layers, PlusCircle, CheckCircle2 } from 'lucide-react';
+import { Edit2, Plus, Search, Trash2, ToggleLeft, ToggleRight, FolderPlus, X, Check, Tag, ChevronLeft, ChevronRight, Utensils, Layers, PlusCircle, CheckCircle2, FileText } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency } from '@/lib/utils';
@@ -268,6 +268,30 @@ export default function MenuPage() {
                 <Layers className="h-4 w-4 text-[var(--orange)]" />
                 <span>Adiciones por Plato</span>
               </button>
+            )}
+
+            {settings.menu_pdf_url ? (
+              <a
+                href={settings.menu_pdf_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0"
+                style={{ borderColor: 'var(--border)', color: 'var(--orange)' }}
+                title="Ver carta en PDF enviada por el bot"
+              >
+                <FileText className="h-4 w-4 text-[var(--orange)]" />
+                <span>Carta PDF</span>
+              </a>
+            ) : (
+              <a
+                href="/configuracion"
+                className="px-4 py-3 rounded-2xl border text-xs font-black hover:bg-[var(--bg-input)] transition-all flex items-center gap-2 cursor-pointer shrink-0 text-slate-400"
+                style={{ borderColor: 'var(--border)' }}
+                title="Subir carta en PDF en Configuración"
+              >
+                <FileText className="h-4 w-4" />
+                <span>Subir Carta PDF</span>
+              </a>
             )}
 
             <button

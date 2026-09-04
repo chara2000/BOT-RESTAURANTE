@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { processMessage, processCallback } from '@/lib/bot/agent';
-import { sendWhatsAppMessage, verifyYCloudSignature } from '@/lib/bot/whatsapp';
+import { sendWhatsAppMessage, sendWhatsAppDocument, verifyYCloudSignature } from '@/lib/bot/whatsapp';
 import { sanitizeUsername } from '@/lib/bot/guards/MessageGuard';
 
 const supabase = createClient(
@@ -344,6 +344,16 @@ export async function POST(
       // Treat as a callback
       try {
         const response = await processCallback(chatId, btnId, username, tenantId);
+        if (response.document_url) {
+          await sendWhatsAppDocument({
+            from: senderFrom,
+            to: recipientTo,
+            documentUrl: response.document_url,
+            filename: response.document_filename || 'Carta_Menu.pdf',
+            caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+            apiKey: creds.apiKey,
+          });
+        }
         if (response.text) {
           const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
           await sendWhatsAppMessage({
@@ -416,6 +426,17 @@ export async function POST(
       tenantId,
       { isPhoto, photoId, location }
     );
+
+    if (response.document_url) {
+      await sendWhatsAppDocument({
+        from: senderFrom,
+        to: recipientTo,
+        documentUrl: response.document_url,
+        filename: response.document_filename || 'Carta_Menu.pdf',
+        caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+        apiKey: creds.apiKey,
+      });
+    }
 
     if (response.text) {
       const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);

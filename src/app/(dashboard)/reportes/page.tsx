@@ -9,34 +9,79 @@ import { formatCurrency, formatCompact } from '@/lib/utils';
 import { isSameDay, parseISO, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
 
 export default function ReportesPage() {
-  const { stats, orders, customers, inventory, cashSession } = useAppData();
+  const { stats, orders, customers, inventory, cashSession, categories, products } = useAppData();
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [productFilter, setProductFilter] = useState('all');
+
+  // Platos disponibles según la categoría seleccionada
+  const availableProducts = useMemo(() => {
+    if (categoryFilter === 'all') return products;
+    return products.filter(p => p.category_id === categoryFilter || p.category === categoryFilter);
+  }, [products, categoryFilter]);
 
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
       let passDate = true;
       let passStatus = true;
+      let passCategory = true;
+      let passProduct = true;
       const oDate = parseISO(o.created_at);
       
-      if (dateFrom) passDate = passDate && isAfter(oDate, startOfDay(new Date(dateFrom)));
-      if (dateTo) passDate = passDate && isBefore(oDate, endOfDay(new Date(dateTo)));
-      if (statusFilter !== 'all') passStatus = o.status === statusFilter;
+      if (dateFrom) passDate = passDate && !isBefore(oDate, startOfDay(parseISO(dateFrom)));
+      if (dateTo) passDate = passDate && !isAfter(oDate, endOfDay(parseISO(dateTo)));
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'delivered') passStatus = o.status === 'delivered';
+        else if (statusFilter === 'active') passStatus = ['confirmed', 'preparing', 'ready', 'shipping'].includes(o.status);
+        else passStatus = o.status === statusFilter;
+      }
+
+      if (categoryFilter !== 'all') {
+        passCategory = (o.items || []).some(i => 
+          i.product?.category_id === categoryFilter || 
+          i.product?.category === categoryFilter ||
+          (i.product as any)?.categories?.name === categoryFilter
+        );
+      }
+
+      if (productFilter !== 'all') {
+        passProduct = (o.items || []).some(i => i.product?.id === productFilter || (i as any).product_id === productFilter);
+      }
       
-      return passDate && passStatus;
+      return passDate && passStatus && passCategory && passProduct;
     });
-  }, [orders, dateFrom, dateTo, statusFilter]);
+  }, [orders, dateFrom, dateTo, statusFilter, categoryFilter, productFilter]);
 
   const localStats = useMemo(() => {
-    const totalSales = filteredOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+    const totalSales = filteredOrders.reduce((sum, o) => {
+      if (productFilter !== 'all') {
+        const prodItems = (o.items || []).filter(i => i.product?.id === productFilter);
+        return sum + prodItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
+      }
+      if (categoryFilter !== 'all') {
+        const catItems = (o.items || []).filter(i => i.product?.category_id === categoryFilter || i.product?.category === categoryFilter);
+        return sum + catItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
+      }
+      return sum + (o.total || 0);
+    }, 0);
+
     const avgTicket = filteredOrders.length ? totalSales / filteredOrders.length : 0;
     
     const daysMap = new Map<string, number>();
     filteredOrders.forEach(o => {
       const dayStr = o.created_at.slice(0, 10);
-      daysMap.set(dayStr, (daysMap.get(dayStr) || 0) + (o.total || 0));
+      let orderAmount = o.total || 0;
+      if (productFilter !== 'all') {
+        const prodItems = (o.items || []).filter(i => i.product?.id === productFilter);
+        orderAmount = prodItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
+      } else if (categoryFilter !== 'all') {
+        const catItems = (o.items || []).filter(i => i.product?.category_id === categoryFilter || i.product?.category === categoryFilter);
+        orderAmount = catItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
+      }
+      daysMap.set(dayStr, (daysMap.get(dayStr) || 0) + orderAmount);
     });
     
     const salesByDay = Array.from(daysMap.entries())
@@ -49,7 +94,7 @@ export default function ReportesPage() {
     }
 
     return { totalSales, avgTicket, salesByDay, orderCount: filteredOrders.length };
-  }, [filteredOrders]);
+  }, [filteredOrders, productFilter, categoryFilter]);
 
   const exportCSV = (data: string, filename: string) => {
     const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
@@ -84,12 +129,13 @@ export default function ReportesPage() {
       
       <div className="flex-1 overflow-y-auto p-5 lg:p-8 space-y-6 lg:space-y-8 z-10 relative">
         {/* Filtros Avanzados */}
-        <div className="card p-6 flex flex-col md:flex-row gap-4 items-end bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm animate-fade-in-up">
-          <div className="flex items-center gap-2 text-sm font-black text-[var(--text-primary)] w-full md:w-auto">
+        <div className="card p-6 flex flex-col gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm animate-fade-in-up">
+          <div className="flex items-center gap-2 text-sm font-black text-[var(--text-primary)]">
             <Filter className="w-5 h-5 text-[var(--orange)]" />
-            <span>Filtros Rango:</span>
+            <span>Filtros de Reporte:</span>
           </div>
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
             <div>
               <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Desde</label>
               <input 
@@ -111,6 +157,41 @@ export default function ReportesPage() {
               />
             </div>
             <div>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Categoría Menú</label>
+              <select 
+                value={categoryFilter}
+                onChange={(e) => {
+                  setCategoryFilter(e.target.value);
+                  setProductFilter('all');
+                }}
+                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <option value="all">Todas las categorías</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id || cat.name}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Plato / Producto</label>
+              <select 
+                value={productFilter}
+                onChange={(e) => setProductFilter(e.target.value)}
+                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <option value="all">Todos los platos</option>
+                {availableProducts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
               <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Estado del pedido</label>
               <select 
                 value={statusFilter}
@@ -119,10 +200,10 @@ export default function ReportesPage() {
                 style={{ borderColor: 'var(--border)' }}
               >
                 <option value="all">Todos los estados</option>
-                <option value="completed">Completado</option>
-                <option value="delivered">Entregado</option>
-                <option value="pending">Pendiente</option>
-                <option value="cancelled">Cancelado</option>
+                <option value="delivered">Entregados (Completados)</option>
+                <option value="active">Activos en Preparación</option>
+                <option value="pending">Pendientes de Aprobación</option>
+                <option value="cancelled">Cancelados</option>
               </select>
             </div>
           </div>

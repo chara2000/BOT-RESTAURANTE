@@ -26,6 +26,10 @@ export async function GET(request: Request) {
     await supabase.rpc('execute_sql', {
       sql: `
         ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS allow_external_riders BOOLEAN DEFAULT false;
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS menu_pdf_url TEXT DEFAULT NULL;
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS nequi_number TEXT DEFAULT NULL;
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS bancolombia_number TEXT DEFAULT NULL;
+        ALTER TABLE public.tenant_settings ADD COLUMN IF NOT EXISTS bancolombia_type TEXT DEFAULT 'Ahorros';
         ALTER TABLE public.products ADD COLUMN IF NOT EXISTS additions JSONB DEFAULT '[]'::jsonb;
       `
     });

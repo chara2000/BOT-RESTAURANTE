@@ -111,6 +111,10 @@ export async function PATCH(request: Request) {
     'coverage_require_keywords',
     'restaurant_lat',
     'restaurant_lng',
+    'nequi_number',
+    'bancolombia_number',
+    'bancolombia_type',
+    'menu_pdf_url',
     'auto_assign_riders',
     'allow_external_riders',
   ];

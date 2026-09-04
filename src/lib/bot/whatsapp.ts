@@ -104,6 +104,65 @@ export async function sendWhatsAppMessage({
 }
 
 /**
+ * Sends a document file (e.g. PDF Menu) via YCloud WhatsApp REST API.
+ */
+export async function sendWhatsAppDocument({
+  from,
+  to,
+  documentUrl,
+  filename = 'Carta_Menu.pdf',
+  caption,
+  apiKey,
+}: {
+  from?: string;
+  to: string;
+  documentUrl: string;
+  filename?: string;
+  caption?: string;
+  apiKey: string;
+}): Promise<boolean> {
+  if (!apiKey || !to || !documentUrl) {
+    console.warn('[ycloud] Missing apiKey, recipient number, or documentUrl');
+    return false;
+  }
+
+  let cleanFrom = from ? (from.startsWith('+') ? from : `+${from.replace(/\D/g, '')}`) : undefined;
+
+  const body = {
+    ...(cleanFrom ? { from: cleanFrom } : {}),
+    to,
+    type: 'document',
+    document: {
+      link: documentUrl,
+      filename,
+      ...(caption ? { caption } : {}),
+    },
+  };
+
+  try {
+    const res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const resText = await res.text().catch(() => '');
+      console.error('[ycloud] Failed to send document:', res.status, resText);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('[ycloud] Network error sending document:', (err as Error).message);
+    return false;
+  }
+}
+
+/**
  * Verifies the YCloud webhook signature.
  * YCloud header format: YCloud-Signature: t=<timestamp>,s=<signature>
  * Signed payload format: <timestamp>.<raw_body>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator, ChevronLeft, ChevronRight, Shield } from 'lucide-react';
+import { ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator, ChevronLeft, ChevronRight, Shield, Search, Filter } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { PosSalePanel } from '@/components/pos/PosSalePanel';
 import { StatCard } from '@/components/ui/StatCard';
@@ -18,6 +18,10 @@ export default function CajaPage() {
   const [closeCash, setCloseCash] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
+  // Filters for transactions
+  const [txSearch, setTxSearch] = useState('');
+  const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+
   // Pagination state for transactions
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
@@ -27,10 +31,19 @@ export default function CajaPage() {
   const expected = cashSession.opening_balance + income - expense;
   const isOpen = cashSession.status === 'open';
 
-  const totalPages = Math.ceil(cashSession.transactions.length / pageSize) || 1;
+  const filteredTx = cashSession.transactions.filter((t) => {
+    if (txTypeFilter !== 'all' && t.type !== txTypeFilter) return false;
+    if (txSearch.trim()) {
+      const q = txSearch.toLowerCase().trim();
+      if (!t.description.toLowerCase().includes(q) && !String(t.amount).includes(q)) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.ceil(filteredTx.length / pageSize) || 1;
   const safePage = Math.min(currentPage, totalPages);
   const startIndex = (safePage - 1) * pageSize;
-  const paginatedTx = cashSession.transactions.slice(startIndex, startIndex + pageSize);
+  const paginatedTx = filteredTx.slice(startIndex, startIndex + pageSize);
 
   const handleTx = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,15 +143,39 @@ export default function CajaPage() {
                 {/* Left: Movimientos History */}
                 <div className="xl:col-span-2">
                   <div className="card rounded-3xl overflow-hidden flex flex-col shadow-xl h-full border" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-                    <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+                    <div className="px-6 py-4 border-b flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
                       <div className="flex items-center gap-3">
                         <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                           <History className="h-5 w-5" />
                         </div>
                         <div>
                           <h3 className="font-black text-sm text-[var(--text-primary)]">Historial de Movimientos</h3>
-                          <p className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Sesión actual</p>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Sesión actual ({filteredTx.length})</p>
                         </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:w-44">
+                          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+                          <input
+                            type="text"
+                            placeholder="Buscar..."
+                            value={txSearch}
+                            onChange={(e) => { setTxSearch(e.target.value); setCurrentPage(1); }}
+                            className="w-full text-xs font-semibold pl-8 pr-2.5 py-1.5 rounded-xl border bg-[var(--bg-input)] text-[var(--text-primary)] outline-none"
+                            style={{ borderColor: 'var(--border)' }}
+                          />
+                        </div>
+                        <select
+                          value={txTypeFilter}
+                          onChange={(e) => { setTxTypeFilter(e.target.value as any); setCurrentPage(1); }}
+                          className="text-xs font-bold px-2.5 py-1.5 rounded-xl border bg-[var(--bg-input)] text-[var(--text-primary)] outline-none cursor-pointer"
+                          style={{ borderColor: 'var(--border)' }}
+                        >
+                          <option value="all">Todos</option>
+                          <option value="income">Ingresos (+)</option>
+                          <option value="expense">Egresos (-)</option>
+                        </select>
                       </div>
                     </div>
                     
@@ -177,7 +214,7 @@ export default function CajaPage() {
                     {/* Pagination Bar */}
                     <div className="flex items-center justify-between px-6 py-4 border-t bg-[var(--bg-input)]/50" style={{ borderColor: 'var(--border)' }}>
                       <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
-                        Mostrando {cashSession.transactions.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, cashSession.transactions.length)} de {cashSession.transactions.length} movimientos
+                        Mostrando {filteredTx.length === 0 ? 0 : startIndex + 1} a {Math.min(startIndex + pageSize, filteredTx.length)} de {filteredTx.length} movimientos
                       </p>
                       <div className="flex items-center gap-2">
                         <button

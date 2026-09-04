@@ -96,6 +96,11 @@ export async function POST(req: NextRequest) {
         botToken: process.env.TELEGRAM_BOT_TOKEN,
         adminChatId: process.env.ADMIN_CHAT_ID,
       });
+      if (response.document_url) {
+        await bot.telegram.sendDocument(chatId, response.document_url, {
+          caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+        }).catch((e) => console.warn('[telegram] Error sending document:', e?.message));
+      }
       await sendReply(chatId, response.text, response.reply_markup, (response as any).image_url);
     } catch (err) {
       console.error('[webhook] processCallback error:', (err as Error).message);
@@ -214,6 +219,11 @@ export async function POST(req: NextRequest) {
         botToken: process.env.TELEGRAM_BOT_TOKEN,
         adminChatId: process.env.ADMIN_CHAT_ID,
       });
+      if (response.document_url) {
+        await bot.telegram.sendDocument(chatId, response.document_url, {
+          caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+        }).catch((e) => console.warn('[telegram] Error sending document:', e?.message));
+      }
       await sendReply(chatId, response.text, response.reply_markup, (response as any).image_url);
     } catch (err) {
       console.error('[webhook] processMessage error:', (err as Error).message);

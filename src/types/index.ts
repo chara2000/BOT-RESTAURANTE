@@ -181,6 +181,8 @@ export interface TenantSettings {
   coverage_department?: string;     // Departamento (ej: "Cauca")
   coverage_keywords?: string[];     // Palabras clave que deben aparecer en la dirección
   coverage_require_keywords?: boolean; // Si true, la dirección debe contener al menos una keyword
+  // Carta digital o Menú PDF
+  menu_pdf_url?: string;
 }
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {

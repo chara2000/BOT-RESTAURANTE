@@ -251,16 +251,20 @@ export async function POST(
 
   if (!message) return NextResponse.json({ ok: true });
 
-  const recipientTo: string = message.from || message.whatsapp?.from || '';
+  const recipientTo: string = message.from || message.whatsapp?.from || message.fromUserId || message.author || '';
   if (!recipientTo) return NextResponse.json({ ok: true });
 
   const senderFrom: string | undefined = message.to || creds.phone || undefined;
 
-  // YCloud uses E.164 numbers as chat IDs — convert to number for session key
+  // YCloud uses E.164 numbers or user IDs as chat IDs — convert to number for session key
   // We prefix with 'wa_' to avoid collision with Telegram IDs
-  const chatIdStr = `wa_${recipientTo.replace(/\D/g, '')}`;
-  const chatId = parseInt(chatIdStr.replace('wa_', ''), 10);
-  const rawName = message.customerProfile?.name || message.customerName || message.from || 'Cliente WhatsApp';
+  const cleanId = recipientTo.replace(/\D/g, '') || recipientTo;
+  const chatIdStr = `wa_${cleanId}`;
+  let chatId = parseInt(cleanId, 10);
+  if (isNaN(chatId)) {
+    chatId = Math.abs(recipientTo.split('').reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0));
+  }
+  const rawName = message.customerProfile?.name || message.customerProfile?.username || message.customerName || message.from || message.fromUserId || 'Cliente WhatsApp';
   const username = sanitizeUsername(rawName);
 
   const msgType = message.type as string;

@@ -23,15 +23,20 @@ export async function POST(request: Request) {
       if (!exists) {
         await supabase.storage.createBucket(bucket, {
           public: true,
-          fileSizeLimit: 10485760, // 10MB
+          fileSizeLimit: 26214400, // 25MB
         });
       }
     } catch {
       // Ignorar si no se tienen permisos de administración de buckets
     }
 
-    const fileExt = file.name.split('.').pop() || 'jpg';
-    const fileName = `uploads/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const isPdf = fileExt === 'pdf' || file.type === 'application/pdf';
+    const resolvedContentType = file.type || (isPdf ? 'application/pdf' : 'image/jpeg');
+    const fileName = bucket === 'menu-pdfs'
+      ? `menu_pdf_${Date.now()}.${fileExt}`
+      : `uploads/${Date.now()}_${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+    
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
@@ -39,14 +44,17 @@ export async function POST(request: Request) {
     const { error: uploadError } = await supabase.storage
       .from(bucket)
       .upload(fileName, buffer, {
-        contentType: file.type || 'image/jpeg',
+        contentType: resolvedContentType,
         upsert: true,
       });
 
     if (uploadError) {
       console.warn('[Storage Upload API] Storage upload warning:', uploadError.message);
-      // Fallback a Base64 si el storage no permite la subida
-      const base64 = `data:${file.type || 'image/jpeg'};base64,${buffer.toString('base64')}`;
+      if (isPdf) {
+        return NextResponse.json({ error: `Error al subir PDF: ${uploadError.message}` }, { status: 500 });
+      }
+      // Fallback a Base64 si es imagen y el storage no permite la subida
+      const base64 = `data:${resolvedContentType};base64,${buffer.toString('base64')}`;
       return NextResponse.json({ url: base64, fallback: true });
     }
 

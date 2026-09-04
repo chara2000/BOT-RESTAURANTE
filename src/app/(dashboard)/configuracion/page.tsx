@@ -147,22 +147,26 @@ export default function ConfiguracionPage() {
     setPdfUploadSuccess(false);
 
     try {
-      const supabase = createClient();
-      if (!supabase) throw new Error('Supabase no inicializado');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('bucket', 'menu-pdfs');
 
-      const fileName = `menu_pdf_${activeTenantId || 'default'}_${Date.now()}.pdf`;
-      const { error } = await supabase.storage.from('receipts').upload(fileName, file, {
-        contentType: 'application/pdf',
-        upsert: true,
+      const res = await fetch('/api/storage/upload', {
+        method: 'POST',
+        body: formData,
       });
 
-      if (error) throw error;
+      const resData = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resData.error || 'Error al subir el archivo');
+      }
 
-      const { data: publicUrlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
-      if (publicUrlData?.publicUrl) {
-        await updateSettings({ menu_pdf_url: publicUrlData.publicUrl });
+      if (resData.url) {
+        await updateSettings({ menu_pdf_url: resData.url });
         setPdfUploadSuccess(true);
         setTimeout(() => setPdfUploadSuccess(false), 4000);
+      } else {
+        throw new Error('No se recibió la URL pública del archivo');
       }
     } catch (err: any) {
       console.error('Error subiendo PDF:', err);

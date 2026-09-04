@@ -247,7 +247,7 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
     nequi_number: accounts.nequi_number,
     bancolombia_number: accounts.bancolombia_number,
     bancolombia_type: accounts.bancolombia_type || 'Ahorros',
-    menu_pdf_url: (data as any)?.menu_pdf_url || (data?.logo_url && String(data.logo_url).includes('.pdf') ? data.logo_url : undefined),
+    menu_pdf_url: (data as any)?.menu_pdf_url || (data?.logo_url && String(data.logo_url).toLowerCase().includes('.pdf') ? data.logo_url : undefined),
   };
   _settingsCacheMap.set(tenantId, { data: settings, at: now });
   return settings;
@@ -440,9 +440,6 @@ async function welcomeScreen(isReturning = false, tenantId?: string): Promise<Bo
 
   return {
     text: greeting,
-    document_url: menuPdfUrl,
-    document_filename: 'Carta_Menu.pdf',
-    document_caption: '📖 Aquí tienes nuestra carta completa con todos los platillos y descripciones.',
     reply_markup: {
       inline_keyboard: buttons,
     },

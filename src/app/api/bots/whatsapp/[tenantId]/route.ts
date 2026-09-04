@@ -294,6 +294,7 @@ export async function POST(
             caption: response.document_caption || '📖 Carta y Menú del Restaurante',
             apiKey: creds.apiKey,
           });
+          await new Promise((r) => setTimeout(r, 450));
         }
         if (response.text) {
           const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
@@ -331,6 +332,7 @@ export async function POST(
                 caption: response.document_caption || '📖 Carta y Menú del Restaurante',
                 apiKey: creds.apiKey,
               });
+              await new Promise((r) => setTimeout(r, 450));
             }
             if (response.text) {
               const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
@@ -396,6 +398,7 @@ export async function POST(
             caption: response.document_caption || '📖 Carta y Menú del Restaurante',
             apiKey: creds.apiKey,
           });
+          await new Promise((r) => setTimeout(r, 450));
         }
         if (response.text) {
           const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
@@ -479,6 +482,7 @@ export async function POST(
         caption: response.document_caption || '📖 Carta y Menú del Restaurante',
         apiKey: creds.apiKey,
       });
+      await new Promise((r) => setTimeout(r, 450));
     }
 
     if (response.text) {

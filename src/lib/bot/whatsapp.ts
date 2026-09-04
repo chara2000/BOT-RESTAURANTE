@@ -13,6 +13,29 @@ export interface WhatsAppButton {
 }
 
 /**
+ * Normalizes phone numbers to international E.164 format (+[country_code][number]).
+ * Automatically formats Colombian 10-digit mobile numbers (starting with 3) as +57XXXXXXXXXX.
+ */
+export function formatE164(phone?: string): string | undefined {
+  if (!phone) return undefined;
+  const trimmed = phone.trim();
+  if (trimmed.startsWith('+')) {
+    return `+${trimmed.slice(1).replace(/\D/g, '')}`;
+  }
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits) return undefined;
+  // If 10 digits starting with 3 (e.g. Colombian mobile 3116215266), prepend +57
+  if (digits.length === 10 && digits.startsWith('3')) {
+    return `+57${digits}`;
+  }
+  // If 12 digits starting with 57 (Colombia with country code but no +)
+  if (digits.length === 12 && digits.startsWith('57')) {
+    return `+${digits}`;
+  }
+  return `+${digits}`;
+}
+
+/**
  * Sends a plain text message (or with up to 3 quick-reply buttons) via YCloud.
  */
 export async function sendWhatsAppMessage({
@@ -33,8 +56,8 @@ export async function sendWhatsAppMessage({
     return false;
   }
 
-  // Format sender phone number E.164 if provided
-  let cleanFrom = from ? (from.startsWith('+') ? from : `+${from.replace(/\D/g, '')}`) : undefined;
+  const cleanFrom = formatE164(from);
+  const cleanTo = formatE164(to) || to;
 
   // Strip Markdown formatting that Telegram uses but WhatsApp doesn't support
   const cleanText = text
@@ -56,7 +79,7 @@ export async function sendWhatsAppMessage({
 
     body = {
       ...(cleanFrom ? { from: cleanFrom } : {}),
-      to,
+      to: cleanTo,
       type: 'interactive',
       interactive: {
         type: 'button',
@@ -68,14 +91,14 @@ export async function sendWhatsAppMessage({
     // Plain text message
     body = {
       ...(cleanFrom ? { from: cleanFrom } : {}),
-      to,
+      to: cleanTo,
       type: 'text',
       text: { body: cleanText },
     };
   }
 
   try {
-    const res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
+    let res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -84,14 +107,30 @@ export async function sendWhatsAppMessage({
       body: JSON.stringify(body),
     });
 
-    const resText = await res.text().catch(() => '');
+    // If sending with 'from' failed (e.g. sender mismatch or invalid phone format),
+    // retry without 'from' so YCloud automatically routes through the account's registered number
+    if (!res.ok && cleanFrom) {
+      const resErr = await res.text().catch(() => '');
+      console.warn('[ycloud] Message send failed with from, retrying without from...', res.status, resErr);
+      const bodyNoFrom = { ...body };
+      delete (bodyNoFrom as any).from;
+      res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify(bodyNoFrom),
+      });
+    }
 
     if (!res.ok) {
+      const resText = await res.text().catch(() => '');
       console.error('[ycloud] Failed to send message:', res.status, resText);
-      // Fallback: if interactive message failed, retry as plain text
+      // Fallback: if interactive message failed, retry as plain text without buttons and without 'from'
       if (buttons && buttons.length > 0) {
         console.log('[ycloud] Retrying as plain text without buttons...');
-        return await sendWhatsAppMessage({ to, text, apiKey });
+        return await sendWhatsAppMessage({ to: cleanTo, text, apiKey });
       }
       return false;
     }
@@ -122,32 +161,47 @@ export async function sendWhatsAppDocument({
   apiKey: string;
 }): Promise<boolean> {
   if (!apiKey || !to || !documentUrl) {
-    console.warn('[ycloud] Missing apiKey, recipient number, or documentUrl');
+    console.warn('[ycloud] Missing apiKey, recipient number, or documentUrl', { hasKey: !!apiKey, to, documentUrl });
     return false;
   }
 
-  let cleanFrom = from ? (from.startsWith('+') ? from : `+${from.replace(/\D/g, '')}`) : undefined;
+  const cleanFrom = formatE164(from);
+  const cleanTo = formatE164(to) || to;
 
-  const body = {
-    ...(cleanFrom ? { from: cleanFrom } : {}),
-    to,
+  const buildBody = (includeFrom: boolean) => ({
+    ...(includeFrom && cleanFrom ? { from: cleanFrom } : {}),
+    to: cleanTo,
     type: 'document',
     document: {
       link: documentUrl,
-      filename,
+      filename: filename || 'Carta_Menu.pdf',
       ...(caption ? { caption } : {}),
     },
-  };
+  });
 
   try {
-    const res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
+    let res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': apiKey,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(buildBody(true)),
     });
+
+    // If failed and 'from' was passed, retry WITHOUT 'from' so YCloud routes through account's default number
+    if (!res.ok && cleanFrom) {
+      const resErr = await res.text().catch(() => '');
+      console.warn('[ycloud] Document send failed with from, retrying without from...', res.status, resErr);
+      res = await fetch(`${YCLOUD_BASE}/whatsapp/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify(buildBody(false)),
+      });
+    }
 
     if (!res.ok) {
       const resText = await res.text().catch(() => '');
@@ -155,6 +209,7 @@ export async function sendWhatsAppDocument({
       return false;
     }
 
+    console.log('[ycloud] Document sent successfully to', cleanTo);
     return true;
   } catch (err) {
     console.error('[ycloud] Network error sending document:', (err as Error).message);

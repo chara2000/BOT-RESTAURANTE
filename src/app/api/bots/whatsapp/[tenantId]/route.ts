@@ -138,12 +138,13 @@ function formatWhatsAppResponse(
     return { text: formattedText, buttons };
   }
 
-  // Check if options are list items (categories, products, additions, ver todo el menú)
+  // Check if options are list items (categories, products, additions, ver todo el menú, carta pdf)
   const isListOptions = flatButtons.some(b => 
     b.callback_data.startsWith('cat:') || 
     b.callback_data.startsWith('product:') || 
-    b.callback_data.startsWith('add_ad:') ||
-    b.callback_data.startsWith('add_addition:')
+    b.callback_data.startsWith('add_ad:') || 
+    b.callback_data.startsWith('add_addition:') ||
+    b.callback_data === 'view_pdf_menu'
   );
 
   if (isListOptions) {
@@ -151,15 +152,16 @@ function formatWhatsAppResponse(
     const itemButtons = flatButtons.filter(b => 
       b.callback_data.startsWith('cat:') || 
       b.callback_data.startsWith('product:') || 
-      b.callback_data.startsWith('add_ad:') ||
-      b.callback_data.startsWith('add_addition:')
+      b.callback_data.startsWith('add_ad:') || 
+      b.callback_data.startsWith('add_addition:') ||
+      b.callback_data === 'view_pdf_menu'
     );
 
     const actionButtons = flatButtons.filter(b => !itemButtons.includes(b));
 
     lastChatButtons.set(chatIdStr, itemButtons);
 
-    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
+    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '1️⃣1️⃣', '1️⃣2️⃣', '1️⃣3️⃣', '1️⃣4️⃣', '1️⃣5️⃣'];
     const listLines = itemButtons.map((b, idx) => {
       const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
       return `${emoji} ${b.text}`;
@@ -278,6 +280,37 @@ export async function POST(
     const trimmed = text.trim();
     const cachedBtns = lastChatButtons.get(chatIdStr);
 
+    // Direct keyword check for PDF menu
+    const cleanLower = trimmed.toLowerCase();
+    if (['carta', 'pdf', 'la carta', 'ver carta', 'ver pdf', 'menu pdf', 'carta pdf', 'descargar carta'].includes(cleanLower)) {
+      try {
+        const response = await processCallback(chatId, 'view_pdf_menu', username, tenantId);
+        if (response.document_url) {
+          await sendWhatsAppDocument({
+            from: senderFrom,
+            to: recipientTo,
+            documentUrl: response.document_url,
+            filename: response.document_filename || 'Carta_Menu.pdf',
+            caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+            apiKey: creds.apiKey,
+          });
+        }
+        if (response.text) {
+          const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
+          await sendWhatsAppMessage({
+            from: senderFrom,
+            to: recipientTo,
+            text: formatted.text,
+            buttons: formatted.buttons,
+            apiKey: creds.apiKey,
+          });
+        }
+        return NextResponse.json({ ok: true });
+      } catch (err) {
+        console.error('[bot/whatsapp] direct carta error:', (err as Error).message);
+      }
+    }
+
     // Parse tokens like "1", "1, 2", "1 y 3", "2 4"
     const numTokens = trimmed.split(/[\s,yY+]+/).filter(Boolean);
     const nums = numTokens.map(t => parseInt(t, 10)).filter(n => !isNaN(n));
@@ -289,6 +322,16 @@ export async function POST(
         if (btn?.callback_data) {
           try {
             const response = await processCallback(chatId, btn.callback_data, username, tenantId);
+            if (response.document_url) {
+              await sendWhatsAppDocument({
+                from: senderFrom,
+                to: recipientTo,
+                documentUrl: response.document_url,
+                filename: response.document_filename || 'Carta_Menu.pdf',
+                caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+                apiKey: creds.apiKey,
+              });
+            }
             if (response.text) {
               const formatted = formatWhatsAppResponse(chatIdStr, response.text, response.reply_markup);
               await sendWhatsAppMessage({

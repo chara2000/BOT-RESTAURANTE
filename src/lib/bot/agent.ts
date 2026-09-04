@@ -224,7 +224,7 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
 
   const { data, error } = await supabase
     .from('tenant_settings')
-    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone, nequi_number, bancolombia_number, bancolombia_type, menu_pdf_url')
+    .select('delivery_fee, business_hours, coverage_city, coverage_department, coverage_keywords, coverage_require_keywords, restaurant_lat, restaurant_lng, whatsapp_phone, logo_url')
     .eq('tenant_id', tenantId)
     .single();
 
@@ -244,10 +244,10 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
     coverage_require_keywords: data?.coverage_require_keywords ?? false,
     restaurant_lat: data?.restaurant_lat != null ? Number(data.restaurant_lat) : undefined,
     restaurant_lng: data?.restaurant_lng != null ? Number(data.restaurant_lng) : undefined,
-    nequi_number: data?.nequi_number || accounts.nequi_number,
-    bancolombia_number: data?.bancolombia_number || accounts.bancolombia_number,
-    bancolombia_type: data?.bancolombia_type || accounts.bancolombia_type || 'Ahorros',
-    menu_pdf_url: data?.menu_pdf_url || undefined,
+    nequi_number: accounts.nequi_number,
+    bancolombia_number: accounts.bancolombia_number,
+    bancolombia_type: accounts.bancolombia_type || 'Ahorros',
+    menu_pdf_url: (data as any)?.menu_pdf_url || (data?.logo_url && String(data.logo_url).includes('.pdf') ? data.logo_url : undefined),
   };
   _settingsCacheMap.set(tenantId, { data: settings, at: now });
   return settings;
@@ -416,9 +416,13 @@ async function welcomeScreen(isReturning = false, tenantId?: string): Promise<Bo
     } catch {}
   }
 
-  const greeting = isReturning
+  let greeting = isReturning
     ? `👋 ¡Bienvenido de nuevo a *ChefFlow*! 👏\n\n¿Qué vas a pedir hoy?`
     : `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`;
+
+  if (menuPdfUrl) {
+    greeting += `\n\n📄 *Carta Digital en PDF:* ${menuPdfUrl}`;
+  }
 
   const buttons: { text: string; callback_data: string }[][] = [
     [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
@@ -476,8 +480,16 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
       console.warn('Failed to query default menu image:', e);
     }
 
+    let menuText = '🍽️ *Nuestro Menú*\n\nSelecciona una categoría:';
+    if (settings?.menu_pdf_url) {
+      menuText = `🍽️ *Nuestro Menú*\n\n📄 *Carta completa en PDF:* ${settings.menu_pdf_url}\n\nSelecciona una categoría:`;
+    }
+
     return {
-      text: '🍽️ *Nuestro Menú*\n\nSelecciona una categoría:',
+      text: menuText,
+      document_url: settings?.menu_pdf_url || undefined,
+      document_filename: 'Carta_Menu.pdf',
+      document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',
       image_url: defaultImage || undefined,
       reply_markup: { inline_keyboard: buttons },
     };
@@ -1580,7 +1592,8 @@ async function handleProcessMessage(
     if (['hola', 'buenas', 'buenos', 'hi', 'hello', 'start', '/start', 'saludos', 'buenas tardes', 'buenos dias', 'buenas noches', 'empezar'].some(w => rawText.startsWith(w) || rawText === w)) {
       return welcomeScreen(false, tenantId);
     }
-    if (['carta', 'ver carta', 'pdf', 'ver pdf', 'menu pdf', 'carta pdf', 'descargar carta'].includes(rawText)) {
+    const cleanCmd = rawText.toLowerCase().trim();
+    if (['carta', 'ver carta', 'pdf', 'ver pdf', 'menu pdf', 'carta pdf', 'descargar carta', 'la carta'].some(k => cleanCmd === k || cleanCmd.startsWith(k) || cleanCmd.endsWith(k) || cleanCmd.includes('carta') || cleanCmd.includes('pdf'))) {
       const settings = await getTenantSettings(tenantId);
       if (settings.menu_pdf_url) {
         return {
@@ -1722,6 +1735,7 @@ async function handleProcessCallback(
   // Acciones permitidas siempre (aún estando cerrado)
   const isAllowedAction =
     callbackData === 'menu' ||
+    callbackData === 'view_pdf_menu' ||
     callbackData.startsWith('cat:') ||
     callbackData.startsWith('product:') ||
     callbackData.startsWith('quick_add:') ||
@@ -1869,6 +1883,29 @@ async function handleProcessCallback(
     session.selectedProduct = undefined;
     session.pendingItem = undefined;
     return contactManagerScreen(session);
+  }
+  if (callbackData === 'view_pdf_menu') {
+    const settings = await getTenantSettings(tenantId);
+    if (settings.menu_pdf_url) {
+      return {
+        text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+        document_url: settings.menu_pdf_url,
+        document_filename: 'Carta_Menu.pdf',
+        document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🍽️ Ver Menú Interactivo', callback_data: 'menu' }],
+            [{ text: '🛒 Ver Carrito', callback_data: 'cart' }],
+          ],
+        },
+      };
+    }
+    return {
+      text: '⚠️ La carta en PDF no se encuentra configurada en este momento.',
+      reply_markup: {
+        inline_keyboard: [[{ text: '🍽️ Ver Menú', callback_data: 'menu' }]],
+      },
+    };
   }
   if (callbackData.startsWith('track:')) return handleTrackOrder(session, callbackData.replace('track:', ''));
   if (callbackData.startsWith('show_additions:')) {

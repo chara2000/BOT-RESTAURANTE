@@ -129,6 +129,11 @@ export async function POST(
 
     try {
       const response = await processCallback(chatId, data, username, tenantId, botCredentials);
+      if (response.document_url) {
+        await bot.telegram.sendDocument(chatId, response.document_url, {
+          caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+        }).catch((e: any) => console.warn('[bot/telegram] Error sending document:', e?.message));
+      }
       await sendReply(bot, chatId, response.text, response.reply_markup, (response as any).image_url);
     } catch (err) {
       console.error('[bot/telegram] processCallback error:', (err as Error).message);
@@ -198,6 +203,11 @@ export async function POST(
 
     try {
       const response = await processMessage(chatId, rawText, username, tenantId, { isPhoto, photoId: uploadedPhotoUrl, location }, botCredentials);
+      if (response.document_url) {
+        await bot.telegram.sendDocument(chatId, response.document_url, {
+          caption: response.document_caption || '📖 Carta y Menú del Restaurante',
+        }).catch((e: any) => console.warn('[bot/telegram] Error sending document:', e?.message));
+      }
       await sendReply(bot, chatId, response.text, response.reply_markup, (response as any).image_url);
     } catch (err) {
       console.error('[bot/telegram] processMessage error:', (err as Error).message);

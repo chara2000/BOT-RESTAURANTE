@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       .maybeSingle(),
     supabase
       .from('tenants')
-      .select('name')
+      .select('name, logo_url')
       .eq('id', targetTenantId)
       .maybeSingle(),
     supabase
@@ -267,7 +267,12 @@ export async function GET(request: Request) {
     customers: (customersRes.data ?? []).map((row) => mapCustomer(row as Record<string, unknown>)),
     inventory: (inventoryRes.data ?? []).map((row) => mapInventory(row as Record<string, unknown>)),
     settings: settingsRes.data
-      ? mapSettings({ ...(settingsRes.data as Record<string, unknown>), restaurant_name: tenantRes.data?.name })
+      ? mapSettings({
+          ...(settingsRes.data as Record<string, unknown>),
+          restaurant_name: tenantRes.data?.name,
+          logo_url: tenantRes.data?.logo_url,
+          menu_pdf_url: (settingsRes.data as any)?.menu_pdf_url || ((settingsRes.data as any)?.logo_url && String((settingsRes.data as any)?.logo_url).includes('.pdf') ? (settingsRes.data as any)?.logo_url : undefined),
+        })
       : null,
     cashSession,
     deliveries: finalDeliveries,

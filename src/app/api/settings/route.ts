@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient, getTenantId } from '@/lib/supabase/server';
-import { encodePaymentAccounts } from '@/services/supabaseMapper';
+import { encodePaymentAccounts, decodePaymentAccounts } from '@/services/supabaseMapper';
 
 // Columns that actually exist in tenant_settings — never include columns from other tables
 const TENANT_SETTINGS_COLUMNS = [
@@ -27,6 +27,7 @@ const TENANT_SETTINGS_COLUMNS = [
   'restaurant_lng',
   'auto_assign_riders',
   'allow_external_riders',
+  'logo_url',
   'updated_at',
 ];
 
@@ -56,10 +57,14 @@ export async function GET(request: Request) {
     .eq('id', tenantId)
     .maybeSingle();
 
+  const accounts = decodePaymentAccounts((settingsRow as any)?.whatsapp_phone ? String((settingsRow as any).whatsapp_phone) : undefined);
+
   const merged: Record<string, unknown> = {
     ...((settingsRow as Record<string, unknown> | null) ?? {}),
     restaurant_name: tenantRow?.name ?? '',
     logo_url: tenantRow?.logo_url ?? '',
+    menu_pdf_url: (settingsRow as any)?.menu_pdf_url || ((settingsRow as any)?.logo_url && String((settingsRow as any)?.logo_url).includes('.pdf') ? (settingsRow as any)?.logo_url : ''),
+    ...accounts,
   };
 
   return NextResponse.json(merged);
@@ -78,7 +83,9 @@ export async function PATCH(request: Request) {
   const tenantUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.restaurant_name !== undefined) tenantUpdates.name = String(body.restaurant_name).trim();
   if (body.name !== undefined) tenantUpdates.name = String(body.name).trim();
-  if (body.logo_url !== undefined) tenantUpdates.logo_url = String(body.logo_url).trim();
+  if (body.logo_url !== undefined && !String(body.logo_url).includes('.pdf')) {
+    tenantUpdates.logo_url = String(body.logo_url).trim();
+  }
 
   if (Object.keys(tenantUpdates).length > 1) {
     const { error: tenantErr } = await supabase
@@ -90,17 +97,18 @@ export async function PATCH(request: Request) {
     }
   }
 
-  if (body.nequi_number !== undefined || body.bancolombia_number !== undefined || body.bancolombia_type !== undefined) {
-    body.whatsapp_phone = encodePaymentAccounts(body.nequi_number, body.bancolombia_number, body.bancolombia_type);
-  }
-
   // Only include keys that actually exist in tenant_settings
   const allowed = [
     'delivery_fee',
     'telegram_bot_token',
+    'telegram_webhook_secret',
+    'telegram_admin_chat_id',
     'telegram_enabled',
     'whatsapp_enabled',
     'whatsapp_phone',
+    'ycloud_api_key',
+    'ycloud_phone_number',
+    'ycloud_webhook_secret',
     'ai_enabled',
     'ai_model',
     'payment_methods',
@@ -111,12 +119,9 @@ export async function PATCH(request: Request) {
     'coverage_require_keywords',
     'restaurant_lat',
     'restaurant_lng',
-    'nequi_number',
-    'bancolombia_number',
-    'bancolombia_type',
-    'menu_pdf_url',
     'auto_assign_riders',
     'allow_external_riders',
+    'logo_url',
   ];
 
   const patch: Record<string, unknown> = {
@@ -126,6 +131,14 @@ export async function PATCH(request: Request) {
 
   for (const key of allowed) {
     if (body[key] !== undefined) patch[key] = body[key];
+  }
+
+  if (body.nequi_number !== undefined || body.bancolombia_number !== undefined || body.bancolombia_type !== undefined) {
+    patch.whatsapp_phone = encodePaymentAccounts(body.nequi_number, body.bancolombia_number, body.bancolombia_type);
+  }
+
+  if (body.menu_pdf_url !== undefined) {
+    patch.logo_url = String(body.menu_pdf_url).trim();
   }
 
   // Only update if there are actual fields to update (beyond tenant_id and updated_at)
@@ -157,10 +170,18 @@ export async function PATCH(request: Request) {
     .eq('id', tenantId)
     .maybeSingle();
 
+  const accounts = decodePaymentAccounts(
+    (updatedSettings as any)?.whatsapp_phone
+      ? String((updatedSettings as any).whatsapp_phone)
+      : (patch.whatsapp_phone ? String(patch.whatsapp_phone) : undefined)
+  );
+
   const responseData: Record<string, unknown> = {
     ...((updatedSettings as Record<string, unknown> | null) ?? (patch as Record<string, unknown>)),
     restaurant_name: updatedTenant?.name ?? body.restaurant_name ?? body.name,
     logo_url: updatedTenant?.logo_url ?? body.logo_url,
+    menu_pdf_url: (updatedSettings as any)?.menu_pdf_url || (updatedSettings as any)?.logo_url || body.menu_pdf_url || '',
+    ...accounts,
   };
 
   return NextResponse.json(responseData);

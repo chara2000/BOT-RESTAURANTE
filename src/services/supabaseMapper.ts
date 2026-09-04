@@ -151,8 +151,10 @@ export function mapSettings(row: Record<string, unknown>): Partial<TenantSetting
     nequi_number: row.nequi_number ? String(row.nequi_number) : paymentAccounts.nequi_number,
     bancolombia_number: row.bancolombia_number ? String(row.bancolombia_number) : paymentAccounts.bancolombia_number,
     bancolombia_type: row.bancolombia_type ? String(row.bancolombia_type) : paymentAccounts.bancolombia_type,
-    // Carta o Menú PDF
-    menu_pdf_url: row.menu_pdf_url ? String(row.menu_pdf_url) : undefined,
+    // Carta o Menú PDF (soporta columna dedicada o guardado en logo_url)
+    menu_pdf_url: row.menu_pdf_url
+      ? String(row.menu_pdf_url)
+      : (row.logo_url && String(row.logo_url).includes('.pdf') ? String(row.logo_url) : undefined),
     // Ubicación exacta del restaurante
     restaurant_lat: row.restaurant_lat != null ? Number(row.restaurant_lat) : undefined,
     restaurant_lng: row.restaurant_lng != null ? Number(row.restaurant_lng) : undefined,

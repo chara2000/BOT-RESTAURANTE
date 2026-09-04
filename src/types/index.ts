@@ -47,6 +47,7 @@ export interface Customer {
   total_spent: number;
   order_count: number;
   address_default?: string;
+  created_at?: string;
 }
 
 export interface Order {
@@ -123,6 +124,7 @@ export interface DeliveryAssignment {
 
 export interface DashboardStats {
   salesToday: number;
+  salesYesterday?: number;
   salesWeek: number;
   salesMonth: number;
   activeOrders: number;

@@ -263,7 +263,7 @@ import { useUIModal } from '@/components/ui/UIModal';
 
 export default function PedidosPage() {
   const { showConfirm } = useUIModal();
-  const { orders, deliveries, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings, categories, activeTenantId } = useAppData();
+  const { orders, deliveries, updateOrderStatus, deleteOrder, updateOrderDetails, products, customers, addOrder, settings, categories, activeTenantId, cashSession } = useAppData();
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [printingOrder, setPrintingOrder] = useState<Order | null>(null);
   const [dbRiders, setDbRiders] = useState<any[]>([]);
@@ -357,8 +357,17 @@ export default function PedidosPage() {
     }
   };
 
-  // Órdenes filtradas por tipo, categoría y búsqueda (aplica a Kanban y Lista)
+  // Solo mostrar pedidos creados DESPUÉS de abrir la caja actual (Turno en curso)
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+
+  // Órdenes filtradas por turno de caja, tipo, categoría y búsqueda
   const baseFilteredOrders = orders.filter(o => {
+    // Si hay una sesión de caja activa/abierta, solo mostrar pedidos a partir de su apertura
+    if (sessionOpenedTime > 0) {
+      const orderTime = new Date(o.created_at).getTime();
+      if (orderTime < sessionOpenedTime) return false;
+    }
+
     if (filterType !== 'all' && o.type !== filterType) return false;
     
     if (filterCategory !== 'all') {

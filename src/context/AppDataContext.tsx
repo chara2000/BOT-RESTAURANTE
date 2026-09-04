@@ -48,6 +48,7 @@ interface AppDataContextValue {
   inventory: InventoryItem[];
   stockMovements: StockMovement[];
   cashSession: CashSession;
+  pastCashSessions: CashSession[];
   settings: TenantSettings;
   deliveries: DeliveryAssignment[];
   updateOrderStatus: (orderId: string, status: OrderStatus) => Promise<void>;
@@ -82,11 +83,30 @@ interface AppDataContextValue {
 
 const AppDataContext = createContext<AppDataContextValue | null>(null);
 
+export function getLocalDayString(dateInput: Date | string = new Date()): string {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
 function computeStats(orders: Order[], customers: Customer[], products: Product[]): DashboardStats {
-  const today = new Date().toISOString().slice(0, 10);
+  const todayStr = getLocalDayString(new Date());
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterdayStr = getLocalDayString(yesterdayDate);
+
   const delivered = orders.filter((o) => o.status === 'delivered');
   const validOrders = orders.filter((o) => !['cancelled', 'draft'].includes(o.status));
-  const todayOrders = validOrders.filter((o) => o.created_at.startsWith(today));
+  const todayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === todayStr);
+  const yesterdayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === yesterdayStr);
+
   const weekAgo = Date.now() - 7 * 86400000;
   const monthAgo = Date.now() - 30 * 86400000;
 
@@ -148,6 +168,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
 
   return {
     salesToday: sum(todayOrders),
+    salesYesterday: sum(yesterdayOrders),
     salesWeek: sum(weekOrders),
     salesMonth: sum(monthOrders),
     activeOrders: active.length,
@@ -172,6 +193,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [inventory, setInventory] = useState<InventoryItem[]>(useSupabase ? [] : initialInventory);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>(useSupabase ? [] : initialStockMovements);
   const [cashSession, setCashSession] = useState<CashSession>(initialCashSession);
+  const [pastCashSessions, setPastCashSessions] = useState<CashSession[]>([]);
   const [settings, setSettings] = useState<TenantSettings>(initialSettings);
   const [deliveries, setDeliveries] = useState<DeliveryAssignment[]>(
     useSupabase ? [] : initialOrders
@@ -275,6 +297,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           opened_at: new Date().toISOString(),
           transactions: [],
         });
+      }
+      if (data.pastCashSessions) {
+        setPastCashSessions(data.pastCashSessions);
       }
       if (data.settings) setSettings((prev) => ({ ...prev, ...data.settings }));
       if (data.allTenants && data.allTenants.length > 0) setAllTenants(data.allTenants);
@@ -1018,7 +1043,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      categories, orders, products, customers, inventory, stockMovements, cashSession, pastCashSessions, settings, deliveries,
       updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
@@ -1026,7 +1051,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       selectedTenantId, activeTenantId, setSelectedTenantId, allTenants,
     }),
     [
-      categories, orders, products, customers, inventory, stockMovements, cashSession, settings, deliveries,
+      categories, orders, products, customers, inventory, stockMovements, cashSession, pastCashSessions, settings, deliveries,
       updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
       addCashTransaction, openCashRegister, closeCashRegister, updateSettings,

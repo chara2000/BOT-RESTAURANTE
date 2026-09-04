@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Crown, MessageCircle, Phone, Star, User, Search, Filter, ChevronLeft, ChevronRight, MapPin, LayoutGrid, Table as TableIcon } from 'lucide-react';
+import { Crown, MessageCircle, Phone, Star, User, Search, Filter, ChevronLeft, ChevronRight, MapPin, LayoutGrid, Table as TableIcon, Calendar } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
 import { SEGMENT_LABELS } from '@/types';
 
@@ -18,6 +18,9 @@ export default function ClientesPage() {
   const { customers } = useAppData();
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -34,6 +37,28 @@ export default function ClientesPage() {
     if (segmentFilter !== 'all' && c.segment !== segmentFilter) {
       return false;
     }
+
+    if (dateFilter !== 'all' && c.created_at) {
+      const custDateStr = getLocalDayString(c.created_at);
+      const todayStr = getLocalDayString(new Date());
+      const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+      
+      if (dateFilter === 'today') {
+        if (custDateStr !== todayStr) return false;
+      } else if (dateFilter === 'yesterday') {
+        if (custDateStr !== yesterdayStr) return false;
+      } else if (dateFilter === 'week') {
+        const weekAgo = Date.now() - 7 * 86400000;
+        if (new Date(c.created_at).getTime() < weekAgo) return false;
+      } else if (dateFilter === 'month') {
+        const monthAgo = Date.now() - 30 * 86400000;
+        if (new Date(c.created_at).getTime() < monthAgo) return false;
+      } else if (dateFilter === 'custom') {
+        if (dateFrom && custDateStr < dateFrom) return false;
+        if (dateTo && custDateStr > dateTo) return false;
+      }
+    }
+
     return true;
   });
 
@@ -63,6 +88,42 @@ export default function ClientesPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+            {/* Date Filter */}
+            <div className="relative">
+              <select
+                value={dateFilter}
+                onChange={(e) => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
+                className="pl-9 pr-8 py-3 rounded-2xl text-xs font-bold bg-[var(--bg-card)] border outline-none cursor-pointer text-[var(--text-primary)]"
+                style={{ borderColor: 'var(--border)' }}
+              >
+                <option value="all">📅 Todos los registros</option>
+                <option value="today">📅 Registrados Hoy</option>
+                <option value="yesterday">📅 Registrados Ayer</option>
+                <option value="week">📅 Últimos 7 días</option>
+                <option value="month">📅 Este Mes</option>
+                <option value="custom">📅 Rango personalizado</option>
+              </select>
+              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
+            </div>
+
+            {dateFilter === 'custom' && (
+              <div className="flex items-center gap-2 bg-[var(--bg-card)] px-3 py-1.5 rounded-2xl border" style={{ borderColor: 'var(--border)' }}>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => { setDateFrom(e.target.value); setCurrentPage(1); }}
+                  className="text-xs font-bold bg-transparent outline-none text-[var(--text-primary)]"
+                />
+                <span className="text-xs text-[var(--text-muted)]">-</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => { setDateTo(e.target.value); setCurrentPage(1); }}
+                  className="text-xs font-bold bg-transparent outline-none text-[var(--text-primary)]"
+                />
+              </div>
+            )}
+
             <div className="relative">
               <select
                 value={segmentFilter}

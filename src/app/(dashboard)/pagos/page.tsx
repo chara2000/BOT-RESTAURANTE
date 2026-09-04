@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Topbar } from '@/components/layout/Topbar';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import {
   CheckCircle, XCircle, Image as ImageIcon, Clock, AlertCircle, RefreshCw,
   Layers, CreditCard, ChevronLeft, ChevronRight, Search, Calendar, Filter,
@@ -22,7 +22,7 @@ export default function PagosPage() {
   const [search, setSearch] = useState('');
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'custom'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -43,7 +43,7 @@ export default function PagosPage() {
     transfer: 'Transferencia',
   };
 
-  // Filter orders according to all active criteria - NO hardcoded 7-day cutoff!
+  // Filter orders according to all active criteria
   const filteredPosOrders = orders.filter((o) => {
     // Payment method filter
     if (selectedMethod !== 'all' && o.payment_method !== selectedMethod) {
@@ -61,25 +61,23 @@ export default function PagosPage() {
 
     // Date filter
     if (dateFilter !== 'all') {
-      const orderDate = new Date(o.created_at);
-      const now = new Date();
+      const orderDateStr = getLocalDayString(o.created_at);
+      const todayStr = getLocalDayString(new Date());
+      const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+
       if (dateFilter === 'today') {
-        if (orderDate.toDateString() !== now.toDateString()) return false;
+        if (orderDateStr !== todayStr) return false;
+      } else if (dateFilter === 'yesterday') {
+        if (orderDateStr !== yesterdayStr) return false;
       } else if (dateFilter === 'week') {
         const weekAgo = Date.now() - 7 * 86400000;
-        if (orderDate.getTime() < weekAgo) return false;
+        if (new Date(o.created_at).getTime() < weekAgo) return false;
       } else if (dateFilter === 'month') {
         const monthAgo = Date.now() - 30 * 86400000;
-        if (orderDate.getTime() < monthAgo) return false;
+        if (new Date(o.created_at).getTime() < monthAgo) return false;
       } else if (dateFilter === 'custom') {
-        if (dateFrom) {
-          const from = new Date(`${dateFrom}T00:00:00`);
-          if (orderDate < from) return false;
-        }
-        if (dateTo) {
-          const to = new Date(`${dateTo}T23:59:59`);
-          if (orderDate > to) return false;
-        }
+        if (dateFrom && orderDateStr < dateFrom) return false;
+        if (dateTo && orderDateStr > dateTo) return false;
       }
     }
 
@@ -312,10 +310,11 @@ export default function PagosPage() {
                       style={{ borderColor: 'var(--border)' }}
                     >
                       <option value="all">📅 Todo el histórico</option>
-                      <option value="today">Hoy</option>
-                      <option value="week">Últimos 7 días</option>
-                      <option value="month">Últimos 30 días</option>
-                      <option value="custom">Rango Personalizado...</option>
+                      <option value="today">📅 Hoy</option>
+                      <option value="yesterday">📅 Ayer</option>
+                      <option value="week">📅 Últimos 7 días</option>
+                      <option value="month">📅 Últimos 30 días</option>
+                      <option value="custom">📅 Rango Personalizado...</option>
                     </select>
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
                   </div>

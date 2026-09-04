@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { MoreHorizontal, ArrowRight, TrendingUp, Clock, MapPin } from 'lucide-react';
+import { MoreHorizontal, ArrowRight, TrendingUp, Clock, MapPin, Calendar } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { StatCard } from '@/components/ui/StatCard';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { useTheme } from '@/context/ThemeContext';
 import { formatCompact, formatCurrency } from '@/lib/utils';
 
@@ -28,8 +28,42 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const { dark } = useTheme();
-  const { orders, stats, deliveries, settings, categories, products } = useAppData();
+  const { orders, stats, deliveries, settings, categories, products, customers } = useAppData();
   
+  // Period Selector: 'today' | 'yesterday' | 'week' | 'month' | 'all'
+  const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all'>('today');
+
+  const todayStr = getLocalDayString(new Date());
+  const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+  const weekAgo = Date.now() - 7 * 86400000;
+  const monthAgo = Date.now() - 30 * 86400000;
+
+  // Filtrado de pedidos según periodo seleccionado
+  const periodOrders = orders.filter((o) => {
+    const orderDateStr = getLocalDayString(o.created_at);
+    if (period === 'today') return orderDateStr === todayStr;
+    if (period === 'yesterday') return orderDateStr === yesterdayStr;
+    if (period === 'week') return new Date(o.created_at).getTime() >= weekAgo;
+    if (period === 'month') return new Date(o.created_at).getTime() >= monthAgo;
+    return true; // 'all'
+  });
+
+  const periodValidOrders = periodOrders.filter((o) => !['cancelled', 'draft'].includes(o.status));
+  const periodTotal = periodValidOrders.reduce((a, o) => a + (o.total || 0), 0);
+  const periodAvgTicket = periodValidOrders.length ? periodTotal / periodValidOrders.length : 0;
+  const periodDelivered = periodOrders.filter((o) => o.status === 'delivered').length;
+  const periodActive = periodOrders.filter((o) => !['delivered', 'cancelled', 'draft'].includes(o.status)).length;
+
+  const periodCustomers = customers.filter((c) => {
+    if (!c.created_at) return period === 'all';
+    const custDateStr = getLocalDayString(c.created_at);
+    if (period === 'today') return custDateStr === todayStr;
+    if (period === 'yesterday') return custDateStr === yesterdayStr;
+    if (period === 'week') return new Date(c.created_at).getTime() >= weekAgo;
+    if (period === 'month') return new Date(c.created_at).getTime() >= monthAgo;
+    return true;
+  });
+
   const isPuertoTejada = settings?.coverage_city?.toLowerCase().includes('puerto tejada') || false;
   const defaultCenter: [number, number] = isPuertoTejada ? [3.2311, -76.4167] : [6.2088, -75.5678];
   
@@ -38,12 +72,13 @@ export default function DashboardPage() {
 
   const activeDelivery = deliveries.find((d) => d.order.status === 'shipping');
   const orderList = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).slice(0, 4);
-  const recentOrders = orders.slice(0, 5);
+  const recentOrders = periodOrders.length > 0 ? periodOrders.slice(0, 5) : orders.slice(0, 5);
   const totalCart = orderList.reduce((a, o) => a + o.total, 0);
 
-  // Dynamic Category Breakdown from real orders
+  // Dynamic Category Breakdown from real orders of selected period
+  const targetOrdersForCategories = periodValidOrders.length > 0 ? periodValidOrders : orders;
   const categoryCounts = new Map<string, number>();
-  orders.forEach((o) => {
+  targetOrdersForCategories.forEach((o) => {
     o.items?.forEach((item) => {
       const catName = item.product?.category || 'General';
       categoryCounts.set(catName, (categoryCounts.get(catName) || 0) + item.quantity);
@@ -66,10 +101,11 @@ export default function DashboardPage() {
       ];
 
   // Dynamic Order Type Distribution (Mesa, Para Llevar, Domicilio)
-  const totalOrdersCount = orders.length || 1;
-  const dineInCount = orders.filter(o => o.type === 'dine_in').length;
-  const pickupCount = orders.filter(o => o.type === 'pickup').length;
-  const deliveryCount = orders.filter(o => o.type === 'delivery').length;
+  const targetOrdersForType = periodOrders.length > 0 ? periodOrders : orders;
+  const totalOrdersCount = targetOrdersForType.length || 1;
+  const dineInCount = targetOrdersForType.filter(o => o.type === 'dine_in').length;
+  const pickupCount = targetOrdersForType.filter(o => o.type === 'pickup').length;
+  const deliveryCount = targetOrdersForType.filter(o => o.type === 'delivery').length;
 
   const orderTypesData = [
     { label: 'Servicio en Mesa', pct: Math.round((dineInCount / totalOrdersCount) * 100), qty: dineInCount, color: 'var(--orange)' },
@@ -91,6 +127,49 @@ export default function DashboardPage() {
     highlight: i === 3,
   }));
 
+  const periodConfig = {
+    today: {
+      incomeTitle: 'Ingresos de Hoy',
+      incomeChange: stats.salesYesterday ? `Ayer: ${formatCompact(stats.salesYesterday)}` : 'Primer día',
+      ordersTitle: 'Órdenes de Hoy',
+      ordersChange: `${periodDelivered} completadas hoy`,
+      custTitle: 'Clientes Nuevos',
+      custChange: `${stats.returningCustomers} habituales`,
+    },
+    yesterday: {
+      incomeTitle: 'Ingresos de Ayer',
+      incomeChange: 'Auditoría jornada ayer',
+      ordersTitle: 'Órdenes de Ayer',
+      ordersChange: `${periodDelivered} completadas`,
+      custTitle: 'Clientes Registrados',
+      custChange: `${periodCustomers.length} en la jornada`,
+    },
+    week: {
+      incomeTitle: 'Ingresos (7 Días)',
+      incomeChange: 'Últimos 7 días',
+      ordersTitle: 'Órdenes (7 Días)',
+      ordersChange: `${periodDelivered} completadas`,
+      custTitle: 'Clientes (7 Días)',
+      custChange: `${periodCustomers.length} activos`,
+    },
+    month: {
+      incomeTitle: 'Ingresos del Mes',
+      incomeChange: 'Últimos 30 días',
+      ordersTitle: 'Órdenes del Mes',
+      ordersChange: `${periodDelivered} completadas`,
+      custTitle: 'Clientes del Mes',
+      custChange: `${periodCustomers.length} registrados`,
+    },
+    all: {
+      incomeTitle: 'Ingresos Totales',
+      incomeChange: 'Histórico consolidado',
+      ordersTitle: 'Total Órdenes',
+      ordersChange: `${periodDelivered} entregadas`,
+      custTitle: 'Total Directorio',
+      custChange: `${customers.length} registrados`,
+    },
+  }[period];
+
   return (
     <div className="relative flex-1 flex flex-col h-full overflow-hidden">
       {/* Elementos Dinámicos de Fondo para Profundidad */}
@@ -101,12 +180,54 @@ export default function DashboardPage() {
       
       <div className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-8 z-10 relative">
         <div className="max-w-7xl mx-auto">
+          {/* BARRA SELECTORA DE PERIODO HISTÓRICO */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 p-4 rounded-3xl border bg-[var(--bg-card)] shadow-sm animate-fade-in-up" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">Periodo de Análisis</p>
+                <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                  {period === 'today' && 'Visualizando jornada actual (Hoy)'}
+                  {period === 'yesterday' && 'Visualizando histórico contable de Ayer'}
+                  {period === 'week' && 'Visualizando consolidado de los últimos 7 días'}
+                  {period === 'month' && 'Visualizando consolidado de los últimos 30 días'}
+                  {period === 'all' && 'Visualizando histórico total acumulado'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 p-1 bg-[var(--bg-input)] rounded-2xl border" style={{ borderColor: 'var(--border)' }}>
+              {[
+                { id: 'today', label: 'Hoy' },
+                { id: 'yesterday', label: 'Ayer' },
+                { id: 'week', label: '7 Días' },
+                { id: 'month', label: '30 Días' },
+                { id: 'all', label: 'Todo el Histórico' },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPeriod(p.id as any)}
+                  className={`text-xs font-black px-3.5 py-1.5 rounded-xl transition-all cursor-pointer ${
+                    period === p.id
+                      ? 'bg-[var(--orange)] text-white shadow-md'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* GRILLA DE ESTADÍSTICAS */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-8 animate-fade-in-up">
-            <StatCard title="Ingresos de Hoy" value={formatCompact(stats.salesToday)} change="+2.1% vs ayer" up emoji="💰" />
-            <StatCard title="Órdenes Activas" value={String(stats.activeOrders)} change={`${stats.deliveredOrders} completadas`} up emoji="🧾" />
-            <StatCard title="Promedio por Orden" value={formatCompact(stats.avgTicket)} change="+0.8% esta semana" up emoji="📊" />
-            <StatCard title="Retención de Clientes" value={String(stats.returningCustomers)} change={`${stats.newCustomers} nuevos hoy`} up emoji="👥" />
+            <StatCard title={periodConfig.incomeTitle} value={formatCompact(periodTotal)} change={periodConfig.incomeChange} up emoji="💰" />
+            <StatCard title={periodConfig.ordersTitle} value={String(periodOrders.length)} change={periodConfig.ordersChange} up emoji="🧾" />
+            <StatCard title="Promedio por Orden" value={formatCompact(periodAvgTicket)} change={`${periodValidOrders.length} pedidos analizados`} up emoji="📊" />
+            <StatCard title={periodConfig.custTitle} value={String(periodCustomers.length)} change={periodConfig.custChange} up emoji="👥" />
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">

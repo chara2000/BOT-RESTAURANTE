@@ -86,8 +86,7 @@ export async function GET(request: Request) {
       .select('*, cash_transactions(*)')
       .eq('tenant_id', targetTenantId)
       .order('opened_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .limit(15),
     supabase
       .from('delivery_details')
       .select('*, profiles(name)')
@@ -177,8 +176,8 @@ export async function GET(request: Request) {
   }
 
   const ordersById = new Map<string, Order>(orders.map((order: Order) => [order.id, order]));
-  const cashRow = cashRes.data as (Record<string, unknown> & { cash_transactions?: Record<string, unknown>[] }) | null;
-  const cashSession: CashSession | null = cashRow ? {
+  const cashRows = ((cashRes.data ?? []) as (Record<string, unknown> & { cash_transactions?: Record<string, unknown>[] })[]);
+  const mapCashRow = (cashRow: Record<string, unknown> & { cash_transactions?: Record<string, unknown>[] }): CashSession => ({
     id: String(cashRow.id),
     opened_by: 'ChefFlow',
     opening_balance: Number(cashRow.opening_balance ?? 0),
@@ -195,7 +194,14 @@ export async function GET(request: Request) {
       description: String(tx.description ?? ''),
       created_at: String(tx.created_at),
     })).sort((a, b) => b.created_at.localeCompare(a.created_at)),
-  } : null;
+  });
+
+  // Pick first open session if any, otherwise the most recent one
+  const openCashRow = cashRows.find(c => c.status === 'open') || cashRows[0] || null;
+  const cashSession: CashSession | null = openCashRow ? mapCashRow(openCashRow) : null;
+  const pastCashSessions: CashSession[] = cashRows
+    .filter(c => !openCashRow || c.id !== openCashRow.id)
+    .map(mapCashRow);
 
   const deliveries: DeliveryAssignment[] = ((deliveryRes.data ?? []) as Record<string, unknown>[])
     .map((row) => {
@@ -275,6 +281,7 @@ export async function GET(request: Request) {
         })
       : null,
     cashSession,
+    pastCashSessions,
     deliveries: finalDeliveries,
     stockMovements,
     allTenants: allTenantsRes?.data ?? [],

@@ -33,6 +33,7 @@ export function mapCustomer(row: Record<string, unknown>): Customer {
     total_spent: Number(cust.total_spent ?? 0),
     order_count: Number(cust.order_count ?? 0),
     address_default: cust.address_default ? String(cust.address_default) : undefined,
+    created_at: cust.created_at ? String(cust.created_at) : undefined,
   };
 }
 

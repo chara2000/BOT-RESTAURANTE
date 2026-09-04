@@ -121,30 +121,15 @@ export async function PATCH(request: Request) {
         .in('order_id', activeIds);
     }
 
-    // 3. Regla de retención contable de 3 meses (90 días):
-    // Eliminar pedidos con más de 90 días de antigüedad
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: oldOrders } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('tenant_id', tenantId)
-      .lt('created_at', ninetyDaysAgo);
-
-    if (oldOrders && oldOrders.length > 0) {
-      purgedOrdersCount = oldOrders.length;
-      const oldIds = oldOrders.map((o) => o.id);
-      await supabase.from('order_items').delete().in('order_id', oldIds);
-      await supabase.from('delivery_details').delete().in('order_id', oldIds);
-      await supabase.from('orders').delete().in('id', oldIds);
-      console.log(`[CierreVenta] Purga de retención (3 meses): ${purgedOrdersCount} pedidos eliminados para ${tenantId}`);
-    }
+    // 3. Auditoría contable: Los pedidos históricos NUNCA se eliminan.
+    // Permanecen intactos en la base de datos para reportes, métricas y arqueos.
   } catch (archiveErr) {
-    console.warn('[CierreVenta] Error al archivar/purgar pedidos durante cierre:', archiveErr);
+    console.warn('[CierreVenta] Error al finalizar pedidos activos durante cierre:', archiveErr);
   }
 
   return NextResponse.json({
     ...data,
     archived_orders_count: archivedOrdersCount,
-    purged_orders_count: purgedOrdersCount,
+    purged_orders_count: 0,
   });
 }

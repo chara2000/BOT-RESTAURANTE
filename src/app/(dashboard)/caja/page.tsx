@@ -9,8 +9,9 @@ import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
 
 export default function CajaPage() {
-  const { cashSession, addCashTransaction, openCashRegister, closeCashRegister, orders } = useAppData();
+  const { cashSession, pastCashSessions, addCashTransaction, openCashRegister, closeCashRegister, orders } = useAppData();
   const [activeTab, setActiveTab] = useState<'pos' | 'admin'>('pos');
+  const [selectedPastSession, setSelectedPastSession] = useState<any | null>(null);
   const [txAmount, setTxAmount] = useState('');
   const [txDesc, setTxDesc] = useState('');
   const [txType, setTxType] = useState<'income' | 'expense'>('income');
@@ -371,6 +372,95 @@ export default function CajaPage() {
                     </form>
                   )}
                 </div>
+              </div>
+
+              {/* HISTORIAL DE CIERRES ANTERIORES */}
+              <div className="card p-6 rounded-3xl border bg-[var(--bg-card)] shadow-sm space-y-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                      <History className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-black text-[var(--text-primary)]">Historial de Cierres de Jornada</h3>
+                      <p className="text-[10px] font-bold text-[var(--text-muted)]">Arqueos y sesiones contables cerradas anteriormente</p>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-[var(--bg-input)] border text-[var(--text-muted)]" style={{ borderColor: 'var(--border)' }}>
+                    {pastCashSessions.length} cierres registrados
+                  </span>
+                </div>
+
+                {pastCashSessions.length === 0 ? (
+                  <p className="text-xs text-center py-6 font-bold" style={{ color: 'var(--text-muted)' }}>
+                    No hay sesiones anteriores registradas.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {pastCashSessions.map((session) => {
+                      const sessionSales = session.transactions.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+                      const isSelected = selectedPastSession?.id === session.id;
+
+                      return (
+                        <div
+                          key={session.id}
+                          onClick={() => setSelectedPastSession(isSelected ? null : session)}
+                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                            isSelected ? 'border-[var(--orange)] shadow-md bg-[var(--orange)]/5' : 'border-[var(--border)] hover:border-orange-500/30 bg-[var(--bg-input)]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                              Cerrada
+                            </span>
+                            <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                              {new Date(session.opened_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs">
+                            <div className="flex justify-between font-bold">
+                              <span style={{ color: 'var(--text-muted)' }}>Base Apertura:</span>
+                              <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(session.opening_balance)}</span>
+                            </div>
+                            <div className="flex justify-between font-bold">
+                              <span style={{ color: 'var(--text-muted)' }}>Ventas del Turno:</span>
+                              <span className="text-emerald-400 font-black">{formatCurrency(sessionSales)}</span>
+                            </div>
+                            <div className="flex justify-between font-bold">
+                              <span style={{ color: 'var(--text-muted)' }}>Saldo Cierre:</span>
+                              <span className="text-[var(--orange)] font-black">{formatCurrency(session.closing_balance ?? (session.opening_balance + sessionSales))}</span>
+                            </div>
+                            {session.difference !== undefined && (
+                              <div className="flex justify-between font-bold text-[11px] pt-1 border-t border-[var(--border)]">
+                                <span style={{ color: 'var(--text-muted)' }}>Diferencia:</span>
+                                <span className={session.difference === 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                  {formatCurrency(session.difference)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="mt-3 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[10px] font-black text-[var(--text-muted)]">
+                            <span>{session.transactions.length} transacciones</span>
+                            <span className="text-[var(--orange)]">{isSelected ? 'Ocultar detalle ▲' : 'Ver detalle ▼'}</span>
+                          </div>
+
+                          {isSelected && (
+                            <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2 max-h-48 overflow-y-auto">
+                              {session.transactions.map((tx) => (
+                                <div key={tx.id} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-[var(--bg-card)]">
+                                  <span className="truncate pr-2 font-medium" style={{ color: 'var(--text-primary)' }}>{tx.description}</span>
+                                  <span className="font-black shrink-0 text-emerald-400">+{formatCurrency(tx.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

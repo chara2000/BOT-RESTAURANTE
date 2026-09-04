@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { MapPin, Navigation, UserCheck, Bike, ChevronRight, Package, CheckCircle2, Share2, Eye, AlertTriangle, ChevronLeft } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { formatCurrency } from '@/lib/utils';
 import { ORDER_STATUS_LABELS } from '@/types';
 import type { OrderStatus } from '@/types';
@@ -42,9 +42,11 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
 };
 
 export default function DomiciliosPage() {
-  const { deliveries, assignRider, updateOrderStatus, settings, activeTenantId } = useAppData();
+  const { deliveries, assignRider, updateOrderStatus, settings, activeTenantId, cashSession } = useAppData();
   const [selected, setSelected] = useState(deliveries[0]?.order_id ?? '');
   const [message, setMessage] = useState<string | null>(null);
+  const [deliveryTab, setDeliveryTab] = useState<'shift' | 'history'>('shift');
+  const [historyPeriod, setHistoryPeriod] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [dbRiders, setDbRiders] = useState<any[]>([]);
 
@@ -52,13 +54,7 @@ export default function DomiciliosPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(6);
 
-  const active = deliveries.find((d) => d.order_id === selected) ?? deliveries[0];
-  
   const defaultCenter: [number, number] = [settings?.restaurant_lat ?? 3.2311, settings?.restaurant_lng ?? -76.4167];
-  
-  const coords: [number, number] = active 
-    ? [active.latitude, active.longitude] 
-    : defaultCenter;
 
   useEffect(() => {
     ridersService.getAll(activeTenantId)
@@ -68,14 +64,50 @@ export default function DomiciliosPage() {
       .catch((err) => console.error('Error fetching riders:', err));
   }, [activeTenantId]);
 
-  useEffect(() => {
-    if (deliveries.length && !selected) setSelected(deliveries[0].order_id);
-  }, [deliveries]);
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
 
   const filteredDeliveries = deliveries.filter((d) => {
+    // 1. Turno actual vs Historial
+    if (deliveryTab === 'shift') {
+      if (sessionOpenedTime > 0) {
+        const orderTime = new Date(d.order.created_at).getTime();
+        if (orderTime < sessionOpenedTime) return false;
+      }
+    } else {
+      // Historial con filtros de fecha
+      if (historyPeriod !== 'all') {
+        const orderDateStr = getLocalDayString(d.order.created_at);
+        const todayStr = getLocalDayString(new Date());
+        const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+        
+        if (historyPeriod === 'today' && orderDateStr !== todayStr) return false;
+        if (historyPeriod === 'yesterday' && orderDateStr !== yesterdayStr) return false;
+        if (historyPeriod === 'week') {
+          const weekAgo = Date.now() - 7 * 86400000;
+          if (new Date(d.order.created_at).getTime() < weekAgo) return false;
+        }
+        if (historyPeriod === 'month') {
+          const monthAgo = Date.now() - 30 * 86400000;
+          if (new Date(d.order.created_at).getTime() < monthAgo) return false;
+        }
+      }
+    }
+
+    // 2. Status filter
     if (selectedFilter === 'all') return true;
     return d.order.status === selectedFilter;
   });
+
+  const active = filteredDeliveries.find((d) => d.order_id === selected) ?? filteredDeliveries[0];
+  const coords: [number, number] = active 
+    ? [active.latitude, active.longitude] 
+    : defaultCenter;
+
+  useEffect(() => {
+    if (filteredDeliveries.length && !filteredDeliveries.some(d => d.order_id === selected)) {
+      setSelected(filteredDeliveries[0].order_id);
+    }
+  }, [filteredDeliveries, selected]);
 
   const totalPages = Math.ceil(filteredDeliveries.length / pageSize) || 1;
   const safePage = Math.min(currentPage, totalPages);
@@ -117,16 +149,74 @@ export default function DomiciliosPage() {
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
             {/* Left: Delivery List */}
             <div className="space-y-4 animate-fade-in-up">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
-                    <Bike className="w-5 h-5" />
+              <div className="flex flex-col gap-3 mb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                      <Bike className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-base font-black text-[var(--text-primary)]">
+                        {deliveryTab === 'shift' ? 'Turno Actual' : 'Historial de Domicilios'}
+                      </p>
+                      <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                        {deliveryTab === 'shift' ? 'Despachos del turno en curso' : 'Todas las entregas anteriores'}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-base font-black text-[var(--text-primary)]">Envíos Activos</p>
                   <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full text-white bg-[var(--orange)] shadow-sm">
-                    {deliveries.length}
+                    {filteredDeliveries.length}
                   </span>
                 </div>
+
+                {/* Tabs: Turno Actual vs Historial */}
+                <div className="flex items-center gap-1.5 p-1 bg-[var(--bg-input)] rounded-2xl border" style={{ borderColor: 'var(--border)' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setDeliveryTab('shift'); setCurrentPage(1); }}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      deliveryTab === 'shift' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    🛵 Turno Actual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDeliveryTab('history'); setCurrentPage(1); }}
+                    className={`flex-1 py-2 px-3 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                      deliveryTab === 'history' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    📜 Historial
+                  </button>
+                </div>
+
+                {/* Date Pills for Historial */}
+                {deliveryTab === 'history' && (
+                  <div className="flex flex-wrap items-center gap-1.5 animate-fade-in-up">
+                    {[
+                      { id: 'all', label: 'Todos' },
+                      { id: 'today', label: 'Hoy' },
+                      { id: 'yesterday', label: 'Ayer' },
+                      { id: 'week', label: '7 Días' },
+                      { id: 'month', label: 'Mes' },
+                    ].map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => { setHistoryPeriod(p.id as any); setCurrentPage(1); }}
+                        className={`text-[11px] font-black px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
+                          historyPeriod === p.id
+                            ? 'bg-[var(--orange)] text-white border-[var(--orange)] shadow-sm'
+                            : 'bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                        }`}
+                        style={{ borderColor: historyPeriod === p.id ? 'var(--orange)' : 'var(--border)' }}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Status filter */}

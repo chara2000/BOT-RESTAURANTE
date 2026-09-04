@@ -63,7 +63,7 @@ export async function GET(request: Request) {
     ...((settingsRow as Record<string, unknown> | null) ?? {}),
     restaurant_name: tenantRow?.name ?? '',
     logo_url: tenantRow?.logo_url ?? '',
-    menu_pdf_url: (settingsRow as any)?.menu_pdf_url || ((settingsRow as any)?.logo_url && String((settingsRow as any)?.logo_url).includes('.pdf') ? (settingsRow as any)?.logo_url : ''),
+    menu_pdf_url: (settingsRow as any)?.menu_pdf_url || ((settingsRow as any)?.logo_url && String((settingsRow as any)?.logo_url).toLowerCase().includes('.pdf') ? (settingsRow as any)?.logo_url : ''),
     ...accounts,
   };
 
@@ -138,7 +138,7 @@ export async function PATCH(request: Request) {
   }
 
   if (body.menu_pdf_url !== undefined) {
-    patch.logo_url = String(body.menu_pdf_url).trim();
+    patch.logo_url = body.menu_pdf_url ? String(body.menu_pdf_url).trim() : null;
   }
 
   // Only update if there are actual fields to update (beyond tenant_id and updated_at)
@@ -180,7 +180,7 @@ export async function PATCH(request: Request) {
     ...((updatedSettings as Record<string, unknown> | null) ?? (patch as Record<string, unknown>)),
     restaurant_name: updatedTenant?.name ?? body.restaurant_name ?? body.name,
     logo_url: updatedTenant?.logo_url ?? body.logo_url,
-    menu_pdf_url: (updatedSettings as any)?.menu_pdf_url || (updatedSettings as any)?.logo_url || body.menu_pdf_url || '',
+    menu_pdf_url: (updatedSettings as any)?.menu_pdf_url || ((updatedSettings as any)?.logo_url && String((updatedSettings as any)?.logo_url).toLowerCase().includes('.pdf') ? (updatedSettings as any)?.logo_url : '') || (body.menu_pdf_url ? String(body.menu_pdf_url).trim() : ''),
     ...accounts,
   };
 

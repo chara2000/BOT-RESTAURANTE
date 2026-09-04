@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2, Navigation, Target, Map, Truck, FileText, Upload, ExternalLink } from 'lucide-react';
+import { CreditCard, Save, Shield, Clock, Store, Smartphone, MapPin, CheckCircle2, Navigation, Target, Map, Truck, FileText, Upload, ExternalLink, Eye, Trash2, RefreshCw } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData } from '@/context/AppDataContext';
 import { createClient } from '@/lib/supabase/client';
@@ -132,8 +132,17 @@ export default function ConfiguracionPage() {
   const [mapLat, setMapLat] = useState(settings.restaurant_lat ?? 4.7110);
   const [mapLng, setMapLng] = useState(settings.restaurant_lng ?? -74.0721);
 
+  const [menuPdfUrl, setMenuPdfUrl] = useState(settings.menu_pdf_url || '');
+  const [showInlinePdf, setShowInlinePdf] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [pdfUploadSuccess, setPdfUploadSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (settings.menu_pdf_url !== undefined) {
+      setMenuPdfUrl(settings.menu_pdf_url || '');
+    }
+  }, [settings.menu_pdf_url]);
 
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -162,9 +171,10 @@ export default function ConfiguracionPage() {
       }
 
       if (resData.url) {
+        setMenuPdfUrl(resData.url);
         await updateSettings({ menu_pdf_url: resData.url });
         setPdfUploadSuccess(true);
-        setTimeout(() => setPdfUploadSuccess(false), 4000);
+        setTimeout(() => setPdfUploadSuccess(false), 6000);
       } else {
         throw new Error('No se recibió la URL pública del archivo');
       }
@@ -173,6 +183,30 @@ export default function ConfiguracionPage() {
       alert('No se pudo subir el archivo PDF: ' + (err.message || 'Error desconocido'));
     } finally {
       setUploadingPdf(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleSavePdfUrl = async () => {
+    try {
+      await updateSettings({ menu_pdf_url: menuPdfUrl.trim() });
+      setPdfUploadSuccess(true);
+      setTimeout(() => setPdfUploadSuccess(false), 5000);
+    } catch (err: any) {
+      alert('Error guardando enlace del PDF: ' + (err.message || 'Error desconocido'));
+    }
+  };
+
+  const handleRemovePdf = async () => {
+    if (!confirm('¿Estás seguro de que deseas eliminar la carta en PDF? Los bots ya no enviarán este archivo a los clientes.')) {
+      return;
+    }
+    setMenuPdfUrl('');
+    setShowInlinePdf(false);
+    try {
+      await updateSettings({ menu_pdf_url: '' });
+    } catch (err) {
+      console.error('Error al remover PDF:', err);
     }
   };
 
@@ -203,6 +237,7 @@ export default function ConfiguracionPage() {
       await updateSettings({
         restaurant_lat: mapLat,
         restaurant_lng: mapLng,
+        menu_pdf_url: menuPdfUrl.trim(),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -367,62 +402,205 @@ export default function ConfiguracionPage() {
 
           {/* Carta / Menú en PDF para Clientes */}
           <div className="card p-6 rounded-3xl space-y-5 animate-fade-in-up delay-100 border shadow-md" style={{ borderColor: 'var(--border)', background: 'var(--bg-card)' }}>
-            <div className="flex items-center justify-between border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
-              <p className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                <FileText className="h-5 w-5 text-[var(--orange)]" /> Carta / Menú Digital en PDF
-              </p>
-              {settings.menu_pdf_url && (
-                <a
-                  href={settings.menu_pdf_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs font-black flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-orange-500/30 bg-orange-500/10 text-[var(--orange)] hover:bg-orange-500/20 transition-all cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Ver PDF actual
-                </a>
-              )}
-            </div>
-            <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
-              El bot de WhatsApp y Telegram adjuntará y enviará este archivo PDF de forma automática cuando un cliente escriba por primera vez o solicite ver la carta.
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                  Subir archivo PDF desde tu dispositivo
-                </label>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                  <label className="flex items-center gap-2 px-5 py-2.5 rounded-2xl border border-dashed border-[var(--orange)] bg-[var(--bg-input)] hover:bg-[var(--orange-soft)] text-xs font-bold text-[var(--text-primary)] cursor-pointer transition-all">
-                    <Upload className="w-4 h-4 text-[var(--orange)]" />
-                    {uploadingPdf ? 'Subiendo archivo...' : 'Seleccionar archivo PDF (.pdf)'}
-                    <input
-                      type="file"
-                      accept=".pdf,application/pdf"
-                      className="hidden"
-                      disabled={uploadingPdf}
-                      onChange={handlePdfUpload}
-                    />
-                  </label>
-                  {pdfUploadSuccess && (
-                    <span className="text-xs font-bold text-emerald-500 flex items-center gap-1">
-                      <CheckCircle2 className="w-4 h-4" /> ¡PDF cargado y guardado con éxito!
-                    </span>
-                  )}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4 mb-2" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-orange-500/10 text-[var(--orange)] border border-orange-500/20 shadow-sm">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                    Carta / Menú Digital en PDF
+                    {menuPdfUrl ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Carta Cargada
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                        Sin Carta Subida
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] font-medium" style={{ color: 'var(--text-muted)' }}>
+                    El bot de WhatsApp y Telegram enviará este archivo automáticamente a los clientes.
+                  </p>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>
-                  O ingresar URL pública del PDF directamente
+              {menuPdfUrl && (
+                <div className="flex items-center gap-2">
+                  <a
+                    href={menuPdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-black flex items-center gap-1.5 px-4 py-2 rounded-xl border border-orange-500 bg-orange-500 text-white hover:bg-orange-600 transition-all shadow-md shadow-orange-500/20 cursor-pointer"
+                    title="Abrir el PDF en una pestaña nueva"
+                  >
+                    <ExternalLink className="w-4 h-4" /> Abrir Carta PDF
+                  </a>
+                </div>
+              )}
+            </div>
+
+            {/* Status Card when PDF is present */}
+            {menuPdfUrl ? (
+              <div className="p-4 sm:p-5 rounded-2xl border bg-[var(--bg-input)] space-y-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0 shadow-sm">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-black truncate max-w-[280px] sm:max-w-md" style={{ color: 'var(--text-primary)' }}>
+                          {menuPdfUrl.split('/').pop()?.split('?')[0] || 'carta_menu.pdf'}
+                        </p>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                          Listo para envío
+                        </span>
+                      </div>
+                      <p className="text-[11px] truncate mt-0.5 font-mono" style={{ color: 'var(--text-muted)' }}>
+                        {menuPdfUrl}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <a
+                      href={menuPdfUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3.5 py-2 rounded-xl border border-orange-500/30 bg-orange-500/10 text-[var(--orange)] hover:bg-orange-500/20 text-xs font-black flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlinePdf(!showInlinePdf)}
+                      className="px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text-primary)', background: 'var(--bg-card)' }}
+                    >
+                      <Eye className="w-3.5 h-3.5 text-[var(--orange)]" />
+                      {showInlinePdf ? 'Ocultar Visor' : 'Ver aquí'}
+                    </button>
+                    <label className="px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer hover:bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                      <RefreshCw className={`w-3.5 h-3.5 ${uploadingPdf ? 'animate-spin' : ''}`} />
+                      {uploadingPdf ? 'Subiendo...' : 'Cambiar PDF'}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        className="hidden"
+                        disabled={uploadingPdf}
+                        onChange={handlePdfUpload}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleRemovePdf}
+                      className="px-3 py-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      title="Eliminar este archivo PDF"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Inline PDF Viewer */}
+                {showInlinePdf && (
+                  <div className="pt-3 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-[var(--text-muted)] flex items-center gap-1">
+                        <Eye className="w-3.5 h-3.5 text-[var(--orange)]" /> Previsualización interactiva de la Carta Digital:
+                      </p>
+                      <a
+                        href={menuPdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-bold text-[var(--orange)] hover:underline flex items-center gap-1"
+                      >
+                        Abrir pantalla completa <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                    <div className="w-full h-[520px] rounded-2xl overflow-hidden border bg-black/40 shadow-inner" style={{ borderColor: 'var(--border)' }}>
+                      <iframe
+                        src={menuPdfUrl}
+                        title="Carta del Restaurante"
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* When no PDF is uploaded */
+              <div className="p-8 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center text-center space-y-3 transition-all" style={{ borderColor: 'var(--border)', background: 'var(--bg-input)' }}>
+                <div className="w-14 h-14 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center text-[var(--orange)] shadow-sm">
+                  <Upload className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-black" style={{ color: 'var(--text-primary)' }}>
+                    Aún no has subido tu carta en PDF
+                  </p>
+                  <p className="text-[11px] max-w-sm" style={{ color: 'var(--text-muted)' }}>
+                    Sube el archivo PDF de tu carta para que los clientes puedan consultarla y descargarla al chatear con el bot de WhatsApp o Telegram.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 px-6 py-3 rounded-2xl border border-orange-500 bg-orange-500 hover:bg-orange-600 text-xs font-black text-white cursor-pointer transition-all shadow-md shadow-orange-500/20">
+                  <Upload className="w-4 h-4" />
+                  {uploadingPdf ? 'Subiendo archivo a la nube...' : 'Seleccionar archivo PDF (.pdf)'}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    className="hidden"
+                    disabled={uploadingPdf}
+                    onChange={handlePdfUpload}
+                  />
                 </label>
+              </div>
+            )}
+
+            {/* Success message */}
+            {pdfUploadSuccess && (
+              <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center justify-between gap-2 animate-fade-in">
+                <span className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ¡Carta PDF subida y configurada exitosamente en el sistema!
+                </span>
+                {menuPdfUrl && (
+                  <a
+                    href={menuPdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline text-emerald-300 hover:text-white font-extrabold flex items-center gap-1 shrink-0 cursor-pointer"
+                  >
+                    Abrir PDF <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            )}
+
+            {/* Manual URL entry input */}
+            <div className="pt-2 border-t space-y-2" style={{ borderColor: 'var(--border)' }}>
+              <label className="text-[10px] font-black uppercase tracking-wider block" style={{ color: 'var(--text-muted)' }}>
+                O configurar mediante enlace directo (URL pública)
+              </label>
+              <div className="flex gap-2">
                 <input
                   type="url"
                   placeholder="https://.../carta-restaurante.pdf"
-                  defaultValue={settings.menu_pdf_url || ''}
-                  onChange={(e) => updateSettings({ menu_pdf_url: e.target.value })}
-                  className="w-full text-xs font-semibold px-4 py-3 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  value={menuPdfUrl}
+                  onChange={(e) => setMenuPdfUrl(e.target.value)}
+                  className="flex-1 text-xs font-semibold px-4 py-2.5 rounded-2xl border focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
                   style={{ background: 'var(--bg-input)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
                 />
+                <button
+                  type="button"
+                  onClick={handleSavePdfUrl}
+                  className="px-4 py-2.5 rounded-2xl border text-xs font-bold hover:bg-[var(--orange-soft)] text-[var(--orange)] border-orange-500/30 transition-all cursor-pointer shrink-0"
+                >
+                  Guardar Enlace
+                </button>
               </div>
             </div>
           </div>

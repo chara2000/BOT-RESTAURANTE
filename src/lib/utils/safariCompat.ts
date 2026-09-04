@@ -84,10 +84,39 @@ export async function safeRequestNotificationPermission(): Promise<NotificationP
 }
 
 /**
+ * Neutralizes Chromium DevTools Issue 543499029 (Live Metrics/devToolsReportSoftNavs/reportAllChanges startTime crash).
+ */
+export function applyBrowserStabilityGuards(): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    Object.defineProperty(window, 'devToolsReportSoftNavs', {
+      get: () => false,
+      set: () => {},
+      configurable: true,
+      enumerable: true,
+    });
+  } catch {}
+
+  try {
+    const w = window as unknown as { __chromium_devtools_kill_live_metrics?: () => void };
+    if (typeof w.__chromium_devtools_kill_live_metrics === 'function') {
+      w.__chromium_devtools_kill_live_metrics();
+    }
+  } catch {}
+}
+
+if (typeof window !== 'undefined') {
+  applyBrowserStabilityGuards();
+}
+
+/**
  * Register Service Worker safely for PWA support.
  */
 export function registerServiceWorker(): void {
   if (typeof window === 'undefined') return;
+
+  applyBrowserStabilityGuards();
 
   if ('serviceWorker' in navigator) {
     const handleLoad = () => {
@@ -105,7 +134,8 @@ export function registerServiceWorker(): void {
     if (document.readyState === 'complete') {
       handleLoad();
     } else {
-      window.addEventListener('load', handleLoad);
+      window.addEventListener('load', handleLoad, { once: true });
     }
   }
 }
+

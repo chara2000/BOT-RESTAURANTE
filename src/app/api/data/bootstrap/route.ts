@@ -271,7 +271,7 @@ export async function GET(request: Request) {
           ...(settingsRes.data as Record<string, unknown>),
           restaurant_name: tenantRes.data?.name,
           logo_url: tenantRes.data?.logo_url,
-          menu_pdf_url: (settingsRes.data as any)?.menu_pdf_url || ((settingsRes.data as any)?.logo_url && String((settingsRes.data as any)?.logo_url).includes('.pdf') ? (settingsRes.data as any)?.logo_url : undefined),
+          menu_pdf_url: (settingsRes.data as any)?.menu_pdf_url || ((settingsRes.data as any)?.logo_url && String((settingsRes.data as any)?.logo_url).toLowerCase().includes('.pdf') ? (settingsRes.data as any)?.logo_url : undefined),
         })
       : null,
     cashSession,

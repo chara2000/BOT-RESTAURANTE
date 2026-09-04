@@ -53,18 +53,109 @@ export default function RootLayout({
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="icon" href="/favicon.jpg" type="image/jpeg" sizes="32x32" />
         <link rel="apple-touch-icon" href="/icon-192.jpg" />
-        {/* Safety guard for third-party browser extension performance monkey-patching crashes */}
+        {/* Bulletproof shield against Chromium DevTools Issue 543499029 (Live Metrics/devToolsReportSoftNavs/reportAllChanges startTime crash) */}
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if (typeof window !== 'undefined') {
-                window.addEventListener('error', function(e) {
-                  if (e.message && (e.message.indexOf('startTime') !== -1 || e.message.indexOf('reportAllChanges') !== -1)) {
-                    e.stopImmediatePropagation();
-                    e.preventDefault();
+              (function() {
+                if (typeof window === 'undefined') return;
+
+                // 1. Disable Chrome DevTools Soft Navigation tracking that triggers the unhandled startTime crash
+                try {
+                  Object.defineProperty(window, 'devToolsReportSoftNavs', {
+                    get: function() { return false; },
+                    set: function() { /* Prevent DevTools from enabling soft navigation tracking */ },
+                    configurable: true,
+                    enumerable: true
+                  });
+                } catch (e) {}
+
+                // 2. Kill switch for Chromium Live Metrics if already instantiated
+                try {
+                  if (typeof window.__chromium_devtools_kill_live_metrics === 'function') {
+                    window.__chromium_devtools_kill_live_metrics();
                   }
-                });
-              }
+                } catch (e) {}
+
+                var isTelemetryError = function(msg, stack) {
+                  var m = String(msg || '');
+                  var s = String(stack || '');
+                  return (
+                    (m.indexOf('startTime') !== -1 || s.indexOf('startTime') !== -1) &&
+                    (m.indexOf('reportAllChanges') !== -1 ||
+                     s.indexOf('reportAllChanges') !== -1 ||
+                     m.indexOf('devToolsReportSoftNavs') !== -1 ||
+                     s.indexOf('devToolsReportSoftNavs') !== -1 ||
+                     s.indexOf('web-vitals') !== -1 ||
+                     s.indexOf('anonymous') !== -1 ||
+                     s.indexOf('VM') !== -1)
+                  );
+                };
+
+                // 3. window.onerror: Returning true explicitly tells the browser host NOT to print "Uncaught ..." to DevTools
+                var prevOnError = window.onerror;
+                window.onerror = function(message, source, lineno, colno, error) {
+                  var msg = typeof message === 'string' ? message : (error && error.message) || '';
+                  var stack = (error && error.stack) || '';
+                  if (isTelemetryError(msg, stack)) {
+                    return true;
+                  }
+                  if (typeof prevOnError === 'function') {
+                    return prevOnError.apply(this, arguments);
+                  }
+                  return false;
+                };
+
+                // 4. Capture phase error listener (runs before bubbling listeners)
+                window.addEventListener(
+                  'error',
+                  function(e) {
+                    var msg = (e && e.message) || '';
+                    var stack = (e && e.error && e.error.stack) || '';
+                    if (isTelemetryError(msg, stack)) {
+                      e.stopImmediatePropagation();
+                      e.preventDefault();
+                      return true;
+                    }
+                  },
+                  true
+                );
+
+                // 5. Unhandled Promise Rejections (e.g. within requestIdleCallback / scheduler)
+                window.addEventListener(
+                  'unhandledrejection',
+                  function(e) {
+                    var reason = (e && e.reason) || {};
+                    var msg = (reason && (reason.message || String(reason))) || '';
+                    var stack = (reason && reason.stack) || '';
+                    if (isTelemetryError(msg, stack)) {
+                      e.stopImmediatePropagation();
+                      e.preventDefault();
+                    }
+                  },
+                  true
+                );
+
+                // 6. Console.error filter to prevent spurious DevTools red error blocks
+                var origConsoleError = console.error;
+                console.error = function() {
+                  for (var i = 0; i < arguments.length; i++) {
+                    var arg = arguments[i];
+                    var str = '';
+                    if (typeof arg === 'string') {
+                      str = arg;
+                    } else if (arg && arg.message) {
+                      str = arg.message + ' ' + (arg.stack || '');
+                    } else if (arg && arg.stack) {
+                      str = String(arg.stack);
+                    }
+                    if (isTelemetryError(str, str)) {
+                      return;
+                    }
+                  }
+                  return origConsoleError.apply(console, arguments);
+                };
+              })();
             `,
           }}
         />

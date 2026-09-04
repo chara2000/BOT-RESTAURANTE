@@ -154,7 +154,7 @@ export function mapSettings(row: Record<string, unknown>): Partial<TenantSetting
     // Carta o Menú PDF (soporta columna dedicada o guardado en logo_url)
     menu_pdf_url: row.menu_pdf_url
       ? String(row.menu_pdf_url)
-      : (row.logo_url && String(row.logo_url).includes('.pdf') ? String(row.logo_url) : undefined),
+      : (row.logo_url && String(row.logo_url).toLowerCase().includes('.pdf') ? String(row.logo_url) : undefined),
     // Ubicación exacta del restaurante
     restaurant_lat: row.restaurant_lat != null ? Number(row.restaurant_lat) : undefined,
     restaurant_lng: row.restaurant_lng != null ? Number(row.restaurant_lng) : undefined,

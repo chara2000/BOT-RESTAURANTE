@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator,
   ChevronLeft, ChevronRight, Shield, Search, Filter, Plus, Trash2, Edit, X, Check, Calendar, DollarSign
@@ -8,7 +8,7 @@ import {
 import { Topbar } from '@/components/layout/Topbar';
 import { PosSalePanel } from '@/components/pos/PosSalePanel';
 import { StatCard } from '@/components/ui/StatCard';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
 
 export default function CajaPage() {
@@ -126,20 +126,76 @@ export default function CajaPage() {
     }
   };
 
-  // Filters for transactions
+  // Filters for transactions & period
   const [txSearch, setTxSearch] = useState('');
   const [txTypeFilter, setTxTypeFilter] = useState<'all' | 'income' | 'expense'>('all');
+
+  // Period filter for Gestión de Caja ('today' by default, no 'all')
+  const [cajaPeriod, setCajaPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
+  const [cajaDateFrom, setCajaDateFrom] = useState('');
+  const [cajaDateTo, setCajaDateTo] = useState('');
+
+  const todayStr = getLocalDayString(new Date());
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterdayStr = getLocalDayString(yesterdayDate);
+  const weekAgo = Date.now() - 7 * 86400000;
+  const monthAgo = Date.now() - 30 * 86400000;
+
+  // Consolidado de transacciones (sesión actual + sesiones pasadas)
+  const allTransactions = useMemo(() => {
+    const list = [...cashSession.transactions];
+    pastCashSessions.forEach(ps => {
+      (ps.transactions || []).forEach(tx => {
+        if (!list.some(t => t.id === tx.id)) {
+          list.push(tx);
+        }
+      });
+    });
+    return list;
+  }, [cashSession.transactions, pastCashSessions]);
+
+  // Transacciones filtradas por el período seleccionado
+  const periodTransactions = useMemo(() => {
+    return allTransactions.filter(t => {
+      const txDateStr = getLocalDayString(t.created_at);
+      if (cajaPeriod === 'today') return txDateStr === todayStr;
+      if (cajaPeriod === 'yesterday') return txDateStr === yesterdayStr;
+      if (cajaPeriod === 'week') return new Date(t.created_at).getTime() >= weekAgo;
+      if (cajaPeriod === 'month') return new Date(t.created_at).getTime() >= monthAgo;
+      if (cajaPeriod === 'custom') {
+        if (cajaDateFrom && txDateStr < cajaDateFrom) return false;
+        if (cajaDateTo && txDateStr > cajaDateTo) return false;
+      }
+      return true;
+    });
+  }, [allTransactions, cajaPeriod, todayStr, yesterdayStr, weekAgo, monthAgo, cajaDateFrom, cajaDateTo]);
+
+  // Cierres de jornada filtrados por el período seleccionado
+  const filteredPastSessions = useMemo(() => {
+    return pastCashSessions.filter(s => {
+      const sessionDateStr = getLocalDayString(s.closed_at || s.opened_at);
+      if (cajaPeriod === 'today') return sessionDateStr === todayStr;
+      if (cajaPeriod === 'yesterday') return sessionDateStr === yesterdayStr;
+      if (cajaPeriod === 'week') return new Date(s.closed_at || s.opened_at).getTime() >= weekAgo;
+      if (cajaPeriod === 'month') return new Date(s.closed_at || s.opened_at).getTime() >= monthAgo;
+      if (cajaPeriod === 'custom') {
+        if (cajaDateFrom && sessionDateStr < cajaDateFrom) return false;
+        if (cajaDateTo && sessionDateStr > cajaDateTo) return false;
+      }
+      return true;
+    });
+  }, [pastCashSessions, cajaPeriod, todayStr, yesterdayStr, weekAgo, monthAgo, cajaDateFrom, cajaDateTo]);
 
   // Pagination state for transactions
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
 
-  const income = cashSession.transactions.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
-  const expense = cashSession.transactions.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
+  const income = periodTransactions.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+  const expense = periodTransactions.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
   const expected = cashSession.opening_balance + income - expense;
   const isOpen = cashSession.status === 'open';
 
-  const filteredTx = cashSession.transactions.filter((t) => {
+  const filteredTx = periodTransactions.filter((t) => {
     if (txTypeFilter !== 'all' && t.type !== txTypeFilter) return false;
     if (txSearch.trim()) {
       const q = txSearch.toLowerCase().trim();
@@ -239,11 +295,82 @@ export default function CajaPage() {
 
           {/* TAB: GESTIÓN DE CAJA */}
           {activeTab === 'admin' && (
-            <div className="animate-fade-in-up space-y-8 max-w-7xl mx-auto w-full">
+            <div className="animate-fade-in-up space-y-6 max-w-7xl mx-auto w-full">
+              {/* Selector de Período en Gestión de Caja */}
+              <div className="card p-5 rounded-3xl border bg-[var(--bg-card)] shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">Filtro de Caja por Período</h3>
+                    <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                      {cajaPeriod === 'today' && 'Visualizando movimientos y arqueos del día de Hoy'}
+                      {cajaPeriod === 'yesterday' && 'Visualizando histórico contable de Ayer'}
+                      {cajaPeriod === 'week' && 'Visualizando movimientos de los últimos 7 días'}
+                      {cajaPeriod === 'month' && 'Visualizando movimientos de los últimos 30 días'}
+                      {cajaPeriod === 'custom' && 'Filtrando por rango de fechas'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
+                  {[
+                    { id: 'today', label: 'Hoy' },
+                    { id: 'yesterday', label: 'Ayer' },
+                    { id: 'week', label: '7 Días' },
+                    { id: 'month', label: '30 Días' },
+                    { id: 'custom', label: 'Personalizado' },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => { setCajaPeriod(p.id as any); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        cajaPeriod === p.id
+                          ? 'bg-[var(--orange)] text-white shadow-md'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rango personalizado en Caja si está activo */}
+              {cajaPeriod === 'custom' && (
+                <div className="flex flex-wrap items-center gap-4 p-3.5 rounded-2xl bg-[var(--bg-input)]/60 border border-[var(--border)] animate-fade-in">
+                  <span className="text-xs font-bold text-[var(--text-muted)] flex items-center gap-1.5">
+                    <Filter className="w-3.5 h-3.5 text-[var(--orange)]" /> Rango de Fechas:
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Desde:</label>
+                    <input 
+                      type="date" 
+                      value={cajaDateFrom}
+                      onChange={(e) => { setCajaDateFrom(e.target.value); setCurrentPage(1); }}
+                      className="bg-[var(--bg-card)] border rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                      style={{ borderColor: 'var(--border)' }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Hasta:</label>
+                    <input 
+                      type="date" 
+                      value={cajaDateTo}
+                      onChange={(e) => { setCajaDateTo(e.target.value); setCurrentPage(1); }}
+                      className="bg-[var(--bg-card)] border rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                      style={{ borderColor: 'var(--border)' }}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6">
                 <StatCard title="Saldo Base Inicial" value={formatCurrency(cashSession.opening_balance)} change="Apertura" up emoji="💰" />
-                <StatCard title="Ingresos Netos" value={formatCompact(income)} change={`${cashSession.transactions.filter((t) => t.type === 'income').length} movimientos`} up emoji="📈" />
-                <StatCard title="Egresos Totales" value={formatCompact(expense)} change={`${cashSession.transactions.filter((t) => t.type === 'expense').length} movimientos`} up={false} emoji="📉" />
+                <StatCard title="Ingresos Período" value={formatCompact(income)} change={`${periodTransactions.filter((t) => t.type === 'income').length} movimientos`} up emoji="📈" />
+                <StatCard title="Egresos Período" value={formatCompact(expense)} change={`${periodTransactions.filter((t) => t.type === 'expense').length} movimientos`} up={false} emoji="📉" />
                 <StatCard title="Arqueo Ciego Activo" value="***" change="Saldo oculto por seguridad" up emoji="🔒" />
               </div>
 
@@ -258,7 +385,9 @@ export default function CajaPage() {
                         </div>
                         <div>
                           <h3 className="font-black text-sm text-[var(--text-primary)]">Historial de Movimientos</h3>
-                          <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Sesión actual ({filteredTx.length})</p>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">
+                            {cajaPeriod === 'today' ? 'Hoy' : cajaPeriod === 'yesterday' ? 'Ayer' : cajaPeriod === 'week' ? '7 Días' : cajaPeriod === 'month' ? '30 Días' : 'Personalizado'} ({filteredTx.length} movimientos)
+                          </p>
                         </div>
                       </div>
 
@@ -495,7 +624,7 @@ export default function CajaPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-[var(--bg-input)] border text-[var(--text-muted)]" style={{ borderColor: 'var(--border)' }}>
-                      {pastCashSessions.length} cierres
+                      {filteredPastSessions.length} cierres ({cajaPeriod === 'today' ? 'Hoy' : cajaPeriod === 'yesterday' ? 'Ayer' : cajaPeriod === 'week' ? '7 Días' : '30 Días'})
                     </span>
                     <button
                       type="button"
@@ -515,13 +644,13 @@ export default function CajaPage() {
                   </div>
                 </div>
 
-                {pastCashSessions.length === 0 ? (
+                {filteredPastSessions.length === 0 ? (
                   <p className="text-xs text-center py-6 font-bold" style={{ color: 'var(--text-muted)' }}>
-                    No hay sesiones anteriores registradas.
+                    No hay sesiones anteriores registradas en este período ({cajaPeriod === 'today' ? 'Hoy' : cajaPeriod === 'yesterday' ? 'Ayer' : cajaPeriod === 'week' ? '7 días' : '30 días'}).
                   </p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {pastCashSessions.map((session) => {
+                    {filteredPastSessions.map((session) => {
                       const sessionSales = session.transactions.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0);
                       const isSelected = selectedPastSession?.id === session.id;
 

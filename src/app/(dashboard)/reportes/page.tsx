@@ -4,18 +4,25 @@ import { useState, useMemo } from 'react';
 import { Download, FileSpreadsheet, FileText, BarChart3, TrendingUp, Filter, Calendar, Sparkles } from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { StatCard } from '@/components/ui/StatCard';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
-import { isSameDay, parseISO, isAfter, isBefore, startOfDay, endOfDay } from 'date-fns';
 
 export default function ReportesPage() {
   const { stats, orders, customers, inventory, cashSession, categories, products } = useAppData();
 
+  // Period Selector: 'today' | 'yesterday' | 'week' | 'month' | 'custom' (inicia en 'today')
+  const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [productFilter, setProductFilter] = useState('all');
+
+  const todayStr = getLocalDayString(new Date());
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterdayStr = getLocalDayString(yesterdayDate);
+  const weekAgo = Date.now() - 7 * 86400000;
+  const monthAgo = Date.now() - 30 * 86400000;
 
   // Platos disponibles según la categoría seleccionada
   const availableProducts = useMemo(() => {
@@ -25,38 +32,51 @@ export default function ReportesPage() {
 
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
-      let passDate = true;
-      let passStatus = true;
-      let passCategory = true;
-      let passProduct = true;
-      const oDate = parseISO(o.created_at);
-      
-      if (dateFrom) passDate = passDate && !isBefore(oDate, startOfDay(parseISO(dateFrom)));
-      if (dateTo) passDate = passDate && !isAfter(oDate, endOfDay(parseISO(dateTo)));
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'delivered') passStatus = o.status === 'delivered';
-        else if (statusFilter === 'active') passStatus = ['confirmed', 'preparing', 'ready', 'shipping'].includes(o.status);
-        else passStatus = o.status === statusFilter;
+      const orderDateStr = getLocalDayString(o.created_at);
+
+      // 1. Filtro de periodo temporal
+      if (period === 'today' && orderDateStr !== todayStr) return false;
+      if (period === 'yesterday' && orderDateStr !== yesterdayStr) return false;
+      if (period === 'week' && new Date(o.created_at).getTime() < weekAgo) return false;
+      if (period === 'month' && new Date(o.created_at).getTime() < monthAgo) return false;
+      if (period === 'custom') {
+        if (dateFrom && orderDateStr < dateFrom) return false;
+        if (dateTo && orderDateStr > dateTo) return false;
       }
 
+      // 2. Filtro de estado
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'delivered' && o.status !== 'delivered') return false;
+        if (statusFilter === 'active' && ['delivered', 'cancelled'].includes(o.status)) return false;
+        if (statusFilter === 'pending' && o.status !== 'pending') return false;
+        if (statusFilter === 'cancelled' && o.status !== 'cancelled') return false;
+      }
+
+      // 3. Filtro de categoría
       if (categoryFilter !== 'all') {
-        passCategory = (o.items || []).some(i => 
+        const hasCategory = (o.items || []).some(i => 
           i.product?.category_id === categoryFilter || 
           i.product?.category === categoryFilter ||
           (i.product as any)?.categories?.name === categoryFilter
         );
+        if (!hasCategory) return false;
       }
 
+      // 4. Filtro de producto
       if (productFilter !== 'all') {
-        passProduct = (o.items || []).some(i => i.product?.id === productFilter || (i as any).product_id === productFilter);
+        const hasProduct = (o.items || []).some(i => i.product?.id === productFilter || (i as any).product_id === productFilter);
+        if (!hasProduct) return false;
       }
       
-      return passDate && passStatus && passCategory && passProduct;
+      return true;
     });
-  }, [orders, dateFrom, dateTo, statusFilter, categoryFilter, productFilter]);
+  }, [orders, period, dateFrom, dateTo, statusFilter, categoryFilter, productFilter, todayStr, yesterdayStr, weekAgo, monthAgo]);
 
   const localStats = useMemo(() => {
-    const totalSales = filteredOrders.reduce((sum, o) => {
+    // Regla contable: Solo suman a ventas los pedidos en estado 'delivered'
+    const deliveredOrders = filteredOrders.filter(o => o.status === 'delivered');
+
+    const totalSales = deliveredOrders.reduce((sum, o) => {
       if (productFilter !== 'all') {
         const prodItems = (o.items || []).filter(i => i.product?.id === productFilter);
         return sum + prodItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
@@ -68,11 +88,12 @@ export default function ReportesPage() {
       return sum + (o.total || 0);
     }, 0);
 
-    const avgTicket = filteredOrders.length ? totalSales / filteredOrders.length : 0;
+    const avgTicket = deliveredOrders.length ? Math.round(totalSales / deliveredOrders.length) : 0;
     
+    // Agrupación por día local usando getLocalDayString para evitar desfase de zona horaria
     const daysMap = new Map<string, number>();
-    filteredOrders.forEach(o => {
-      const dayStr = o.created_at.slice(0, 10);
+    deliveredOrders.forEach(o => {
+      const dayStr = getLocalDayString(o.created_at);
       let orderAmount = o.total || 0;
       if (productFilter !== 'all') {
         const prodItems = (o.items || []).filter(i => i.product?.id === productFilter);
@@ -85,16 +106,23 @@ export default function ReportesPage() {
     });
     
     const salesByDay = Array.from(daysMap.entries())
-      .map(([date, amount]) => ({ day: date.slice(5), amount }))
-      .sort((a, b) => a.day.localeCompare(b.day))
+      .map(([date, amount]) => ({ day: date.slice(5), amount, rawDate: date }))
+      .sort((a, b) => a.rawDate.localeCompare(b.rawDate))
       .slice(-7);
       
     if (salesByDay.length === 0) {
-      salesByDay.push({ day: 'N/A', amount: 0 });
+      salesByDay.push({ day: todayStr.slice(5), amount: 0, rawDate: todayStr });
     }
 
-    return { totalSales, avgTicket, salesByDay, orderCount: filteredOrders.length };
-  }, [filteredOrders, productFilter, categoryFilter]);
+    return {
+      totalSales,
+      avgTicket,
+      salesByDay,
+      orderCount: filteredOrders.length,
+      deliveredCount: deliveredOrders.length,
+      activeCount: filteredOrders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length,
+    };
+  }, [filteredOrders, productFilter, categoryFilter, todayStr]);
 
   const exportCSV = (data: string, filename: string) => {
     const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
@@ -111,13 +139,13 @@ export default function ReportesPage() {
     const rows = filteredOrders.map((o) =>
       `${o.id},${o.customer?.name ?? 'N/A'},${o.total},${o.status},${o.created_at}`
     ).join('\n');
-    exportCSV(header + rows, `reporte-ventas-${new Date().toISOString().slice(0, 10)}.csv`);
+    exportCSV(header + rows, `reporte-ventas-${todayStr}.csv`);
   };
 
   const exportInventory = () => {
     const header = 'Insumo,Unidad,Stock,Minimo\n';
     const rows = inventory.map((i) => `${i.name},${i.unit},${i.stock},${i.min_stock}`).join('\n');
-    exportCSV(header + rows, `reporte-inventario-${new Date().toISOString().slice(0, 10)}.csv`);
+    exportCSV(header + rows, `reporte-inventario-${todayStr}.csv`);
   };
 
   const maxDayAmount = Math.max(...localStats.salesByDay.map((x) => x.amount), 1);
@@ -129,45 +157,92 @@ export default function ReportesPage() {
       
       <div className="flex-1 overflow-y-auto p-5 lg:p-8 space-y-6 lg:space-y-8 z-10 relative">
         {/* Filtros Avanzados */}
-        <div className="card p-6 flex flex-col gap-4 bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm animate-fade-in-up">
-          <div className="flex items-center gap-2 text-sm font-black text-[var(--text-primary)]">
-            <Filter className="w-5 h-5 text-[var(--orange)]" />
-            <span>Filtros de Reporte:</span>
+        <div className="card p-6 flex flex-col gap-5 bg-[var(--bg-card)] border border-[var(--border)] rounded-3xl shadow-sm animate-fade-in-up">
+          {/* Fila Superior: Selector de Período Rápido */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                <Calendar className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">Período de Análisis</h3>
+                <p className="text-[10px] font-bold text-[var(--text-muted)]">
+                  {period === 'today' && 'Mostrando únicamente transacciones del día actual'}
+                  {period === 'yesterday' && 'Mostrando histórico contable del día de ayer'}
+                  {period === 'week' && 'Mostrando consolidado de los últimos 7 días'}
+                  {period === 'month' && 'Mostrando consolidado de los últimos 30 días'}
+                  {period === 'custom' && 'Filtrando por rango de fechas personalizado'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
+              {[
+                { id: 'today', label: 'Hoy' },
+                { id: 'yesterday', label: 'Ayer' },
+                { id: 'week', label: '7 Días' },
+                { id: 'month', label: '30 Días' },
+                { id: 'custom', label: 'Personalizado' },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPeriod(p.id as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    period === p.id
+                      ? 'bg-[var(--orange)] text-white shadow-md'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full">
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Desde</label>
-              <input 
-                type="date" 
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
-                style={{ borderColor: 'var(--border)' }}
-              />
+          {/* Rango Personalizado si está activo */}
+          {period === 'custom' && (
+            <div className="flex flex-wrap items-center gap-4 p-3.5 rounded-2xl bg-[var(--bg-input)]/60 border border-[var(--border)] animate-fade-in">
+              <span className="text-xs font-bold text-[var(--text-muted)] flex items-center gap-1.5">
+                <Filter className="w-3.5 h-3.5 text-[var(--orange)]" /> Definir Rango:
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Desde:</label>
+                <input 
+                  type="date" 
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="bg-[var(--bg-card)] border rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ borderColor: 'var(--border)' }}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">Hasta:</label>
+                <input 
+                  type="date" 
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="bg-[var(--bg-card)] border rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
+                  style={{ borderColor: 'var(--border)' }}
+                />
+              </div>
             </div>
+          )}
+
+          {/* Fila Inferior: Filtros de Categoría, Plato y Estado */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
             <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Hasta</label>
-              <input 
-                type="date" 
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)]"
-                style={{ borderColor: 'var(--border)' }}
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Categoría Menú</label>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Categoría de Menú</label>
               <select 
                 value={categoryFilter}
                 onChange={(e) => {
                   setCategoryFilter(e.target.value);
                   setProductFilter('all');
                 }}
-                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
                 style={{ borderColor: 'var(--border)' }}
               >
-                <option value="all">Todas las categorías</option>
+                <option value="all">🍽️ Todas las categorías</option>
                 {categories.map((cat) => (
                   <option key={cat.id} value={cat.id || cat.name}>
                     {cat.name}
@@ -176,14 +251,14 @@ export default function ReportesPage() {
               </select>
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Plato / Producto</label>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Plato / Producto Específico</label>
               <select 
                 value={productFilter}
                 onChange={(e) => setProductFilter(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
                 style={{ borderColor: 'var(--border)' }}
               >
-                <option value="all">Todos los platos</option>
+                <option value="all">🍔 Todos los platos</option>
                 {availableProducts.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -192,28 +267,28 @@ export default function ReportesPage() {
               </select>
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-wider mb-1 block" style={{ color: 'var(--text-muted)' }}>Estado del pedido</label>
+              <label className="text-[10px] font-black uppercase tracking-wider mb-1.5 block" style={{ color: 'var(--text-muted)' }}>Estado del Pedido</label>
               <select 
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
+                className="w-full bg-[var(--bg-input)] border rounded-2xl px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] cursor-pointer"
                 style={{ borderColor: 'var(--border)' }}
               >
-                <option value="all">Todos los estados</option>
-                <option value="delivered">Entregados (Completados)</option>
-                <option value="active">Activos en Preparación</option>
-                <option value="pending">Pendientes de Aprobación</option>
-                <option value="cancelled">Cancelados</option>
+                <option value="all">📋 Todos los estados</option>
+                <option value="delivered">✅ Entregados (Suman Ventas)</option>
+                <option value="active">⏳ Activos en Preparación</option>
+                <option value="pending">⚠️ Pendientes de Aprobación</option>
+                <option value="cancelled">❌ Cancelados</option>
               </select>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 animate-fade-in-up delay-75">
-          <StatCard title="Ventas Filtradas" value={formatCompact(localStats.totalSales)} change={`${localStats.orderCount} pedidos`} up emoji="💰" />
-          <StatCard title="Ticket Promedio" value={formatCompact(localStats.avgTicket)} change="En rango seleccionado" up emoji="📈" />
-          <StatCard title="Base de Clientes" value={String(customers.length)} change={`${stats.newCustomers} registrados`} up emoji="👥" />
-          <StatCard title="Flujo de Caja" value={String(cashSession.transactions.length)} change={`Sesión activa: ${cashSession.id.substring(0,6)}`} up emoji="💳" />
+          <StatCard title="Ventas Entregadas" value={formatCompact(localStats.totalSales)} change={`${localStats.deliveredCount} entregadas`} up emoji="💰" />
+          <StatCard title="Ticket Promedio" value={formatCompact(localStats.avgTicket)} change="Por pedido entregado" up emoji="📈" />
+          <StatCard title="Total Órdenes" value={String(localStats.orderCount)} change={`${localStats.activeCount} activas`} up emoji="🧾" />
+          <StatCard title="Flujo de Caja" value={String(cashSession.transactions.length)} change={`Sesión: ${cashSession.id.substring(0,6)}`} up emoji="💳" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fade-in-up delay-100">

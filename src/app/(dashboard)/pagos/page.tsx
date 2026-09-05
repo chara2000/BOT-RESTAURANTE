@@ -22,7 +22,7 @@ export default function PagosPage() {
   const [search, setSearch] = useState('');
   const [selectedMethod, setSelectedMethod] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -60,25 +60,23 @@ export default function PagosPage() {
     if (statusFilter === 'pending' && !isPending) return false;
 
     // Date filter
-    if (dateFilter !== 'all') {
-      const orderDateStr = getLocalDayString(o.created_at);
-      const todayStr = getLocalDayString(new Date());
-      const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+    const orderDateStr = getLocalDayString(o.created_at);
+    const todayStr = getLocalDayString(new Date());
+    const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
 
-      if (dateFilter === 'today') {
-        if (orderDateStr !== todayStr) return false;
-      } else if (dateFilter === 'yesterday') {
-        if (orderDateStr !== yesterdayStr) return false;
-      } else if (dateFilter === 'week') {
-        const weekAgo = Date.now() - 7 * 86400000;
-        if (new Date(o.created_at).getTime() < weekAgo) return false;
-      } else if (dateFilter === 'month') {
-        const monthAgo = Date.now() - 30 * 86400000;
-        if (new Date(o.created_at).getTime() < monthAgo) return false;
-      } else if (dateFilter === 'custom') {
-        if (dateFrom && orderDateStr < dateFrom) return false;
-        if (dateTo && orderDateStr > dateTo) return false;
-      }
+    if (dateFilter === 'today') {
+      if (orderDateStr !== todayStr) return false;
+    } else if (dateFilter === 'yesterday') {
+      if (orderDateStr !== yesterdayStr) return false;
+    } else if (dateFilter === 'week') {
+      const weekAgo = Date.now() - 7 * 86400000;
+      if (new Date(o.created_at).getTime() < weekAgo) return false;
+    } else if (dateFilter === 'month') {
+      const monthAgo = Date.now() - 30 * 86400000;
+      if (new Date(o.created_at).getTime() < monthAgo) return false;
+    } else if (dateFilter === 'custom') {
+      if (dateFrom && orderDateStr < dateFrom) return false;
+      if (dateTo && orderDateStr > dateTo) return false;
     }
 
     // Text search
@@ -107,15 +105,13 @@ export default function PagosPage() {
     (o) => o.payment_method === 'transfer' && o.status === 'pending'
   );
 
-  // Summary KPI stats based on filtered orders
-  const totalRecaudado = filteredPosOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const aprobadosCount = filteredPosOrders.filter((o) =>
-    ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status)
+  // Summary KPI stats based on filtered orders - Regla contable: Solo suman pedidos entregados
+  const entregadosOrders = filteredPosOrders.filter((o) => o.status === 'delivered');
+  const totalRecaudado = entregadosOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const activeOrdersCount = filteredPosOrders.filter((o) =>
+    ['confirmed', 'ready', 'shipping', 'preparing'].includes(o.status)
   ).length;
-  const totalAprobado = filteredPosOrders
-    .filter((o) => ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status))
-    .reduce((sum, o) => sum + (o.total || 0), 0);
-  const avgTicket = filteredPosOrders.length > 0 ? Math.round(totalRecaudado / filteredPosOrders.length) : 0;
+  const avgTicket = entregadosOrders.length > 0 ? Math.round(totalRecaudado / entregadosOrders.length) : 0;
 
   // Filtered cash transactions
   const filteredCashTx = cashSession.transactions.filter((tx) => {
@@ -240,24 +236,24 @@ export default function PagosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-fade-in-up">
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total Transacciones</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ventas Entregadas</span>
                   <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                     <DollarSign className="w-4 h-4" />
                   </div>
                 </div>
                 <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(totalRecaudado)}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{filteredPosOrders.length} registros según filtros</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{entregadosOrders.length} pedidos entregados</p>
               </div>
 
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Pagos Aprobados</span>
-                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Órdenes Activas</span>
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                     <CheckCircle2 className="w-4 h-4" />
                   </div>
                 </div>
-                <p className="text-2xl font-black mt-2 text-emerald-400">{formatCurrency(totalAprobado)}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{aprobadosCount} órdenes confirmadas</p>
+                <p className="text-2xl font-black mt-2 text-blue-400">{activeOrdersCount}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">En preparación o ruta</p>
               </div>
 
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
@@ -268,23 +264,61 @@ export default function PagosPage() {
                   </div>
                 </div>
                 <p className="text-2xl font-black mt-2 text-amber-500">{pendingTransfers.length}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Requieren verificación manual</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Requieren verificación</p>
               </div>
 
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ticket Promedio</span>
-                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
                     <TrendingUp className="w-4 h-4" />
                   </div>
                 </div>
                 <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(avgTicket)}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por pago registrado</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por entrega confirmada</p>
               </div>
             </div>
 
             {/* Filter Bar */}
             <div className="card p-5 rounded-3xl border bg-[var(--bg-card)] space-y-4 shadow-sm" style={{ borderColor: 'var(--border)' }}>
+              {/* Fila 1: Selector de Período Rápido */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-[var(--orange)]" />
+                  <span className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">Período:</span>
+                  <span className="text-[11px] font-bold text-[var(--text-muted)]">
+                    {dateFilter === 'today' && 'Hoy'}
+                    {dateFilter === 'yesterday' && 'Ayer'}
+                    {dateFilter === 'week' && 'Últimos 7 días'}
+                    {dateFilter === 'month' && 'Últimos 30 días'}
+                    {dateFilter === 'custom' && 'Personalizado'}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
+                  {[
+                    { id: 'today', label: 'Hoy' },
+                    { id: 'yesterday', label: 'Ayer' },
+                    { id: 'week', label: '7 Días' },
+                    { id: 'month', label: '30 Días' },
+                    { id: 'custom', label: 'Personalizado' },
+                  ].map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => { setDateFilter(p.id as any); setCurrentPage(1); }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        dateFilter === p.id
+                          ? 'bg-[var(--orange)] text-white shadow-md'
+                          : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4">
                 {/* Search Bar */}
                 <div className="relative flex-1">
@@ -301,24 +335,6 @@ export default function PagosPage() {
 
                 {/* Dropdowns */}
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* Date Filter */}
-                  <div className="relative">
-                    <select
-                      value={dateFilter}
-                      onChange={(e) => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
-                      className="pl-9 pr-8 py-2.5 rounded-2xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
-                      style={{ borderColor: 'var(--border)' }}
-                    >
-                      <option value="all">📅 Todo el histórico</option>
-                      <option value="today">📅 Hoy</option>
-                      <option value="yesterday">📅 Ayer</option>
-                      <option value="week">📅 Últimos 7 días</option>
-                      <option value="month">📅 Últimos 30 días</option>
-                      <option value="custom">📅 Rango Personalizado...</option>
-                    </select>
-                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
-                  </div>
-
                   {/* Status Filter */}
                   <div className="relative">
                     <select

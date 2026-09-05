@@ -5,7 +5,7 @@ import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-p
 import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search, AlertCircle } from 'lucide-react';
 import { ridersService } from '@/services/api';
 import { Topbar } from '@/components/layout/Topbar';
-import { useAppData } from '@/context/AppDataContext';
+import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { ThermalTicketModal } from '@/components/ThermalTicketModal';
 
 import { createOrderViaN8n } from '@/services/n8n';
@@ -357,15 +357,33 @@ export default function PedidosPage() {
     }
   };
 
-  // Solo mostrar pedidos creados DESPUÉS de abrir la caja actual (Turno en curso)
+  // Control de ámbito: 'today' (Todo el día actual = 24 pedidos) o 'shift' (Turno de caja actual = 23 pedidos)
+  const [dayScope, setDayScope] = useState<'today' | 'shift'>('today');
+
+  const todayStr = getLocalDayString(new Date());
   const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
 
-  // Órdenes filtradas por turno de caja, tipo, categoría y búsqueda
-  const baseFilteredOrders = orders.filter(o => {
-    // Si hay una sesión de caja activa/abierta, solo mostrar pedidos a partir de su apertura
+  const todayOrdersCount = orders.filter(o => getLocalDayString(o.created_at) === todayStr).length;
+  const shiftOrdersCount = orders.filter(o => {
     if (sessionOpenedTime > 0) {
-      const orderTime = new Date(o.created_at).getTime();
-      if (orderTime < sessionOpenedTime) return false;
+      return new Date(o.created_at).getTime() >= sessionOpenedTime;
+    }
+    return getLocalDayString(o.created_at) === todayStr;
+  }).length;
+
+  // Órdenes filtradas por ámbito, tipo, categoría y búsqueda
+  const baseFilteredOrders = orders.filter(o => {
+    const orderDateStr = getLocalDayString(o.created_at);
+
+    if (dayScope === 'today') {
+      if (orderDateStr !== todayStr) return false;
+    } else {
+      // 'shift'
+      if (sessionOpenedTime > 0) {
+        if (new Date(o.created_at).getTime() < sessionOpenedTime) return false;
+      } else {
+        if (orderDateStr !== todayStr) return false;
+      }
     }
 
     if (filterType !== 'all' && o.type !== filterType) return false;
@@ -559,13 +577,39 @@ export default function PedidosPage() {
 
       {/* Controls */}
       <div className="px-5 lg:px-8 pt-4 flex flex-col md:flex-row md:items-center justify-between gap-4 z-10 relative">
-        <div className="flex bg-[var(--bg-input)] rounded-xl p-1 border shadow-inner" style={{ borderColor: 'var(--border)' }}>
-          <button onClick={() => setViewMode('kanban')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-black transition-all ${viewMode === 'kanban' ? 'bg-[var(--bg-card)] text-[var(--orange)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
-            Kanban
-          </button>
-          <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-black transition-all ${viewMode === 'list' ? 'bg-[var(--bg-card)] text-[var(--orange)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
-            Lista
-          </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex bg-[var(--bg-input)] rounded-xl p-1 border shadow-inner" style={{ borderColor: 'var(--border)' }}>
+            <button onClick={() => setViewMode('kanban')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-black transition-all cursor-pointer ${viewMode === 'kanban' ? 'bg-[var(--bg-card)] text-[var(--orange)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
+              Kanban
+            </button>
+            <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-black transition-all cursor-pointer ${viewMode === 'list' ? 'bg-[var(--bg-card)] text-[var(--orange)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}>
+              Lista
+            </button>
+          </div>
+
+          {/* Scope Selector: Día de Hoy (24) vs Turno Actual (23) */}
+          <div className="flex bg-[var(--bg-input)] rounded-xl p-1 border shadow-inner text-xs font-bold" style={{ borderColor: 'var(--border)' }}>
+            <button
+              type="button"
+              onClick={() => setDayScope('today')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer ${
+                dayScope === 'today' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span>📅 Hoy</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/20">{todayOrdersCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDayScope('shift')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer ${
+                dayScope === 'shift' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span>⏱️ Turno Caja</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/20">{shiftOrdersCount}</span>
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">

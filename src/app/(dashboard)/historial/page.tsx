@@ -15,7 +15,7 @@ import { getLocalDayString } from '@/context/AppDataContext';
 export default function HistorialPage() {
   const { orders } = useOrders();
   const [search, setSearch] = useState('');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -61,25 +61,23 @@ export default function HistorialPage() {
     }
 
     // Date range filter
-    if (dateFilter !== 'all') {
-      const orderDateStr = getLocalDayString(o.created_at);
-      const todayStr = getLocalDayString(new Date());
-      const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+    const orderDateStr = getLocalDayString(o.created_at);
+    const todayStr = getLocalDayString(new Date());
+    const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
 
-      if (dateFilter === 'today') {
-        if (orderDateStr !== todayStr) return false;
-      } else if (dateFilter === 'yesterday') {
-        if (orderDateStr !== yesterdayStr) return false;
-      } else if (dateFilter === 'week') {
-        const weekAgo = Date.now() - 7 * 86400000;
-        if (new Date(o.created_at).getTime() < weekAgo) return false;
-      } else if (dateFilter === 'month') {
-        const monthAgo = Date.now() - 30 * 86400000;
-        if (new Date(o.created_at).getTime() < monthAgo) return false;
-      } else if (dateFilter === 'custom') {
-        if (dateFrom && orderDateStr < dateFrom) return false;
-        if (dateTo && orderDateStr > dateTo) return false;
-      }
+    if (dateFilter === 'today') {
+      if (orderDateStr !== todayStr) return false;
+    } else if (dateFilter === 'yesterday') {
+      if (orderDateStr !== yesterdayStr) return false;
+    } else if (dateFilter === 'week') {
+      const weekAgo = Date.now() - 7 * 86400000;
+      if (new Date(o.created_at).getTime() < weekAgo) return false;
+    } else if (dateFilter === 'month') {
+      const monthAgo = Date.now() - 30 * 86400000;
+      if (new Date(o.created_at).getTime() < monthAgo) return false;
+    } else if (dateFilter === 'custom') {
+      if (dateFrom && orderDateStr < dateFrom) return false;
+      if (dateTo && orderDateStr > dateTo) return false;
     }
 
     // Status filter
@@ -120,7 +118,7 @@ export default function HistorialPage() {
 
   const resetFilters = () => {
     setSearch('');
-    setDateFilter('all');
+    setDateFilter('today');
     setDateFrom('');
     setDateTo('');
     setStatusFilter('all');
@@ -227,7 +225,46 @@ export default function HistorialPage() {
         </div>
 
         {/* Filters Card */}
-        <div className="card p-4 sm:p-5 rounded-2xl border bg-[var(--bg-card)] shadow-sm space-y-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="card p-5 rounded-3xl border bg-[var(--bg-card)] shadow-sm space-y-4" style={{ borderColor: 'var(--border)' }}>
+          {/* Fila 1: Selector de Período Rápido */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-[var(--orange)]" />
+              <span className="text-xs font-black uppercase tracking-wider text-[var(--text-primary)]">Período:</span>
+              <span className="text-[11px] font-bold text-[var(--text-muted)]">
+                {dateFilter === 'today' && 'Hoy (24 pedidos)'}
+                {dateFilter === 'yesterday' && 'Ayer'}
+                {dateFilter === 'week' && 'Últimos 7 días'}
+                {dateFilter === 'month' && 'Últimos 30 días'}
+                {dateFilter === 'custom' && 'Rango personalizado'}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-[var(--bg-input)] border" style={{ borderColor: 'var(--border)' }}>
+              {[
+                { id: 'today', label: 'Hoy' },
+                { id: 'yesterday', label: 'Ayer' },
+                { id: 'week', label: '7 Días' },
+                { id: 'month', label: '30 Días' },
+                { id: 'custom', label: 'Personalizado' },
+              ].map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { setDateFilter(p.id as any); setCurrentPage(1); }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                    dateFilter === p.id
+                      ? 'bg-[var(--orange)] text-white shadow-md'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Fila 2: Búsqueda, Filtros secundarios y Modos de vista */}
           <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
             {/* Search Box */}
             <div className="relative flex-1">
@@ -244,24 +281,6 @@ export default function HistorialPage() {
 
             {/* Filter Dropdowns */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Date Filter */}
-              <div className="relative">
-                <select
-                  value={dateFilter}
-                  onChange={(e) => { setDateFilter(e.target.value as any); setCurrentPage(1); }}
-                  className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
-                  style={{ borderColor: 'var(--border)' }}
-                >
-                  <option value="all">📅 Todo el histórico</option>
-                  <option value="today">📅 Hoy</option>
-                  <option value="yesterday">📅 Ayer</option>
-                  <option value="week">📅 Últimos 7 días</option>
-                  <option value="month">📅 Últimos 30 días</option>
-                  <option value="custom">📅 Rango Personalizado...</option>
-                </select>
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />
-              </div>
-
               {/* Status Filter */}
               <div className="relative">
                 <select
@@ -270,8 +289,8 @@ export default function HistorialPage() {
                   className="pl-8 pr-7 py-2 rounded-xl text-xs font-bold bg-[var(--bg-input)] border outline-none cursor-pointer text-[var(--text-primary)]"
                   style={{ borderColor: 'var(--border)' }}
                 >
-                  <option value="all">Todos los estados</option>
-                  <option value="delivered">🎉 Entregados</option>
+                  <option value="all">📋 Todos los estados</option>
+                  <option value="delivered">✅ Entregados</option>
                   <option value="cancelled">❌ Cancelados</option>
                   <option value="active">⏳ En Preparación / Activos</option>
                 </select>
@@ -329,14 +348,14 @@ export default function HistorialPage() {
               </div>
 
               {/* Reset Filters */}
-              {(search || dateFilter !== 'all' || statusFilter !== 'all' || paymentMethodFilter !== 'all' || orderTypeFilter !== 'all') && (
+              {(search || dateFilter !== 'today' || statusFilter !== 'all' || paymentMethodFilter !== 'all' || orderTypeFilter !== 'all') && (
                 <button
                   onClick={resetFilters}
                   className="p-2 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-colors text-xs font-bold flex items-center gap-1 cursor-pointer"
-                  title="Limpiar todos los filtros"
+                  title="Restablecer filtros a Hoy"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Limpiar</span>
+                  <span className="hidden sm:inline">Restablecer</span>
                 </button>
               )}
             </div>
@@ -383,7 +402,7 @@ export default function HistorialPage() {
               className="px-5 py-2.5 rounded-xl bg-[var(--orange)] text-white text-xs font-black shadow-md hover:scale-105 transition-all cursor-pointer inline-flex items-center gap-2"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Ver Todo el Histórico
+              Restablecer a Hoy
             </button>
           </div>
         ) : viewMode === 'table' ? (

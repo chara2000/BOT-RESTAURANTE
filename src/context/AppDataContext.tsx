@@ -105,23 +105,23 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
   const yesterdayDate = new Date(Date.now() - 86400000);
   const yesterdayStr = getLocalDayString(yesterdayDate);
 
+  // Regla contable: solo suman al balance de ventas los pedidos en estado 'delivered' (entregados)
   const delivered = orders.filter((o) => o.status === 'delivered');
-  const validOrders = orders.filter((o) => !['cancelled', 'draft'].includes(o.status));
-  const todayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === todayStr);
-  const yesterdayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === yesterdayStr);
+  const todayOrders = delivered.filter((o) => getLocalDayString(o.created_at) === todayStr);
+  const yesterdayOrders = delivered.filter((o) => getLocalDayString(o.created_at) === yesterdayStr);
 
   const weekAgo = Date.now() - 7 * 86400000;
   const monthAgo = Date.now() - 30 * 86400000;
 
-  const weekOrders = validOrders.filter((o) => new Date(o.created_at).getTime() >= weekAgo);
-  const monthOrders = validOrders.filter((o) => new Date(o.created_at).getTime() >= monthAgo);
+  const weekOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= weekAgo);
+  const monthOrders = delivered.filter((o) => new Date(o.created_at).getTime() >= monthAgo);
 
   const sum = (list: Order[]) => list.reduce((a, o) => a + (o.total || 0), 0);
   const active = orders.filter((o) => !['delivered', 'cancelled', 'draft'].includes(o.status));
 
-  // Top products from real order items
+  // Top products from delivered order items
   const productSales = new Map<string, { name: string; sold: number; revenue: number }>();
-  validOrders.forEach((o) =>
+  delivered.forEach((o) =>
     o.items?.forEach((i) => {
       if (!i.product) return;
       const cur = productSales.get(i.product.id) ?? { name: i.product.name, sold: 0, revenue: 0 };
@@ -131,7 +131,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
     })
   );
 
-  // Dynamic sales by day of week (Lun-Dom) from last 7 days real orders
+  // Dynamic sales by day of week (Lun-Dom) from last 7 days delivered orders
   const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const dayMap = new Map<string, number>();
   dayNames.forEach(d => dayMap.set(d, 0));
@@ -149,7 +149,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
     amount: dayMap.get(d) || 0
   }));
 
-  // Dynamic sales by hour (10h to 22h)
+  // Dynamic sales by hour (10h to 22h) for delivered orders of today
   const hourSlots = ['10h', '12h', '14h', '16h', '18h', '20h', '22h'];
   const hourMap = new Map<string, number>();
   hourSlots.forEach(h => hourMap.set(h, 0));
@@ -176,7 +176,7 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
     salesMonth: sum(monthOrders),
     activeOrders: active.length,
     deliveredOrders: delivered.length,
-    avgTicket: validOrders.length ? sum(validOrders) / validOrders.length : 0,
+    avgTicket: delivered.length ? sum(delivered) / delivered.length : 0,
     newCustomers: customers.filter((c) => c.segment === 'new').length,
     returningCustomers: customers.filter((c) => ['frequent', 'vip'].includes(c.segment)).length,
     topProducts: [...productSales.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5),

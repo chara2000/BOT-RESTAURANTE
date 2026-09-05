@@ -30,11 +30,12 @@ export default function DashboardPage() {
   const { dark } = useTheme();
   const { orders, stats, deliveries, settings, categories, products, customers } = useAppData();
   
-  // Period Selector: 'today' | 'yesterday' | 'week' | 'month' | 'all'
-  const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all'>('today');
+  // Period Selector: 'today' | 'yesterday' | 'week' | 'month'
+  const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today');
 
   const todayStr = getLocalDayString(new Date());
-  const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+  const yesterdayDate = new Date(Date.now() - 86400000);
+  const yesterdayStr = getLocalDayString(yesterdayDate);
   const weekAgo = Date.now() - 7 * 86400000;
   const monthAgo = Date.now() - 30 * 86400000;
 
@@ -45,23 +46,24 @@ export default function DashboardPage() {
     if (period === 'yesterday') return orderDateStr === yesterdayStr;
     if (period === 'week') return new Date(o.created_at).getTime() >= weekAgo;
     if (period === 'month') return new Date(o.created_at).getTime() >= monthAgo;
-    return true; // 'all'
+    return false;
   });
 
-  const periodValidOrders = periodOrders.filter((o) => !['cancelled', 'draft'].includes(o.status));
-  const periodTotal = periodValidOrders.reduce((a, o) => a + (o.total || 0), 0);
-  const periodAvgTicket = periodValidOrders.length ? periodTotal / periodValidOrders.length : 0;
-  const periodDelivered = periodOrders.filter((o) => o.status === 'delivered').length;
+  // Regla contable solicitada: Solo suman al total de ventas los pedidos en estado 'delivered' (entregados)
+  const periodDeliveredOrders = periodOrders.filter((o) => o.status === 'delivered');
+  const periodTotal = periodDeliveredOrders.reduce((a, o) => a + (o.total || 0), 0);
+  const periodAvgTicket = periodDeliveredOrders.length ? Math.round(periodTotal / periodDeliveredOrders.length) : 0;
+  const periodDelivered = periodDeliveredOrders.length;
   const periodActive = periodOrders.filter((o) => !['delivered', 'cancelled', 'draft'].includes(o.status)).length;
 
   const periodCustomers = customers.filter((c) => {
-    if (!c.created_at) return period === 'all';
+    if (!c.created_at) return false;
     const custDateStr = getLocalDayString(c.created_at);
     if (period === 'today') return custDateStr === todayStr;
     if (period === 'yesterday') return custDateStr === yesterdayStr;
     if (period === 'week') return new Date(c.created_at).getTime() >= weekAgo;
     if (period === 'month') return new Date(c.created_at).getTime() >= monthAgo;
-    return true;
+    return false;
   });
 
   const isPuertoTejada = settings?.coverage_city?.toLowerCase().includes('puerto tejada') || false;
@@ -76,7 +78,7 @@ export default function DashboardPage() {
   const totalCart = orderList.reduce((a, o) => a + o.total, 0);
 
   // Dynamic Category Breakdown from real orders of selected period
-  const targetOrdersForCategories = periodValidOrders.length > 0 ? periodValidOrders : orders;
+  const targetOrdersForCategories = periodDeliveredOrders.length > 0 ? periodDeliveredOrders : orders;
   const categoryCounts = new Map<string, number>();
   targetOrdersForCategories.forEach((o) => {
     o.items?.forEach((item) => {
@@ -160,14 +162,6 @@ export default function DashboardPage() {
       custTitle: 'Clientes del Mes',
       custChange: `${periodCustomers.length} registrados`,
     },
-    all: {
-      incomeTitle: 'Ingresos Totales',
-      incomeChange: 'Histórico consolidado',
-      ordersTitle: 'Total Órdenes',
-      ordersChange: `${periodDelivered} entregadas`,
-      custTitle: 'Total Directorio',
-      custChange: `${customers.length} registrados`,
-    },
   }[period];
 
   return (
@@ -193,7 +187,6 @@ export default function DashboardPage() {
                   {period === 'yesterday' && 'Visualizando histórico contable de Ayer'}
                   {period === 'week' && 'Visualizando consolidado de los últimos 7 días'}
                   {period === 'month' && 'Visualizando consolidado de los últimos 30 días'}
-                  {period === 'all' && 'Visualizando histórico total acumulado'}
                 </p>
               </div>
             </div>
@@ -204,7 +197,6 @@ export default function DashboardPage() {
                 { id: 'yesterday', label: 'Ayer' },
                 { id: 'week', label: '7 Días' },
                 { id: 'month', label: '30 Días' },
-                { id: 'all', label: 'Todo el Histórico' },
               ].map((p) => (
                 <button
                   key={p.id}
@@ -226,7 +218,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-8 animate-fade-in-up">
             <StatCard title={periodConfig.incomeTitle} value={formatCompact(periodTotal)} change={periodConfig.incomeChange} up emoji="💰" />
             <StatCard title={periodConfig.ordersTitle} value={String(periodOrders.length)} change={periodConfig.ordersChange} up emoji="🧾" />
-            <StatCard title="Promedio por Orden" value={formatCompact(periodAvgTicket)} change={`${periodValidOrders.length} pedidos analizados`} up emoji="📊" />
+            <StatCard title="Promedio por Orden" value={formatCompact(periodAvgTicket)} change={`${periodDelivered} pedidos entregados`} up emoji="📊" />
             <StatCard title={periodConfig.custTitle} value={String(periodCustomers.length)} change={periodConfig.custChange} up emoji="👥" />
           </div>
 

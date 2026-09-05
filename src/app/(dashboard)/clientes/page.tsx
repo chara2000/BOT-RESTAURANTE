@@ -18,7 +18,7 @@ export default function ClientesPage() {
   const { customers } = useAppData();
   const [search, setSearch] = useState('');
   const [segmentFilter, setSegmentFilter] = useState<string>('all');
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month' | 'custom'>('all');
+  const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'week' | 'month' | 'custom'>('today');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -38,7 +38,7 @@ export default function ClientesPage() {
       return false;
     }
 
-    if (dateFilter !== 'all' && c.created_at) {
+    if (c.created_at) {
       const custDateStr = getLocalDayString(c.created_at);
       const todayStr = getLocalDayString(new Date());
       const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
@@ -96,11 +96,10 @@ export default function ClientesPage() {
                 className="pl-9 pr-8 py-3 rounded-2xl text-xs font-bold bg-[var(--bg-card)] border outline-none cursor-pointer text-[var(--text-primary)]"
                 style={{ borderColor: 'var(--border)' }}
               >
-                <option value="all">📅 Todos los registros</option>
                 <option value="today">📅 Registrados Hoy</option>
                 <option value="yesterday">📅 Registrados Ayer</option>
                 <option value="week">📅 Últimos 7 días</option>
-                <option value="month">📅 Este Mes</option>
+                <option value="month">📅 Últimos 30 días</option>
                 <option value="custom">📅 Rango personalizado</option>
               </select>
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)] pointer-events-none" />

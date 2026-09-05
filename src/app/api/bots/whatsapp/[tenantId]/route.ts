@@ -271,11 +271,14 @@ export async function POST(
     }
 
     // Parse tokens like "1", "1, 2", "1 y 3", "2 4"
+    const nonNumberChars = trimmed.replace(/[0-9\s,yY+*.\-]/g, '').replace(/[0-9]️⃣/g, '');
+    const isPureNumberInput = nonNumberChars.length === 0;
+
     const numTokens = trimmed.split(/[\s,yY+]+/).filter(Boolean);
     const nums = numTokens.map(t => parseInt(t, 10)).filter(n => !isNaN(n));
 
-    // Number shortcut: user typed single or multiple numbers
-    if (nums.length > 0 && cachedBtns && nums.every(n => n >= 1 && n <= cachedBtns.length)) {
+    // Number shortcut: ONLY if the message is pure numbers/options and matches cached buttons
+    if (isPureNumberInput && nums.length > 0 && cachedBtns && nums.every(n => n >= 1 && n <= cachedBtns.length)) {
       if (nums.length === 1) {
         const btn = cachedBtns[nums[0] - 1];
         if (btn?.callback_data) {
@@ -308,34 +311,37 @@ export async function POST(
           }
         }
       } else {
-        // Multi-select dishes (e.g. "1, 2" or "1 y 3")
-        try {
-          const addedNames: string[] = [];
-          for (const n of nums) {
-            const btn = cachedBtns[n - 1];
-            if (btn && btn.callback_data.startsWith('product:')) {
-              const prodId = btn.callback_data.replace('product:', '');
-              await processCallback(chatId, btn.callback_data, username, tenantId, undefined, waExtra);
-              await processCallback(chatId, `qty:1:${prodId}`, username, tenantId, undefined, waExtra);
-              await processCallback(chatId, `skip_note:1:${prodId}`, username, tenantId, undefined, waExtra);
-              addedNames.push(btn.text);
+        // Multi-select dishes (e.g. "1, 2" or "1 y 3") - ONLY if every selected button is actually a product
+        const allAreProducts = nums.every(n => cachedBtns[n - 1]?.callback_data?.startsWith('product:'));
+        if (allAreProducts) {
+          try {
+            const addedNames: string[] = [];
+            for (const n of nums) {
+              const btn = cachedBtns[n - 1];
+              if (btn && btn.callback_data.startsWith('product:')) {
+                const prodId = btn.callback_data.replace('product:', '');
+                await processCallback(chatId, btn.callback_data, username, tenantId, undefined, waExtra);
+                await processCallback(chatId, `qty:1:${prodId}`, username, tenantId, undefined, waExtra);
+                await processCallback(chatId, `skip_note:1:${prodId}`, username, tenantId, undefined, waExtra);
+                addedNames.push(btn.text);
+              }
             }
+            if (addedNames.length > 0) {
+              const cartRes = await processCallback(chatId, 'cart', username, tenantId, undefined, waExtra);
+              const multiMsg = `✅ *¡${addedNames.length} productos agregados al carrito!*\n${addedNames.map(i => `• 1x ${i}`).join('\n')}\n\n${cartRes.text}`;
+              const formatted = formatWhatsAppResponse(chatIdStr, multiMsg, cartRes.reply_markup);
+              await sendWhatsAppMessage({
+                from: senderFrom,
+                to: recipientTo,
+                text: formatted.text,
+                buttons: formatted.buttons,
+                apiKey: creds.apiKey,
+              });
+              return NextResponse.json({ ok: true });
+            }
+          } catch (multiErr) {
+            console.error('[bot/whatsapp] multi-select error:', (multiErr as Error).message);
           }
-          if (addedNames.length > 0) {
-            const cartRes = await processCallback(chatId, 'cart', username, tenantId, undefined, waExtra);
-            const multiMsg = `✅ *¡${addedNames.length} productos agregados al carrito!*\n${addedNames.map(i => `• 1x ${i}`).join('\n')}\n\n${cartRes.text}`;
-            const formatted = formatWhatsAppResponse(chatIdStr, multiMsg, cartRes.reply_markup);
-            await sendWhatsAppMessage({
-              from: senderFrom,
-              to: recipientTo,
-              text: formatted.text,
-              buttons: formatted.buttons,
-              apiKey: creds.apiKey,
-            });
-            return NextResponse.json({ ok: true });
-          }
-        } catch (multiErr) {
-          console.error('[bot/whatsapp] multi-select error:', (multiErr as Error).message);
         }
       }
     }

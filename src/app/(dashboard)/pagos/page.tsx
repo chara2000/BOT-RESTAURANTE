@@ -105,13 +105,16 @@ export default function PagosPage() {
     (o) => o.payment_method === 'transfer' && o.status === 'pending'
   );
 
-  // Summary KPI stats based on filtered orders - Regla contable: Solo suman pedidos entregados
-  const entregadosOrders = filteredPosOrders.filter((o) => o.status === 'delivered');
-  const totalRecaudado = entregadosOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const activeOrdersCount = filteredPosOrders.filter((o) =>
-    ['confirmed', 'ready', 'shipping', 'preparing'].includes(o.status)
+  // Summary KPI stats based on filtered orders
+  const validPosOrders = filteredPosOrders.filter((o) => !['cancelled', 'draft'].includes(o.status));
+  const totalRecaudado = validPosOrders.reduce((sum, o) => sum + (o.total || 0), 0);
+  const totalAprobado = filteredPosOrders
+    .filter((o) => ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status))
+    .reduce((sum, o) => sum + (o.total || 0), 0);
+  const aprobadosCount = filteredPosOrders.filter((o) =>
+    ['delivered', 'confirmed', 'ready', 'shipping', 'preparing'].includes(o.status)
   ).length;
-  const avgTicket = entregadosOrders.length > 0 ? Math.round(totalRecaudado / entregadosOrders.length) : 0;
+  const avgTicket = validPosOrders.length > 0 ? Math.round(totalRecaudado / validPosOrders.length) : 0;
 
   // Filtered cash transactions
   const filteredCashTx = cashSession.transactions.filter((tx) => {
@@ -236,24 +239,24 @@ export default function PagosPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 animate-fade-in-up">
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ventas Entregadas</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Total Transacciones</span>
                   <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                     <DollarSign className="w-4 h-4" />
                   </div>
                 </div>
                 <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(totalRecaudado)}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{entregadosOrders.length} pedidos entregados</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{validPosOrders.length} registros según filtros</p>
               </div>
 
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Órdenes Activas</span>
-                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Pagos Aprobados</span>
+                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
                     <CheckCircle2 className="w-4 h-4" />
                   </div>
                 </div>
-                <p className="text-2xl font-black mt-2 text-blue-400">{activeOrdersCount}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">En preparación o ruta</p>
+                <p className="text-2xl font-black mt-2 text-emerald-400">{formatCurrency(totalAprobado)}</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">{aprobadosCount} órdenes confirmadas</p>
               </div>
 
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
@@ -270,12 +273,12 @@ export default function PagosPage() {
               <div className="card p-5 rounded-3xl border bg-[var(--bg-card)]" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-[var(--text-muted)]">Ticket Promedio</span>
-                  <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400">
                     <TrendingUp className="w-4 h-4" />
                   </div>
                 </div>
                 <p className="text-2xl font-black mt-2 text-[var(--text-primary)]">{formatCurrency(avgTicket)}</p>
-                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por entrega confirmada</p>
+                <p className="text-[11px] font-bold text-[var(--text-muted)] mt-1">Por pago registrado</p>
               </div>
             </div>
 

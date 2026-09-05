@@ -49,11 +49,11 @@ export default function DashboardPage() {
     return false;
   });
 
-  // Regla contable solicitada: Solo suman al total de ventas los pedidos en estado 'delivered' (entregados)
-  const periodDeliveredOrders = periodOrders.filter((o) => o.status === 'delivered');
-  const periodTotal = periodDeliveredOrders.reduce((a, o) => a + (o.total || 0), 0);
-  const periodAvgTicket = periodDeliveredOrders.length ? Math.round(periodTotal / periodDeliveredOrders.length) : 0;
-  const periodDelivered = periodDeliveredOrders.length;
+  // Pedidos válidos (no cancelados ni borradores)
+  const periodValidOrders = periodOrders.filter((o) => !['cancelled', 'draft'].includes(o.status));
+  const periodTotal = periodValidOrders.reduce((a, o) => a + (o.total || 0), 0);
+  const periodAvgTicket = periodValidOrders.length ? Math.round(periodTotal / periodValidOrders.length) : 0;
+  const periodDelivered = periodOrders.filter((o) => o.status === 'delivered').length;
   const periodActive = periodOrders.filter((o) => !['delivered', 'cancelled', 'draft'].includes(o.status)).length;
 
   const periodCustomers = customers.filter((c) => {
@@ -78,7 +78,7 @@ export default function DashboardPage() {
   const totalCart = orderList.reduce((a, o) => a + o.total, 0);
 
   // Dynamic Category Breakdown from real orders of selected period
-  const targetOrdersForCategories = periodDeliveredOrders.length > 0 ? periodDeliveredOrders : orders;
+  const targetOrdersForCategories = periodValidOrders.length > 0 ? periodValidOrders : orders;
   const categoryCounts = new Map<string, number>();
   targetOrdersForCategories.forEach((o) => {
     o.items?.forEach((item) => {
@@ -218,7 +218,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-8 animate-fade-in-up">
             <StatCard title={periodConfig.incomeTitle} value={formatCompact(periodTotal)} change={periodConfig.incomeChange} up emoji="💰" />
             <StatCard title={periodConfig.ordersTitle} value={String(periodOrders.length)} change={periodConfig.ordersChange} up emoji="🧾" />
-            <StatCard title="Promedio por Orden" value={formatCompact(periodAvgTicket)} change={`${periodDelivered} pedidos entregados`} up emoji="📊" />
+            <StatCard title="Promedio por Orden" value={formatCompact(periodAvgTicket)} change={`${periodValidOrders.length} pedidos analizados`} up emoji="📊" />
             <StatCard title={periodConfig.custTitle} value={String(periodCustomers.length)} change={periodConfig.custChange} up emoji="👥" />
           </div>
 

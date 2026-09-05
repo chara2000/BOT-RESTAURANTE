@@ -46,7 +46,7 @@ export default function DomiciliosPage() {
   const [selected, setSelected] = useState(deliveries[0]?.order_id ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [deliveryTab, setDeliveryTab] = useState<'shift' | 'history'>('shift');
-  const [historyPeriod, setHistoryPeriod] = useState<'all' | 'today' | 'yesterday' | 'week' | 'month'>('all');
+  const [historyPeriod, setHistoryPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today');
   const [selectedFilter, setSelectedFilter] = useState<string>('all');
   const [dbRiders, setDbRiders] = useState<any[]>([]);
 
@@ -69,27 +69,24 @@ export default function DomiciliosPage() {
   const filteredDeliveries = deliveries.filter((d) => {
     // 1. Turno actual vs Historial
     if (deliveryTab === 'shift') {
-      if (sessionOpenedTime > 0) {
-        const orderTime = new Date(d.order.created_at).getTime();
-        if (orderTime < sessionOpenedTime) return false;
-      }
+      const orderDateStr = getLocalDayString(d.order.created_at);
+      const todayStr = getLocalDayString(new Date());
+      if (orderDateStr !== todayStr) return false;
     } else {
       // Historial con filtros de fecha
-      if (historyPeriod !== 'all') {
-        const orderDateStr = getLocalDayString(d.order.created_at);
-        const todayStr = getLocalDayString(new Date());
-        const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
-        
-        if (historyPeriod === 'today' && orderDateStr !== todayStr) return false;
-        if (historyPeriod === 'yesterday' && orderDateStr !== yesterdayStr) return false;
-        if (historyPeriod === 'week') {
-          const weekAgo = Date.now() - 7 * 86400000;
-          if (new Date(d.order.created_at).getTime() < weekAgo) return false;
-        }
-        if (historyPeriod === 'month') {
-          const monthAgo = Date.now() - 30 * 86400000;
-          if (new Date(d.order.created_at).getTime() < monthAgo) return false;
-        }
+      const orderDateStr = getLocalDayString(d.order.created_at);
+      const todayStr = getLocalDayString(new Date());
+      const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+      
+      if (historyPeriod === 'today' && orderDateStr !== todayStr) return false;
+      if (historyPeriod === 'yesterday' && orderDateStr !== yesterdayStr) return false;
+      if (historyPeriod === 'week') {
+        const weekAgo = Date.now() - 7 * 86400000;
+        if (new Date(d.order.created_at).getTime() < weekAgo) return false;
+      }
+      if (historyPeriod === 'month') {
+        const monthAgo = Date.now() - 30 * 86400000;
+        if (new Date(d.order.created_at).getTime() < monthAgo) return false;
       }
     }
 
@@ -195,11 +192,10 @@ export default function DomiciliosPage() {
                 {deliveryTab === 'history' && (
                   <div className="flex flex-wrap items-center gap-1.5 animate-fade-in-up">
                     {[
-                      { id: 'all', label: 'Todos' },
                       { id: 'today', label: 'Hoy' },
                       { id: 'yesterday', label: 'Ayer' },
                       { id: 'week', label: '7 Días' },
-                      { id: 'month', label: 'Mes' },
+                      { id: 'month', label: '30 Días' },
                     ].map((p) => (
                       <button
                         key={p.id}

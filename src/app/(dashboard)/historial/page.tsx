@@ -108,13 +108,12 @@ export default function HistorialPage() {
   const paginatedOrders = filteredOrders.slice(startIndex, startIndex + pageSize);
 
   // Statistics
-  const totalFacturado = filteredOrders
-    .filter(o => o.status === 'delivered')
-    .reduce((sum, o) => sum + (o.total || 0), 0);
+  const validHistoryOrders = filteredOrders.filter(o => !['cancelled', 'draft'].includes(o.status));
+  const totalFacturado = validHistoryOrders.reduce((sum, o) => sum + (o.total || 0), 0);
   const deliveredCount = filteredOrders.filter(o => o.status === 'delivered').length;
   const cancelledCount = filteredOrders.filter(o => o.status === 'cancelled').length;
-  const activeCount = filteredOrders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length;
-  const avgTicket = deliveredCount > 0 ? Math.round(totalFacturado / deliveredCount) : 0;
+  const activeCount = filteredOrders.filter(o => !['delivered', 'cancelled', 'draft'].includes(o.status)).length;
+  const avgTicket = validHistoryOrders.length > 0 ? Math.round(totalFacturado / validHistoryOrders.length) : 0;
 
   const resetFilters = () => {
     setSearch('');

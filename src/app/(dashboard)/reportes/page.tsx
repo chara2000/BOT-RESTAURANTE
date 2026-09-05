@@ -73,10 +73,10 @@ export default function ReportesPage() {
   }, [orders, period, dateFrom, dateTo, statusFilter, categoryFilter, productFilter, todayStr, yesterdayStr, weekAgo, monthAgo]);
 
   const localStats = useMemo(() => {
-    // Regla contable: Solo suman a ventas los pedidos en estado 'delivered'
-    const deliveredOrders = filteredOrders.filter(o => o.status === 'delivered');
+    // Pedidos válidos (no cancelados ni borradores)
+    const validOrders = filteredOrders.filter(o => !['cancelled', 'draft'].includes(o.status));
 
-    const totalSales = deliveredOrders.reduce((sum, o) => {
+    const totalSales = validOrders.reduce((sum, o) => {
       if (productFilter !== 'all') {
         const prodItems = (o.items || []).filter(i => i.product?.id === productFilter);
         return sum + prodItems.reduce((s, i) => s + (i.unit_price * i.quantity), 0);
@@ -88,11 +88,11 @@ export default function ReportesPage() {
       return sum + (o.total || 0);
     }, 0);
 
-    const avgTicket = deliveredOrders.length ? Math.round(totalSales / deliveredOrders.length) : 0;
+    const avgTicket = validOrders.length ? Math.round(totalSales / validOrders.length) : 0;
     
     // Agrupación por día local usando getLocalDayString para evitar desfase de zona horaria
     const daysMap = new Map<string, number>();
-    deliveredOrders.forEach(o => {
+    validOrders.forEach(o => {
       const dayStr = getLocalDayString(o.created_at);
       let orderAmount = o.total || 0;
       if (productFilter !== 'all') {
@@ -119,7 +119,7 @@ export default function ReportesPage() {
       avgTicket,
       salesByDay,
       orderCount: filteredOrders.length,
-      deliveredCount: deliveredOrders.length,
+      deliveredCount: filteredOrders.filter(o => o.status === 'delivered').length,
       activeCount: filteredOrders.filter(o => !['delivered', 'cancelled'].includes(o.status)).length,
     };
   }, [filteredOrders, productFilter, categoryFilter, todayStr]);
@@ -275,7 +275,7 @@ export default function ReportesPage() {
                 style={{ borderColor: 'var(--border)' }}
               >
                 <option value="all">📋 Todos los estados</option>
-                <option value="delivered">✅ Entregados (Suman Ventas)</option>
+                <option value="delivered">✅ Entregados</option>
                 <option value="active">⏳ Activos en Preparación</option>
                 <option value="pending">⚠️ Pendientes de Aprobación</option>
                 <option value="cancelled">❌ Cancelados</option>
@@ -285,8 +285,8 @@ export default function ReportesPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 animate-fade-in-up delay-75">
-          <StatCard title="Ventas Entregadas" value={formatCompact(localStats.totalSales)} change={`${localStats.deliveredCount} entregadas`} up emoji="💰" />
-          <StatCard title="Ticket Promedio" value={formatCompact(localStats.avgTicket)} change="Por pedido entregado" up emoji="📈" />
+          <StatCard title="Ventas Totales" value={formatCompact(localStats.totalSales)} change={`${localStats.orderCount} pedidos`} up emoji="💰" />
+          <StatCard title="Ticket Promedio" value={formatCompact(localStats.avgTicket)} change="En rango seleccionado" up emoji="📈" />
           <StatCard title="Total Órdenes" value={String(localStats.orderCount)} change={`${localStats.activeCount} activas`} up emoji="🧾" />
           <StatCard title="Flujo de Caja" value={String(cashSession.transactions.length)} change={`Sesión: ${cashSession.id.substring(0,6)}`} up emoji="💳" />
         </div>

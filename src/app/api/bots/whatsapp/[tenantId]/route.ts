@@ -138,13 +138,38 @@ function formatWhatsAppResponse(
     return { text: formattedText, buttons };
   }
 
-  // Check if options are list items (categories, products, additions, ver todo el menú, carta pdf)
+  // Check if options have remove items (Cart screen with items)
+  const hasRmButtons = flatButtons.some(b => b.callback_data.startsWith('rm:'));
+
+  if (hasRmButtons) {
+    lastChatButtons.set(chatIdStr, flatButtons);
+
+    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '1️⃣1️⃣', '1️⃣2️⃣', '1️⃣3️⃣', '1️⃣4️⃣', '1️⃣5️⃣'];
+    const listLines = flatButtons.map((b, idx) => {
+      const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
+      return `${emoji} ${b.text}`;
+    });
+
+    formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde enviando solo el número (1 - ${flatButtons.length})._`;
+
+    const quickActions = flatButtons.filter(b => !b.callback_data.startsWith('rm:')).slice(0, 3);
+    if (quickActions.length > 0) {
+      buttons = quickActions.map(b => ({
+        text: cleanWAButtonTitle(b.text),
+        callback_data: b.callback_data,
+      }));
+    } else {
+      buttons = undefined;
+    }
+    return { text: formattedText, buttons };
+  }
+
+  // Check if options are catalog list items (categories, products, additions)
   const isListOptions = flatButtons.some(b => 
     b.callback_data.startsWith('cat:') || 
     b.callback_data.startsWith('product:') || 
     b.callback_data.startsWith('add_ad:') || 
-    b.callback_data.startsWith('add_addition:') ||
-    b.callback_data === 'view_pdf_menu'
+    b.callback_data.startsWith('add_addition:')
   );
 
   if (isListOptions) {
@@ -153,8 +178,7 @@ function formatWhatsAppResponse(
       b.callback_data.startsWith('cat:') || 
       b.callback_data.startsWith('product:') || 
       b.callback_data.startsWith('add_ad:') || 
-      b.callback_data.startsWith('add_addition:') ||
-      b.callback_data === 'view_pdf_menu'
+      b.callback_data.startsWith('add_addition:')
     );
 
     const actionButtons = flatButtons.filter(b => !itemButtons.includes(b));
@@ -179,8 +203,8 @@ function formatWhatsAppResponse(
       buttons = undefined;
     }
   } else {
-    // Non-list screen (Cart, Ask Note, Confirm Order, Payment Methods, etc.)
-    // Show up to 3 clean action buttons directly
+    // Non-list screen (Welcome, Cart without items, Payment Methods, Cash, etc.)
+    lastChatButtons.set(chatIdStr, flatButtons);
     buttons = flatButtons.slice(0, 3).map(b => ({
       text: cleanWAButtonTitle(b.text),
       callback_data: b.callback_data,

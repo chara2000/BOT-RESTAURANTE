@@ -199,6 +199,7 @@ function decodePaymentAccounts(phoneString?: string): { nequi_number: string; ba
 // ─── Tenant Settings ──────────────────────────────────────────────────────────
 
 interface CachedSettings {
+  restaurant_name?: string;
   delivery_fee: number;
   business_hours: { day: string; open: string; close: string; closed: boolean }[];
   additions?: AdditionItem[];
@@ -237,9 +238,24 @@ async function getTenantSettings(tenantId: string): Promise<CachedSettings> {
     return { delivery_fee: 5000, business_hours: [] };
   }
 
+  let restaurantName = 'ChefFlow';
+  try {
+    const { data: tRow } = await supabase
+      .from('tenants')
+      .select('name')
+      .eq('id', tenantId)
+      .maybeSingle();
+    if (tRow?.name) {
+      restaurantName = tRow.name;
+    }
+  } catch {
+    // fallback
+  }
+
   const accounts = decodePaymentAccounts(data?.whatsapp_phone);
 
   const settings: CachedSettings = {
+    restaurant_name: restaurantName,
     delivery_fee: data?.delivery_fee ?? 5000,
     business_hours: data?.business_hours ?? [],
     coverage_city: data?.coverage_city,
@@ -412,15 +428,40 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 // ─── Screens ──────────────────────────────────────────────────────────────────
 
 async function welcomeScreen(isReturning = false, tenantId?: string): Promise<BotResponse> {
+  let restaurantName = 'ChefFlow';
+  if (tenantId) {
+    try {
+      const settings = await getTenantSettings(tenantId);
+      if (settings.restaurant_name) {
+        restaurantName = settings.restaurant_name;
+      }
+    } catch {
+      // ignore
+    }
+  } else {
+    try {
+      const { data: firstTenant } = await supabase
+        .from('tenants')
+        .select('name')
+        .limit(1)
+        .maybeSingle();
+      if (firstTenant?.name) restaurantName = firstTenant.name;
+    } catch {
+      // ignore
+    }
+  }
+
+  const motivationalQuote = '🌟 "El ingrediente secreto siempre es el amor con el que cocinamos para ti."';
+
   const greeting = isReturning
-    ? `👋 ¡Bienvenido de nuevo a *ChefFlow*! 👏\n\n¿Qué vas a pedir hoy?`
-    : `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`;
+    ? `✨ ¡Qué alegría tenerte de vuelta en *${restaurantName}*! 🍽️❤️\n\n${motivationalQuote}\n\nNos alegra muchísimo que vuelvas a elegirnos. La cocina ya está encendida y lista para preparar tus platillos favoritos. 🍳🔥\n\n¿Qué te gustaría disfrutar hoy?`
+    : `✨ ¡Hola! Qué alegría saludarte. ¡Bienvenido a *${restaurantName}*! 🍽️❤️\n\n${motivationalQuote}\n\nHoy es un gran día para deleitarte con algo delicioso y recargar tu mejor energía. ¡Estamos listos para atenderte con toda la pasión y el mejor sabor! 🍳🔥\n\n¿En qué te podemos consentir hoy?`;
 
   const buttons: { text: string; callback_data: string }[][] = [
     [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
     [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
-    [{ text: '📦 Rastrear', callback_data: 'track_prompt' }],
-    [{ text: '🙋 Contactar Encargado', callback_data: 'contact_manager' }],
+    [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
+    [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
   ];
 
   return {
@@ -1547,17 +1588,7 @@ async function handleProcessMessage(
         };
       }
     }
-    return {
-      text: `👋 ¡Hola! ¿En qué te podemos colaborar?\n\nUsa los botones del menú para realizar tu pedido:`,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
-          [{ text: '🛒 Mi Carrito', callback_data: 'cart' }],
-          [{ text: '📦 Rastrear Pedido', callback_data: 'track_prompt' }],
-          [{ text: '🙋 Encargado', callback_data: 'contact_manager' }],
-        ],
-      },
-    };
+    return welcomeScreen(false, tenantId);
   }
 
   // Fallback para otros estados interactivos donde se espera una interacción con botones en lugar de texto

@@ -477,10 +477,7 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
       console.warn('Failed to query default menu image:', e);
     }
 
-    let menuText = '🍽️ *Nuestro Menú*\n\nSelecciona una categoría:';
-    if (settings?.menu_pdf_url) {
-      menuText = `🍽️ *Nuestro Menú*\n\n📄 *Carta completa en PDF:* ${settings.menu_pdf_url}\n\nSelecciona una categoría:`;
-    }
+    const menuText = '🍽️ *Nuestro Menú*\n\nSelecciona una categoría:';
 
     return {
       text: menuText,
@@ -1594,7 +1591,7 @@ async function handleProcessMessage(
       const settings = await getTenantSettings(tenantId);
       if (settings.menu_pdf_url) {
         return {
-          text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+          text: `📄 *Carta Digital en PDF*\n\nAquí tienes nuestra carta completa con descripciones y precios adjunta.`,
           document_url: settings.menu_pdf_url,
           document_filename: 'Carta_Menu.pdf',
           document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',
@@ -1795,7 +1792,7 @@ async function handleProcessCallback(
     const settings = await getTenantSettings(tenantId);
     if (settings.menu_pdf_url) {
       return {
-        text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+        text: `📄 *Carta Digital en PDF*\n\nAquí tienes nuestra carta completa con descripciones y precios adjunta.`,
         document_url: settings.menu_pdf_url,
         document_filename: 'Carta_Menu.pdf',
         document_caption: '📖 Aquí tienes nuestra carta completa en PDF con las descripciones y precios.',
@@ -1885,7 +1882,7 @@ async function handleProcessCallback(
     const settings = await getTenantSettings(tenantId);
     if (settings.menu_pdf_url) {
       return {
-        text: `📄 *Carta Digital en PDF*\n\nPuedes ver o descargar nuestra carta completa aquí:\n👉 ${settings.menu_pdf_url}`,
+        text: `📄 *Carta Digital en PDF*\n\nAquí tienes nuestra carta completa con descripciones y precios adjunta.`,
         document_url: settings.menu_pdf_url,
         document_filename: 'Carta_Menu.pdf',
         document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',

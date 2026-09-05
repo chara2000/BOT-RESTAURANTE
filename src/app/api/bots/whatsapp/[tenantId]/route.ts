@@ -14,62 +14,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { processMessage, processCallback } from '@/lib/bot/agent';
-import { sendWhatsAppMessage, sendWhatsAppDocument, verifyYCloudSignature, isBSUID } from '@/lib/bot/whatsapp';
+import { sendWhatsAppMessage, sendWhatsAppDocument, verifyYCloudSignature, isBSUID, getTenantCreds } from '@/lib/bot/whatsapp';
 import { sanitizeUsername } from '@/lib/bot/guards/MessageGuard';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// Cache tenant credentials: tenantId → { apiKey, phone, webhookSecret }
-const tenantCredCache = new Map<string, { apiKey: string; phone: string | null; webhookSecret: string | null; at: number }>();
-const CACHE_TTL = 60_000;
-
-async function getTenantCreds(tenantId: string) {
-  const cached = tenantCredCache.get(tenantId);
-  if (cached && Date.now() - cached.at < CACHE_TTL) return cached;
-
-  // 1. Try exact tenant query
-  const { data } = await supabase
-    .from('tenant_settings')
-    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
-
-  if (data?.ycloud_api_key) {
-    const entry = {
-      apiKey: data.ycloud_api_key,
-      phone: data.ycloud_phone_number || null,
-      webhookSecret: data.ycloud_webhook_secret || null,
-      at: Date.now(),
-    };
-    tenantCredCache.set(tenantId, entry);
-    return entry;
-  }
-
-  // 2. Fallback: Query first configured tenant with non-null ycloud_api_key
-  const { data: fallback } = await supabase
-    .from('tenant_settings')
-    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
-    .not('ycloud_api_key', 'is', null)
-    .limit(1)
-    .maybeSingle();
-
-  if (fallback?.ycloud_api_key) {
-    const entry = {
-      apiKey: fallback.ycloud_api_key,
-      phone: fallback.ycloud_phone_number || null,
-      webhookSecret: fallback.ycloud_webhook_secret || null,
-      at: Date.now(),
-    };
-    tenantCredCache.set(tenantId, entry);
-    return entry;
-  }
-
-  console.warn('[bot/whatsapp] No YCloud API Key found in DB for tenant:', tenantId);
-  return null;
-}
 
 // Cache active option buttons per chat for number-based selection (1, 2, 3...)
 const lastChatButtons = new Map<string, Array<{ text: string; callback_data: string }>>();
@@ -135,32 +86,6 @@ function formatWhatsAppResponse(
       { text: '2️⃣ 2 unidades', callback_data: flatButtons[1]?.callback_data || 'qty:2' },
       { text: '↩️ Volver al Menú', callback_data: 'menu' },
     ];
-    return { text: formattedText, buttons };
-  }
-
-  // Check if options have remove items (Cart screen with items)
-  const hasRmButtons = flatButtons.some(b => b.callback_data.startsWith('rm:'));
-
-  if (hasRmButtons) {
-    lastChatButtons.set(chatIdStr, flatButtons);
-
-    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '1️⃣1️⃣', '1️⃣2️⃣', '1️⃣3️⃣', '1️⃣4️⃣', '1️⃣5️⃣'];
-    const listLines = flatButtons.map((b, idx) => {
-      const emoji = numberEmojis[idx] || `*${idx + 1}.*`;
-      return `${emoji} ${b.text}`;
-    });
-
-    formattedText = `${rawText}\n\n📋 *Selecciona una opción:*\n${listLines.join('\n')}\n\n_👉 Responde enviando solo el número (1 - ${flatButtons.length})._`;
-
-    const quickActions = flatButtons.filter(b => !b.callback_data.startsWith('rm:')).slice(0, 3);
-    if (quickActions.length > 0) {
-      buttons = quickActions.map(b => ({
-        text: cleanWAButtonTitle(b.text),
-        callback_data: b.callback_data,
-      }));
-    } else {
-      buttons = undefined;
-    }
     return { text: formattedText, buttons };
   }
 
@@ -298,6 +223,7 @@ export async function POST(
   }
   const rawName = message.customerProfile?.name || message.customerProfile?.username || message.customerName || message.from || message.fromUserId || 'Cliente WhatsApp';
   const username = sanitizeUsername(rawName);
+  const waExtra = { platform: 'whatsapp' as const, whatsappRecipient: recipientTo, whatsappFrom: senderFrom };
 
   const msgType = message.type as string;
   let text = '';
@@ -314,7 +240,7 @@ export async function POST(
     const cleanLower = trimmed.toLowerCase();
     if (['carta', 'pdf', 'la carta', 'ver carta', 'ver pdf', 'menu pdf', 'carta pdf', 'descargar carta'].includes(cleanLower)) {
       try {
-        const response = await processCallback(chatId, 'view_pdf_menu', username, tenantId);
+        const response = await processCallback(chatId, 'view_pdf_menu', username, tenantId, undefined, waExtra);
         if (response.document_url) {
           await sendWhatsAppDocument({
             from: senderFrom,
@@ -352,7 +278,7 @@ export async function POST(
         const btn = cachedBtns[nums[0] - 1];
         if (btn?.callback_data) {
           try {
-            const response = await processCallback(chatId, btn.callback_data, username, tenantId);
+            const response = await processCallback(chatId, btn.callback_data, username, tenantId, undefined, waExtra);
             if (response.document_url) {
               await sendWhatsAppDocument({
                 from: senderFrom,
@@ -387,14 +313,14 @@ export async function POST(
             const btn = cachedBtns[n - 1];
             if (btn && btn.callback_data.startsWith('product:')) {
               const prodId = btn.callback_data.replace('product:', '');
-              await processCallback(chatId, btn.callback_data, username, tenantId);
-              await processCallback(chatId, `qty:1:${prodId}`, username, tenantId);
-              await processCallback(chatId, `skip_note:1:${prodId}`, username, tenantId);
+              await processCallback(chatId, btn.callback_data, username, tenantId, undefined, waExtra);
+              await processCallback(chatId, `qty:1:${prodId}`, username, tenantId, undefined, waExtra);
+              await processCallback(chatId, `skip_note:1:${prodId}`, username, tenantId, undefined, waExtra);
               addedNames.push(btn.text);
             }
           }
           if (addedNames.length > 0) {
-            const cartRes = await processCallback(chatId, 'cart', username, tenantId);
+            const cartRes = await processCallback(chatId, 'cart', username, tenantId, undefined, waExtra);
             const multiMsg = `✅ *¡${addedNames.length} productos agregados al carrito!*\n${addedNames.map(i => `• 1x ${i}`).join('\n')}\n\n${cartRes.text}`;
             const formatted = formatWhatsAppResponse(chatIdStr, multiMsg, cartRes.reply_markup);
             await sendWhatsAppMessage({
@@ -418,7 +344,7 @@ export async function POST(
     if (btnId) {
       // Treat as a callback
       try {
-        const response = await processCallback(chatId, btnId, username, tenantId);
+        const response = await processCallback(chatId, btnId, username, tenantId, undefined, waExtra);
         if (response.document_url) {
           await sendWhatsAppDocument({
             from: senderFrom,
@@ -500,7 +426,7 @@ export async function POST(
       text,
       username,
       tenantId,
-      { isPhoto, photoId, location }
+      { isPhoto, photoId, location, ...waExtra }
     );
 
     if (response.document_url) {

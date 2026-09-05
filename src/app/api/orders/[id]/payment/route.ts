@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { notifyOrderStatusChange } from '@/lib/n8n/server';
+import { notifyCustomerOrderStatus } from '@/lib/bot/orderNotifications';
 import type { OrderStatus } from '@/types';
 
 export async function PATCH(
@@ -71,32 +72,18 @@ export async function PATCH(
       console.warn('[payment route] Error inserting order event:', e);
     }
 
-    // 4. Notificar al cliente vía Telegram si aplica
-    let telegramChatId: string | null = (data as any)?.customers?.telegram_chat_id || null;
-    if (!telegramChatId && data.notes) {
-      const match = data.notes.match(/\[CHAT_ID:\s*(\d+)\]/i);
-      if (match) telegramChatId = match[1];
-    }
-
-    if (telegramChatId && process.env.TELEGRAM_BOT_TOKEN) {
-      try {
-        const { Telegraf } = await import('telegraf');
-        const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-        const shortId = data.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${id.slice(0, 6).toUpperCase()}`;
-
-        let msg = '';
-        if (payment_status === 'paid') {
-          msg = `✅ *¡Comprobante de Pago Aprobado!*\n\nTu pago para el pedido *${shortId}* ha sido verificado correctamente.\n🍳 Tu pedido ha ingresado a la cocina para su preparación.`;
-        } else if (payment_status === 'failed') {
-          msg = `❌ *Comprobante de Pago Rechazado*\n\nEl comprobante para el pedido *${shortId}* no pudo ser verificado. El pedido ha sido cancelado.\n\nComunícate con nosotros si necesitas asistencia.`;
-        }
-
-        if (msg) {
-          await bot.telegram.sendMessage(telegramChatId, msg, { parse_mode: 'Markdown' });
-        }
-      } catch (telegramErr) {
-        console.error('[payment route] Error enviando mensaje a Telegram:', telegramErr);
+    // 4. Notificar al cliente automáticamente (Telegram y WhatsApp)
+    try {
+      const shortId = data.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${id.slice(0, 6).toUpperCase()}`;
+      let msg = '';
+      if (payment_status === 'paid') {
+        msg = `✅ *¡Comprobante de Pago Aprobado!*\n\nTu pago para el pedido *${shortId}* ha sido verificado correctamente.\n🍳 Tu pedido ha ingresado a la cocina para su preparación.`;
+      } else if (payment_status === 'failed') {
+        msg = `❌ *Comprobante de Pago Rechazado*\n\nEl comprobante para el pedido *${shortId}* no pudo ser verificado. El pedido ha sido cancelado.\n\nComunícate con nosotros si necesitas asistencia.`;
       }
+      await notifyCustomerOrderStatus(id, targetStatus, msg || undefined);
+    } catch (notifErr) {
+      console.error('[payment route] Error notificando al cliente:', notifErr);
     }
 
     // 5. Notificar a n8n

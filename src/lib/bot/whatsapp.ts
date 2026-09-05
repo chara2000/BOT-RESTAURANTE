@@ -5,7 +5,66 @@
  * Docs: https://docs.ycloud.com/reference/whatsapp_message_send
  */
 
+import { createClient } from '@supabase/supabase-js';
+
 const YCLOUD_BASE = 'https://api.ycloud.com/v2';
+
+const getSupabaseClient = () =>
+  createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+// Cache tenant credentials: tenantId → { apiKey, phone, webhookSecret }
+const tenantCredCache = new Map<string, { apiKey: string; phone: string | null; webhookSecret: string | null; at: number }>();
+const CACHE_TTL = 60_000;
+
+export async function getTenantCreds(tenantId: string) {
+  const cached = tenantCredCache.get(tenantId);
+  if (cached && Date.now() - cached.at < CACHE_TTL) return cached;
+
+  const supabase = getSupabaseClient();
+
+  // 1. Try exact tenant query
+  const { data } = await supabase
+    .from('tenant_settings')
+    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  if (data?.ycloud_api_key) {
+    const entry = {
+      apiKey: data.ycloud_api_key,
+      phone: data.ycloud_phone_number || null,
+      webhookSecret: data.ycloud_webhook_secret || null,
+      at: Date.now(),
+    };
+    tenantCredCache.set(tenantId, entry);
+    return entry;
+  }
+
+  // 2. Fallback: Query first configured tenant with non-null ycloud_api_key
+  const { data: fallback } = await supabase
+    .from('tenant_settings')
+    .select('ycloud_api_key, ycloud_phone_number, ycloud_webhook_secret')
+    .not('ycloud_api_key', 'is', null)
+    .limit(1)
+    .maybeSingle();
+
+  if (fallback?.ycloud_api_key) {
+    const entry = {
+      apiKey: fallback.ycloud_api_key,
+      phone: fallback.ycloud_phone_number || null,
+      webhookSecret: fallback.ycloud_webhook_secret || null,
+      at: Date.now(),
+    };
+    tenantCredCache.set(tenantId, entry);
+    return entry;
+  }
+
+  console.warn('[bot/whatsapp] No YCloud API Key found in DB for tenant:', tenantId);
+  return null;
+}
 
 export interface WhatsAppButton {
   text: string;

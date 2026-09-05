@@ -4,6 +4,7 @@ import type { OrderItem, Product, AdditionItem } from '@/types';
 import { validateQuantity, validateAmount, validateAddress, validateNote, normalizeInput, normalizeAmount } from '@/lib/bot/validators/InputValidator';
 import { validatePaymentProof } from '@/lib/bot/validators/PaymentProofValidator';
 import { sanitizeNote } from '@/lib/bot/guards/MessageGuard';
+import { sendWhatsAppMessage, getTenantCreds } from './whatsapp';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,9 +46,12 @@ export interface BotSession {
   pendingRatingOrderId?: string; // ID del pedido que el cliente va a calificar
   pendingRiderName?: string;     // Nombre del repartidor que va a calificar
   lastActivityTimestamp?: number; // Marca de tiempo de la última interacción
-  reminder1Sent?: boolean;       // Recordatorio intermedio (3.5 - 6 min)
-  reminder2Sent?: boolean;       // Recordatorio de advertencia (7 - 9 min)
+  reminder1Sent?: boolean;       // Recordatorio intermedio (15 min)
+  reminder2Sent?: boolean;       // Recordatorio de advertencia (30 min)
   tenantId?: string;
+  platform?: 'telegram' | 'whatsapp';
+  whatsappRecipient?: string;
+  whatsappFrom?: string;
 }
 
 export interface BotResponse {
@@ -69,7 +73,7 @@ function sessionKey(tenantId: string, chatId: number): string {
   return `${tenantId}:${chatId}`;
 }
 
-const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000; // 10 Minutos
+const INACTIVITY_TIMEOUT_MS = 45 * 60 * 1000; // 45 Minutos (30–60 min)
 
 async function getSession(chatId: number, username: string, tenantId: string): Promise<BotSession> {
   const key = sessionKey(tenantId, chatId);
@@ -653,12 +657,11 @@ function cartScreen(session: BotSession): BotResponse {
   const deliveryFee = 5000;
   const finalTotal = subtotal + deliveryFee;
 
-  const buttons: { text: string; callback_data: string }[][] = session.cart.map(i => [
-    { text: `❌ Quitar ${i.product.name}`, callback_data: `rm:${i.id}` }
-  ]);
-  buttons.push([{ text: '➕ Seguir comprando', callback_data: 'menu' }]);
-  buttons.push([{ text: '💳 Proceder al Pago', callback_data: 'pay' }]);
-  buttons.push([{ text: '🗑️ Vaciar todo el carrito', callback_data: 'clear_cart' }]);
+  const buttons: { text: string; callback_data: string }[][] = [
+    [{ text: '💳 Proceder al Pago', callback_data: 'pay' }],
+    [{ text: '🍽️ Seguir comprando', callback_data: 'menu' }],
+    [{ text: '🗑️ Vaciar Carrito', callback_data: 'clear_cart' }],
+  ];
 
   return {
     text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n📦 *Productos:* $${subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio estimado:* $${deliveryFee.toLocaleString('es-CO')}\n💰 *TOTAL FINAL: $${finalTotal.toLocaleString('es-CO')}*`,
@@ -679,7 +682,6 @@ async function paymentOptionsScreen(session: BotSession, tenantId: string): Prom
       inline_keyboard: [
         [{ text: '💵 Efectivo', callback_data: 'pay_cash' }],
         [{ text: '📱 Nequi / Daviplata', callback_data: 'pay_digital' }],
-        [{ text: '💳 Pago Contra', callback_data: 'pay_ondelivery' }],
         [{ text: '↩️ Volver al carrito', callback_data: 'cart' }],
       ],
     },
@@ -1271,7 +1273,14 @@ export async function processMessage(
   text: string,
   username: string,
   tenantId: string,
-  extra?: { isPhoto: boolean; photoId?: string; location?: { latitude: number; longitude: number } },
+  extra?: {
+    isPhoto?: boolean;
+    photoId?: string;
+    location?: { latitude: number; longitude: number };
+    platform?: 'telegram' | 'whatsapp';
+    whatsappRecipient?: string;
+    whatsappFrom?: string;
+  },
   botCredentials?: { botToken?: string; adminChatId?: string }
 ): Promise<BotResponse> {
   if (text.trim() === '/start') {
@@ -1284,18 +1293,24 @@ export async function processMessage(
       tenantId,
       reminder1Sent: false,
       reminder2Sent: false,
+      platform: extra?.platform,
+      whatsappRecipient: extra?.whatsappRecipient,
+      whatsappFrom: extra?.whatsappFrom,
     };
     await saveSession(freshSession, tenantId);
   }
 
   const session = await getSession(chatId, username, tenantId);
+  if (extra?.platform) session.platform = extra.platform;
+  if (extra?.whatsappRecipient) session.whatsappRecipient = extra.whatsappRecipient;
+  if (extra?.whatsappFrom) session.whatsappFrom = extra.whatsappFrom;
 
-  // Si la sesión expiró por superar los 10 minutos de inactividad
+  // Si la sesión expiró por superar los 45 minutos de inactividad
   if ((session as any).wasExpiredDueToInactivity) {
     delete (session as any).wasExpiredDueToInactivity;
     if (text.trim() !== '/start') {
       return {
-        text: `⏰ *Tu sesión anterior ha expirado por inactividad (más de 10 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
+        text: `⏰ *Tu sesión anterior ha expirado por inactividad (+45 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
         reply_markup: {
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
@@ -1334,7 +1349,14 @@ async function handleProcessMessage(
   session: BotSession,
   text: string,
   tenantId: string,
-  extra?: { isPhoto: boolean; photoId?: string; location?: { latitude: number; longitude: number } },
+  extra?: {
+    isPhoto?: boolean;
+    photoId?: string;
+    location?: { latitude: number; longitude: number };
+    platform?: 'telegram' | 'whatsapp';
+    whatsappRecipient?: string;
+    whatsappFrom?: string;
+  },
   botCredentials?: { botToken?: string; adminChatId?: string }
 ): Promise<BotResponse> {
 
@@ -1615,16 +1637,24 @@ export async function processCallback(
   callbackData: string,
   username: string,
   tenantId: string,
-  botCredentials?: { botToken?: string; adminChatId?: string }
+  botCredentials?: { botToken?: string; adminChatId?: string },
+  extra?: {
+    platform?: 'telegram' | 'whatsapp';
+    whatsappRecipient?: string;
+    whatsappFrom?: string;
+  }
 ): Promise<BotResponse> {
   const session = await getSession(chatId, username, tenantId);
+  if (extra?.platform) session.platform = extra.platform;
+  if (extra?.whatsappRecipient) session.whatsappRecipient = extra.whatsappRecipient;
+  if (extra?.whatsappFrom) session.whatsappFrom = extra.whatsappFrom;
 
-  // Si la sesión expiró por superar los 10 minutos de inactividad
+  // Si la sesión expiró por superar los 45 minutos de inactividad
   if ((session as any).wasExpiredDueToInactivity) {
     delete (session as any).wasExpiredDueToInactivity;
     if (callbackData !== 'menu' && !callbackData.startsWith('cat:')) {
       return {
-        text: `⏰ *Tu sesión anterior ha expirado por inactividad (más de 10 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
+        text: `⏰ *Tu sesión anterior ha expirado por inactividad (+45 minutos).*\n\nHemos reiniciado tu orden para garantizar la frescura de los platillos y disponibilidad de inventario.\n\n👇 *Selecciona una opción del menú para comenzar:*`,
         reply_markup: {
           inline_keyboard: [
             [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
@@ -1894,13 +1924,14 @@ async function handleProcessCallback(
 
 /**
  * Escanea todas las sesiones activas en el bot y envía recordatorios automáticos
- * por inactividad (3.5 min, 7 min) o libera carritos y cierra sesión a los 10 min.
+ * por inactividad (15 min, 30 min) o libera carritos y cierra sesión a los 45 min.
+ * Soporta tanto Telegram como WhatsApp de forma transparente.
  */
 export async function checkInactivityAndSendReminders(defaultBotToken?: string): Promise<{ checked: number; remindersSent: number; expired: number }> {
   const now = Date.now();
-  const REMINDER_1_MS = 3.5 * 60 * 1000; // 3.5 min
-  const REMINDER_2_MS = 7 * 60 * 1000;   // 7 min
-  const TIMEOUT_MS = 10 * 60 * 1000;     // 10 min
+  const REMINDER_1_MS = 15 * 60 * 1000; // 15 min
+  const REMINDER_2_MS = 30 * 60 * 1000; // 30 min
+  const TIMEOUT_MS = 45 * 60 * 1000;     // 45 min
 
   let remindersSent = 0;
   let expired = 0;
@@ -1915,78 +1946,122 @@ export async function checkInactivityAndSendReminders(defaultBotToken?: string):
     const elapsed = now - session.lastActivityTimestamp;
     const tenantId = session.tenantId || key.split(':')[0] || 'a0000000-0000-4000-8000-000000000001';
 
-    let token = defaultBotToken || process.env.TELEGRAM_BOT_TOKEN;
-    try {
-      const { data: tSettings } = await supabase
-        .from('tenant_settings')
-        .select('telegram_bot_token')
-        .eq('tenant_id', tenantId)
-        .single();
-      if (tSettings?.telegram_bot_token) {
-        token = tSettings.telegram_bot_token;
-      }
-    } catch (e) {
-      // Usar token general por defecto
-    }
+    const isWhatsApp = session.platform === 'whatsapp' || !!session.whatsappRecipient || session.chatId > 10000000000;
+    const name = session.customerName ? ` ${session.customerName}` : '';
+    const itemCount = (session.cart || []).reduce((acc, i) => acc + i.quantity, 0);
+    const subtotal = (session.cart || []).reduce((acc, i) => acc + i.unit_price * i.quantity, 0);
+    const cartInfo = (session.cart && session.cart.length > 0)
+      ? `\n\n🛍️ *Tienes ${itemCount} producto(s) en tu pedido:* $${subtotal.toLocaleString('es-CO')}`
+      : '';
 
-    if (!token) continue;
-    const botInstance = new Telegraf(token);
-
-    // 1. Primer Recordatorio (3.5 - 6.9 minutos)
+    // 1. Primer Recordatorio (15 - 29.9 minutos)
     if (elapsed >= REMINDER_1_MS && elapsed < REMINDER_2_MS && !session.reminder1Sent) {
       session.reminder1Sent = true;
-      try {
-        const name = session.customerName ? ` ${session.customerName}` : '';
-        const itemCount = (session.cart || []).reduce((acc, i) => acc + i.quantity, 0);
-        const subtotal = (session.cart || []).reduce((acc, i) => acc + i.unit_price * i.quantity, 0);
-        const cartInfo = (session.cart && session.cart.length > 0)
-          ? `\n\n🛍️ *Tienes ${itemCount} producto(s) en tu pedido:* $${subtotal.toLocaleString('es-CO')}`
-          : '';
+      const text = `🔔 *¡Hola${name}!* Notamos que tu pedido está en pausa.${cartInfo}\n\n¿Deseas retomar tu orden antes de que expire la sesión? Nuestros cocineros están listos para preparar tus platillos. 🍳`;
+      const buttons = [
+        { text: '🛒 Ver Carrito', callback_data: 'cart' },
+        { text: '🍽️ Ver Menú', callback_data: 'menu' },
+        { text: '🗑️ Vaciar Carrito', callback_data: 'clear_cart' },
+      ];
 
-        await botInstance.telegram.sendMessage(
-          session.chatId,
-          `🔔 *¡Hola${name}!* Notamos que tu pedido está en pausa.${cartInfo}\n\n¿Deseas concluir tu orden antes de que expire la sesión? Nuestros cocineros están listos para preparar tus platillos. 🍳`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🛒 Ver Carrito y Concluir Pedido', callback_data: 'cart' }],
-                [{ text: '🍽️ Continuar Viendo Menú', callback_data: 'menu' }],
-                [{ text: '❌ Cancelar y Empezar de Nuevo', callback_data: 'clear_cart' }],
-              ],
-            },
+      if (isWhatsApp) {
+        try {
+          const creds = await getTenantCreds(tenantId);
+          const toTarget = session.whatsappRecipient || String(session.chatId);
+          if (creds?.apiKey && toTarget) {
+            const ok = await sendWhatsAppMessage({
+              from: creds.phone || session.whatsappFrom || undefined,
+              to: toTarget,
+              text,
+              buttons,
+              apiKey: creds.apiKey,
+            });
+            if (ok) remindersSent++;
+            await saveSession(session, tenantId);
           }
-        );
-        remindersSent++;
-        await saveSession(session, tenantId);
-      } catch (err) {
-        console.warn(`[Inactivity Reminder 1] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        } catch (err) {
+          console.warn(`[Inactivity Reminder 1 WA] Failed to send:`, (err as Error).message);
+        }
+      } else {
+        try {
+          let token = defaultBotToken || process.env.TELEGRAM_BOT_TOKEN;
+          const { data: tSettings } = await supabase
+            .from('tenant_settings')
+            .select('telegram_bot_token')
+            .eq('tenant_id', tenantId)
+            .single();
+          if (tSettings?.telegram_bot_token) token = tSettings.telegram_bot_token;
+
+          if (token) {
+            const botInstance = new Telegraf(token);
+            await botInstance.telegram.sendMessage(session.chatId, text, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: buttons.map(b => [b]),
+              },
+            });
+            remindersSent++;
+            await saveSession(session, tenantId);
+          }
+        } catch (err) {
+          console.warn(`[Inactivity Reminder 1 TG] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        }
       }
     }
-    // 2. Segundo Recordatorio Urgente (7 - 9.9 minutos)
+    // 2. Segundo Recordatorio Urgente (30 - 44.9 minutos)
     else if (elapsed >= REMINDER_2_MS && elapsed < TIMEOUT_MS && !session.reminder2Sent) {
       session.reminder2Sent = true;
-      try {
-        await botInstance.telegram.sendMessage(
-          session.chatId,
-          `⏳ *¡Tu pedido está a punto de vencer!*\n\nTu sesión se cerrará automáticamente en *3 minutos* por inactividad. ¿Deseas confirmar tu orden ahora? 👇`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🛒 Finalizar Mi Pedido Ahora', callback_data: 'cart' }],
-                [{ text: '❌ Descartar Pedido', callback_data: 'clear_cart' }],
-              ],
-            },
+      const text = `⏳ *¡Tu pedido sigue esperando!*${cartInfo}\n\nTu sesión se cerrará automáticamente en *15 minutos* por inactividad para garantizar el stock de cocina. ¿Deseas confirmar tu orden ahora? 👇`;
+      const buttons = [
+        { text: '🛒 Finalizar Pedido', callback_data: 'cart' },
+        { text: '🗑️ Cancelar Pedido', callback_data: 'clear_cart' },
+      ];
+
+      if (isWhatsApp) {
+        try {
+          const creds = await getTenantCreds(tenantId);
+          const toTarget = session.whatsappRecipient || String(session.chatId);
+          if (creds?.apiKey && toTarget) {
+            const ok = await sendWhatsAppMessage({
+              from: creds.phone || session.whatsappFrom || undefined,
+              to: toTarget,
+              text,
+              buttons,
+              apiKey: creds.apiKey,
+            });
+            if (ok) remindersSent++;
+            await saveSession(session, tenantId);
           }
-        );
-        remindersSent++;
-        await saveSession(session, tenantId);
-      } catch (err) {
-        console.warn(`[Inactivity Reminder 2] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        } catch (err) {
+          console.warn(`[Inactivity Reminder 2 WA] Failed to send:`, (err as Error).message);
+        }
+      } else {
+        try {
+          let token = defaultBotToken || process.env.TELEGRAM_BOT_TOKEN;
+          const { data: tSettings } = await supabase
+            .from('tenant_settings')
+            .select('telegram_bot_token')
+            .eq('tenant_id', tenantId)
+            .single();
+          if (tSettings?.telegram_bot_token) token = tSettings.telegram_bot_token;
+
+          if (token) {
+            const botInstance = new Telegraf(token);
+            await botInstance.telegram.sendMessage(session.chatId, text, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: buttons.map(b => [b]),
+              },
+            });
+            remindersSent++;
+            await saveSession(session, tenantId);
+          }
+        } catch (err) {
+          console.warn(`[Inactivity Reminder 2 TG] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        }
       }
     }
-    // 3. Expiración Definitiva (> 10 minutos)
+    // 3. Expiración Definitiva (> 45 minutos)
     else if (elapsed >= TIMEOUT_MS) {
       session.state = 'idle';
       session.cart = [];
@@ -1998,22 +2073,51 @@ export async function checkInactivityAndSendReminders(defaultBotToken?: string):
       session.lastActivityTimestamp = now;
       expired++;
 
-      try {
-        await botInstance.telegram.sendMessage(
-          session.chatId,
-          `⏰ *Tu sesión ha expirado por inactividad (+10 min).*\n\nHemos liberado tu carrito. Cuando desees ordenar nuevamente, simplemente presiona el botón abajo o escribe */start*. ¡Con gusto te atenderemos!`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: '🍽️ Ver Menú Principal', callback_data: 'menu' }],
-              ],
-            },
+      const text = `⏰ *Tu sesión ha expirado por inactividad (+45 min).*\n\nHemos liberado tu carrito para asegurar la disponibilidad de inventario. Cuando desees ordenar nuevamente, simplemente presiona el botón abajo o escribe *hola*. ¡Con gusto te atenderemos!`;
+      const buttons = [
+        { text: '🍽️ Ver Menú Principal', callback_data: 'menu' },
+      ];
+
+      if (isWhatsApp) {
+        try {
+          const creds = await getTenantCreds(tenantId);
+          const toTarget = session.whatsappRecipient || String(session.chatId);
+          if (creds?.apiKey && toTarget) {
+            await sendWhatsAppMessage({
+              from: creds.phone || session.whatsappFrom || undefined,
+              to: toTarget,
+              text,
+              buttons,
+              apiKey: creds.apiKey,
+            });
+            await saveSession(session, tenantId);
           }
-        );
-        await saveSession(session, tenantId);
-      } catch (err) {
-        console.warn(`[Inactivity Expiry] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        } catch (err) {
+          console.warn(`[Inactivity Expiry WA] Failed to send:`, (err as Error).message);
+        }
+      } else {
+        try {
+          let token = defaultBotToken || process.env.TELEGRAM_BOT_TOKEN;
+          const { data: tSettings } = await supabase
+            .from('tenant_settings')
+            .select('telegram_bot_token')
+            .eq('tenant_id', tenantId)
+            .single();
+          if (tSettings?.telegram_bot_token) token = tSettings.telegram_bot_token;
+
+          if (token) {
+            const botInstance = new Telegraf(token);
+            await botInstance.telegram.sendMessage(session.chatId, text, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: buttons.map(b => [b]),
+              },
+            });
+            await saveSession(session, tenantId);
+          }
+        } catch (err) {
+          console.warn(`[Inactivity Expiry TG] Failed to send to chatId ${session.chatId}:`, (err as Error).message);
+        }
       }
     }
   }

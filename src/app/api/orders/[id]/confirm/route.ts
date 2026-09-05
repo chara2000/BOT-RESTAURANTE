@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient, getTenantId } from '@/lib/supabase/server';
+import { notifyCustomerOrderStatus } from '@/lib/bot/orderNotifications';
 
 export async function POST(
   request: Request,
@@ -72,52 +73,11 @@ export async function POST(
       actor_name: 'Repartidor'
     });
 
-    // Enviar notificación a Telegram pidiendo calificación (la lógica de telegram debe correr)
-    // Para no duplicar toda la lógica de notificación de /status, importaremos y llamaremos a la función
-    // o simplemente enviamos un mensaje a TG aquí:
-    
-    const customer = (updateData as any)?.customers;
-    const telegramChatId = customer?.telegram_chat_id;
-    
-    if (telegramChatId && process.env.TELEGRAM_BOT_TOKEN) {
-      try {
-        const { Telegraf } = await import('telegraf');
-        const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-        
-        // Obtener el repartidor para la calificación
-        let riderName = 'tu repartidor';
-        const { data: dData } = await supabase
-          .from('deliveries')
-          .select('rider_id')
-          .eq('order_id', id)
-          .single();
-        
-        if (dData && dData.rider_id) {
-          const { data: rData } = await supabase
-            .from('profiles')
-            .select('name')
-            .eq('id', dData.rider_id)
-            .single();
-          if (rData && rData.name) {
-            riderName = rData.name;
-          }
-        }
-        
-        const shortId = updateData.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${updateData.id.slice(0, 6).toUpperCase()}`;
-        
-        const msg = `🔔 *Actualización de tu pedido (${shortId})*\n\nEl estado de tu pedido ha cambiado a:\n👉 *🎉 Entregado*\n\n¿Qué tal estuvo la entrega? Califica a ${riderName}:`;
-        
-        await bot.telegram.sendMessage(telegramChatId, msg, {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: `⭐ Calificar a ${riderName}`, callback_data: `rate_rider:${id}:${riderName}` }]
-            ]
-          }
-        });
-      } catch (e) {
-        console.error('Error sending delivery confirmation TG message:', e);
-      }
+    // Enviar notificación automática al cliente (Telegram y WhatsApp)
+    try {
+      await notifyCustomerOrderStatus(id, 'delivered');
+    } catch (e) {
+      console.error('Error sending delivery confirmation customer message:', e);
     }
 
     return NextResponse.json({ success: true, message: 'Entrega confirmada con éxito' });

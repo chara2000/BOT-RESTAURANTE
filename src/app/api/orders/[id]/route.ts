@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAdminClient, getTenantId } from '@/lib/supabase/server';
 import { mapOrder } from '@/services/supabaseMapper';
 import { DEMO_TENANT_ID } from '@/lib/supabase/constants';
+import { notifyCustomerOrderStatus } from '@/lib/bot/orderNotifications';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,8 +80,12 @@ export async function PATCH(
       .eq('id', orderId)
       .maybeSingle();
 
-    if (fetchError || !fullOrder) {
-      return NextResponse.json({ success: true, id: orderId });
+    if (status) {
+      try {
+        await notifyCustomerOrderStatus(orderId, status);
+      } catch (e) {
+        console.warn('[api/orders/[id]] Error notificando cliente:', e);
+      }
     }
 
     return NextResponse.json({

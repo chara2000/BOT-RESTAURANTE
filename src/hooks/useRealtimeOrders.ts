@@ -29,11 +29,18 @@ export function useRealtimeOrders() {
           queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
           // Si tuviéramos un query para 'active_orders', 'history_orders', los invalidamos
           
-          // Opcional: Emitir un evento personalizado para que NotificationManager lo recoja
+          // Emitir eventos personalizados para NotificationManager y el sistema de alarma
           if (payload.eventType === 'INSERT') {
             window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
           } else if (payload.eventType === 'UPDATE') {
-            window.dispatchEvent(new CustomEvent('order_updated', { detail: payload.new }));
+            const oldStatus = (payload.old as any)?.status;
+            const newStatus = (payload.new as any)?.status;
+            // Si una comanda pasa de borrador/incompleto a 'pending' o 'confirmed', tratarla como nueva orden para cocina
+            if ((oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed')) {
+              window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
+            } else {
+              window.dispatchEvent(new CustomEvent('order_updated', { detail: payload.new }));
+            }
           }
         }
       )

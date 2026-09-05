@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
-import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search, AlertCircle, LayoutGrid, List, Calendar } from 'lucide-react';
+import { Clock, MapPin, Phone, User, Utensils, Box, Bike, MessageSquare, Plus, Trash2, X, Check, Save, Minus, ChevronDown, Navigation, Printer, Search, AlertCircle, LayoutGrid, List, Calendar, Bell, Volume2 } from 'lucide-react';
 import { ridersService } from '@/services/api';
 import { Topbar } from '@/components/layout/Topbar';
 import { useAppData, getLocalDayString } from '@/context/AppDataContext';
 import { ThermalTicketModal } from '@/components/ThermalTicketModal';
+import { playAlarmSound, unlockAudio, requestNotificationPermission, isKitchenSoundEnabled, setKitchenSoundEnabled } from '@/hooks/useAlarmSound';
 
 import { createOrderViaN8n } from '@/services/n8n';
 import { formatCurrency } from '@/lib/utils';
@@ -283,6 +284,59 @@ export default function PedidosPage() {
 
   // View state: 'kanban' o 'list'
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+
+  // Kitchen Sound State
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  useEffect(() => {
+    setSoundEnabled(isKitchenSoundEnabled());
+    const handleToggle = (e: any) => {
+      if (typeof e?.detail?.enabled === 'boolean') {
+        setSoundEnabled(e.detail.enabled);
+      }
+    };
+    window.addEventListener('kitchen_sound_toggle', handleToggle);
+    return () => window.removeEventListener('kitchen_sound_toggle', handleToggle);
+  }, []);
+
+  const handleToggleSound = () => {
+    const next = !soundEnabled;
+    setSoundEnabled(next);
+    setKitchenSoundEnabled(next);
+    if (next) {
+      unlockAudio();
+      requestNotificationPermission();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('show_toast', {
+          detail: { title: '🔔 Timbre Cocina Activado', message: 'La campana sonará automáticamente con cada comanda nueva.', type: 'success' }
+        }));
+      }
+    } else {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('show_toast', {
+          detail: { title: '🔕 Timbre Cocina Silenciado', message: 'El timbre fue silenciado en este dispositivo.', type: 'warning' }
+        }));
+      }
+    }
+  };
+
+  const handleTestSound = async () => {
+    await unlockAudio();
+    await requestNotificationPermission();
+    if (!soundEnabled) {
+      setSoundEnabled(true);
+      setKitchenSoundEnabled(true);
+    }
+    playAlarmSound();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('show_toast', {
+        detail: {
+          title: '🔔 Timbre Cocina Probado',
+          message: 'Campana sonando a volumen alto. Notificaciones y audio desbloqueados para segundo plano.',
+          type: 'success'
+        }
+      }));
+    }
+  };
 
   // Filtros
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -654,6 +708,48 @@ export default function PedidosPage() {
                 }`}>
                   {todayOrdersCount}
                 </span>
+              </button>
+            </div>
+
+            <div className="hidden sm:block h-6 w-px bg-[var(--border)]" />
+
+            {/* Timbre Cocina - Campana en tiempo real con indicador y test */}
+            <div className="flex items-center bg-[var(--bg-input)] rounded-2xl p-1 border shadow-inner" style={{ borderColor: 'var(--border)' }}>
+              <button
+                type="button"
+                onClick={handleToggleSound}
+                title={soundEnabled ? "Timbre de cocina activado (clic para silenciar)" : "Timbre silenciado (clic para activar)"}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  soundEnabled
+                    ? 'bg-[var(--bg-card)] text-emerald-600 dark:text-emerald-400 shadow-sm'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <div className="relative flex items-center justify-center">
+                  <Bell className="w-3.5 h-3.5" />
+                  {soundEnabled && (
+                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                  )}
+                </div>
+                <span>Timbre Cocina</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-black ${
+                  soundEnabled ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-500/15 text-slate-400'
+                }`}>
+                  {soundEnabled ? 'Activo' : 'Mudo'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleTestSound}
+                title="Probar sonido fuerte de campana y activar permisos de audio"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black text-[var(--orange)] hover:bg-[var(--orange)]/10 transition-all cursor-pointer border-l border-[var(--border)]"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>Probar</span>
               </button>
             </div>
           </div>

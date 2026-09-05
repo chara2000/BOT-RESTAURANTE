@@ -5,7 +5,7 @@ import { Toaster, sileo } from 'sileo';
 import 'sileo/styles.css';
 import { useAuth } from '@/context/AuthContext';
 import { useRealtimeOrders } from '@/hooks/useRealtimeOrders';
-import { useAlarmSound, playAlarmSound } from '@/hooks/useAlarmSound';
+import { useAlarmSound, playAlarmSound, showDesktopOrderNotification } from '@/hooks/useAlarmSound';
 import { useTheme } from '@/context/ThemeContext';
 
 export function NotificationManager() {
@@ -23,14 +23,23 @@ export function NotificationManager() {
       const customEvent = e as CustomEvent;
       const order = customEvent.detail;
       const orderNum = order?.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order?.id?.slice(0, 6)?.toUpperCase() || 'NUEVO'}`;
+      const customerName = order?.customer?.name || order?.customer_name || 'Cliente';
+      const orderTypeLabel = order?.type === 'delivery' ? '🛵 Domicilio' : order?.type === 'pickup' ? '🛍️ Para Llevar' : '🍽️ Mesa';
+      const orderTotal = order?.total ? ` · $${Number(order.total).toLocaleString('es-CO')}` : '';
 
-      // Play real-time alarm chime immediately
+      // Play real-time kitchen bell chime immediately
       playAlarmSound();
+
+      // Show persistent OS desktop notification & flash tab title (critical for background tabs)
+      showDesktopOrderNotification(
+        `🚨 ¡NUEVO PEDIDO ENTRANTE! (${orderNum})`,
+        `${customerName} (${orderTypeLabel})${orderTotal} — Revisa la comanda en cocina`
+      );
 
       if (!user?.role || user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'kitchen' || user?.role === 'operator') {
         sileo.show({
           title: '🚨 ¡NUEVO PEDIDO ENTRANTE!',
-          description: `${orderNum} · ${order?.customer?.name || 'Cliente'} (${order?.type === 'delivery' ? '🛵 Domicilio' : order?.type === 'pickup' ? '🛍️ Para Llevar' : '🍽️ Mesa'})`,
+          description: `${orderNum} · ${customerName} (${orderTypeLabel})`,
           type: 'info',
         });
       } else if (user?.role === 'delivery' && order?.type === 'delivery') {

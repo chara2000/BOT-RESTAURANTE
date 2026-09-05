@@ -1,7 +1,7 @@
 'use client';
 
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
+  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { createClient } from '@/lib/supabase/client';
@@ -268,6 +268,8 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   ]);
 
   const [isLoading, setIsLoading] = useState(useSupabase);
+  const knownOrderMapRef = useRef<Map<string, string>>(new Map());
+  const isInitialSyncDoneRef = useRef(false);
 
   const buildDeliveries = useCallback((orderList: Order[]): DeliveryAssignment[] => {
     const lat = settings?.restaurant_lat ?? 3.2311;
@@ -298,6 +300,30 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       const data = await loadDashboardData(tid, user?.id);
       if (!data) return;
       setCategories(data.categories || []);
+
+      // Handle new order detection during background polling (even when window is hidden/minimized)
+      if (data.orders && Array.isArray(data.orders)) {
+        if (!isInitialSyncDoneRef.current) {
+          data.orders.forEach((o: Order) => knownOrderMapRef.current.set(o.id, o.status));
+          isInitialSyncDoneRef.current = true;
+        } else {
+          for (const o of data.orders) {
+            const prevStatus = knownOrderMapRef.current.get(o.id);
+            const isFresh = !prevStatus;
+            const isNowActiveKitchenOrder = (prevStatus === 'draft' || isFresh) &&
+              (o.status === 'pending' || o.status === 'confirmed');
+
+            if (isNowActiveKitchenOrder) {
+              console.log('[AppDataContext Polling] Nueva comanda detectada:', o.id);
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('new_order', { detail: o }));
+              }
+            }
+            knownOrderMapRef.current.set(o.id, o.status);
+          }
+        }
+      }
+
       setOrders(data.orders || []);
       setProducts(data.products || []);
       setCustomers(data.customers || []);
@@ -1051,7 +1077,12 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         (payload) => {
           if (active) {
             syncFromSupabase(tid).catch(logSupabaseError);
-            if (payload.eventType === 'INSERT') {
+            const isInsert = payload.eventType === 'INSERT';
+            const oldStatus = (payload.old as any)?.status;
+            const newStatus = (payload.new as any)?.status;
+            const isNewKitchenOrder = isInsert || ((oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed'));
+
+            if (isNewKitchenOrder) {
               playAlarmSound();
               if (typeof window !== 'undefined') {
                 window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));

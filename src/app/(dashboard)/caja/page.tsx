@@ -1,7 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator, ChevronLeft, ChevronRight, Shield, Search, Filter } from 'lucide-react';
+import {
+  ArrowDownCircle, ArrowUpCircle, Lock, Unlock, Wallet, History, AlertCircle, ShoppingCart, Calculator,
+  ChevronLeft, ChevronRight, Shield, Search, Filter, Plus, Trash2, Edit, X, Check, Calendar, DollarSign
+} from 'lucide-react';
 import { Topbar } from '@/components/layout/Topbar';
 import { PosSalePanel } from '@/components/pos/PosSalePanel';
 import { StatCard } from '@/components/ui/StatCard';
@@ -9,7 +12,17 @@ import { useAppData } from '@/context/AppDataContext';
 import { formatCurrency, formatCompact } from '@/lib/utils';
 
 export default function CajaPage() {
-  const { cashSession, pastCashSessions, addCashTransaction, openCashRegister, closeCashRegister, orders } = useAppData();
+  const {
+    cashSession,
+    pastCashSessions,
+    addCashTransaction,
+    openCashRegister,
+    closeCashRegister,
+    deleteCashSession,
+    updateCashSession,
+    createPastCashSession,
+    orders,
+  } = useAppData();
   const [activeTab, setActiveTab] = useState<'pos' | 'admin'>('pos');
   const [selectedPastSession, setSelectedPastSession] = useState<any | null>(null);
   const [txAmount, setTxAmount] = useState('');
@@ -18,6 +31,100 @@ export default function CajaPage() {
   const [openBalance, setOpenBalance] = useState('150000');
   const [closeCash, setCloseCash] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+
+  // CRUD states for past cash sessions
+  const [editingSession, setEditingSession] = useState<any | null>(null);
+  const [deletingSession, setDeletingSession] = useState<any | null>(null);
+  const [isCreatingHistorical, setIsCreatingHistorical] = useState(false);
+  const [isSavingPastSession, setIsSavingPastSession] = useState(false);
+
+  // Edit form states
+  const [editOpeningBalance, setEditOpeningBalance] = useState('');
+  const [editClosingBalance, setEditClosingBalance] = useState('');
+  const [editActualCash, setEditActualCash] = useState('');
+  const [editOpenedAt, setEditOpenedAt] = useState('');
+  const [editClosedAt, setEditClosedAt] = useState('');
+
+  // Create form states
+  const [newOpeningBalance, setNewOpeningBalance] = useState('150000');
+  const [newClosingBalance, setNewClosingBalance] = useState('');
+  const [newActualCash, setNewActualCash] = useState('');
+  const [newOpenedAt, setNewOpenedAt] = useState('');
+  const [newClosedAt, setNewClosedAt] = useState('');
+  const [newOpenedBy, setNewOpenedBy] = useState('ChefFlow');
+
+  const handleDeleteSession = async () => {
+    if (!deletingSession) return;
+    setIsSavingPastSession(true);
+    try {
+      await deleteCashSession(deletingSession.id);
+      if (selectedPastSession?.id === deletingSession.id) {
+        setSelectedPastSession(null);
+      }
+      setDeletingSession(null);
+      setMessage('Cierre de jornada eliminado exitosamente.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Error al eliminar el cierre.');
+    } finally {
+      setIsSavingPastSession(false);
+    }
+  };
+
+  const handleUpdateSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSession) return;
+    setIsSavingPastSession(true);
+    try {
+      const openBal = Number(editOpeningBalance || 0);
+      const closeBal = Number(editClosingBalance || 0);
+      const actualCash = Number(editActualCash || closeBal);
+      const difference = actualCash - closeBal;
+
+      await updateCashSession(editingSession.id, {
+        opening_balance: openBal,
+        closing_balance: closeBal,
+        actual_cash: actualCash,
+        difference,
+        opened_at: editOpenedAt ? new Date(editOpenedAt).toISOString() : editingSession.opened_at,
+        closed_at: editClosedAt ? new Date(editClosedAt).toISOString() : editingSession.closed_at,
+      });
+
+      setEditingSession(null);
+      setMessage('Cierre de jornada actualizado correctamente.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Error al actualizar el cierre.');
+    } finally {
+      setIsSavingPastSession(false);
+    }
+  };
+
+  const handleCreateHistorical = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingPastSession(true);
+    try {
+      const openBal = Number(newOpeningBalance || 0);
+      const closeBal = Number(newClosingBalance || openBal);
+      const actualCash = Number(newActualCash || closeBal);
+      const difference = actualCash - closeBal;
+
+      await createPastCashSession({
+        opening_balance: openBal,
+        closing_balance: closeBal,
+        actual_cash: actualCash,
+        difference,
+        opened_by: newOpenedBy || 'ChefFlow',
+        opened_at: newOpenedAt ? new Date(newOpenedAt).toISOString() : new Date().toISOString(),
+        closed_at: newClosedAt ? new Date(newClosedAt).toISOString() : new Date().toISOString(),
+      });
+
+      setIsCreatingHistorical(false);
+      setMessage('Cierre de jornada registrado correctamente.');
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Error al registrar el cierre.');
+    } finally {
+      setIsSavingPastSession(false);
+    }
+  };
 
   // Filters for transactions
   const [txSearch, setTxSearch] = useState('');
@@ -374,21 +481,38 @@ export default function CajaPage() {
                 </div>
               </div>
 
-              {/* HISTORIAL DE CIERRES ANTERIORES */}
+              {/* HISTORIAL DE CIERRES ANTERIORES CON CRUD */}
               <div className="card p-6 rounded-3xl border bg-[var(--bg-card)] shadow-sm space-y-4" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center justify-between border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
                   <div className="flex items-center gap-3">
                     <div className="p-2.5 rounded-xl bg-orange-500/10 text-[var(--orange)]">
                       <History className="h-5 w-5" />
                     </div>
                     <div>
                       <h3 className="text-sm font-black text-[var(--text-primary)]">Historial de Cierres de Jornada</h3>
-                      <p className="text-[10px] font-bold text-[var(--text-muted)]">Arqueos y sesiones contables cerradas anteriormente</p>
+                      <p className="text-[10px] font-bold text-[var(--text-muted)]">Arqueos, edición y gestión de jornadas cerradas</p>
                     </div>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-[var(--bg-input)] border text-[var(--text-muted)]" style={{ borderColor: 'var(--border)' }}>
-                    {pastCashSessions.length} cierres registrados
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-[var(--bg-input)] border text-[var(--text-muted)]" style={{ borderColor: 'var(--border)' }}>
+                      {pastCashSessions.length} cierres
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewOpeningBalance('150000');
+                        setNewClosingBalance('');
+                        setNewActualCash('');
+                        setNewOpenedAt(new Date(Date.now() - 86400000).toISOString().slice(0, 16));
+                        setNewClosedAt(new Date().toISOString().slice(0, 16));
+                        setNewOpenedBy('ChefFlow');
+                        setIsCreatingHistorical(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-[var(--orange)] text-white shadow-sm hover:opacity-90 transition-all cursor-pointer"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Registrar Cierre
+                    </button>
+                  </div>
                 </div>
 
                 {pastCashSessions.length === 0 ? (
@@ -404,21 +528,54 @@ export default function CajaPage() {
                       return (
                         <div
                           key={session.id}
-                          onClick={() => setSelectedPastSession(isSelected ? null : session)}
-                          className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                          className={`p-4 rounded-2xl border transition-all ${
                             isSelected ? 'border-[var(--orange)] shadow-md bg-[var(--orange)]/5' : 'border-[var(--border)] hover:border-orange-500/30 bg-[var(--bg-input)]'
                           }`}
                         >
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-400 border border-slate-500/20">
-                              Cerrada
-                            </span>
-                            <span className="text-[10px] font-bold text-[var(--text-muted)]">
-                              {new Date(session.opened_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                                Cerrada
+                              </span>
+                              <span className="text-[10px] font-bold text-[var(--text-muted)]">
+                                {new Date(session.opened_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingSession(session);
+                                  setEditOpeningBalance(String(session.opening_balance));
+                                  setEditClosingBalance(String(session.closing_balance ?? (session.opening_balance + sessionSales)));
+                                  setEditActualCash(String(session.actual_cash ?? session.closing_balance ?? (session.opening_balance + sessionSales)));
+                                  setEditOpenedAt(new Date(session.opened_at).toISOString().slice(0, 16));
+                                  setEditClosedAt(session.closed_at ? new Date(session.closed_at).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16));
+                                }}
+                                className="p-1.5 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--orange)]/10 text-[var(--text-muted)] hover:text-[var(--orange)] border border-[var(--border)] transition-all cursor-pointer"
+                                title="Editar cierre de jornada"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeletingSession(session);
+                                }}
+                                className="p-1.5 rounded-lg bg-[var(--bg-card)] hover:bg-rose-500/10 text-[var(--text-muted)] hover:text-rose-400 border border-[var(--border)] transition-all cursor-pointer"
+                                title="Eliminar cierre de jornada"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="space-y-1.5 text-xs">
+                          <div
+                            onClick={() => setSelectedPastSession(isSelected ? null : session)}
+                            className="cursor-pointer space-y-1.5 text-xs"
+                          >
                             <div className="flex justify-between font-bold">
                               <span style={{ color: 'var(--text-muted)' }}>Base Apertura:</span>
                               <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(session.opening_balance)}</span>
@@ -441,19 +598,28 @@ export default function CajaPage() {
                             )}
                           </div>
 
-                          <div className="mt-3 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[10px] font-black text-[var(--text-muted)]">
+                          <div
+                            onClick={() => setSelectedPastSession(isSelected ? null : session)}
+                            className="mt-3 pt-2 border-t border-[var(--border)] flex items-center justify-between text-[10px] font-black text-[var(--text-muted)] cursor-pointer"
+                          >
                             <span>{session.transactions.length} transacciones</span>
                             <span className="text-[var(--orange)]">{isSelected ? 'Ocultar detalle ▲' : 'Ver detalle ▼'}</span>
                           </div>
 
                           {isSelected && (
                             <div className="mt-3 pt-3 border-t border-[var(--border)] space-y-2 max-h-48 overflow-y-auto">
-                              {session.transactions.map((tx) => (
-                                <div key={tx.id} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-[var(--bg-card)]">
-                                  <span className="truncate pr-2 font-medium" style={{ color: 'var(--text-primary)' }}>{tx.description}</span>
-                                  <span className="font-black shrink-0 text-emerald-400">+{formatCurrency(tx.amount)}</span>
-                                </div>
-                              ))}
+                              {session.transactions.length === 0 ? (
+                                <p className="text-[10px] text-center text-[var(--text-muted)] py-2">Sin transacciones registradas</p>
+                              ) : (
+                                session.transactions.map((tx) => (
+                                  <div key={tx.id} className="flex items-center justify-between text-[11px] p-1.5 rounded-lg bg-[var(--bg-card)]">
+                                    <span className="truncate pr-2 font-medium" style={{ color: 'var(--text-primary)' }}>{tx.description}</span>
+                                    <span className={`font-black shrink-0 ${tx.type === 'income' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                      {tx.type === 'income' ? '+' : '-'}{formatCurrency(tx.amount)}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
                             </div>
                           )}
                         </div>
@@ -465,6 +631,273 @@ export default function CajaPage() {
             </div>
           )}
         </div>
+
+        {/* MODAL EDITAR CIERRE DE JORNADA */}
+        {editingSession && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b pb-3 border-[var(--border)]">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                    <Edit className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-[var(--text-primary)]">Editar Cierre de Jornada</h3>
+                    <p className="text-[10px] font-bold text-[var(--text-muted)]">Modificar valores contables y fechas</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingSession(null)}
+                  className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateSession} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Base de Apertura ($)</label>
+                  <input
+                    type="number"
+                    value={editOpeningBalance}
+                    onChange={(e) => setEditOpeningBalance(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Saldo de Cierre Esperado ($)</label>
+                  <input
+                    type="number"
+                    value={editClosingBalance}
+                    onChange={(e) => setEditClosingBalance(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Efectivo Real en Caja ($)</label>
+                  <input
+                    type="number"
+                    value={editActualCash}
+                    onChange={(e) => setEditActualCash(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Fecha Apertura</label>
+                    <input
+                      type="datetime-local"
+                      value={editOpenedAt}
+                      onChange={(e) => setEditOpenedAt(e.target.value)}
+                      required
+                      className="w-full px-2.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Fecha Cierre</label>
+                    <input
+                      type="datetime-local"
+                      value={editClosedAt}
+                      onChange={(e) => setEditClosedAt(e.target.value)}
+                      required
+                      className="w-full px-2.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
+                  <button
+                    type="button"
+                    onClick={() => setEditingSession(null)}
+                    className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--text-muted)] font-black hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingPastSession}
+                    className="px-4 py-2 rounded-xl bg-[var(--orange)] text-white font-black shadow-md hover:opacity-90 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingPastSession ? 'Guardando...' : 'Guardar Cambios'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL ELIMINAR CIERRE DE JORNADA */}
+        {deletingSession && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="w-full max-w-sm rounded-3xl border border-rose-500/30 bg-[var(--bg-card)] p-6 shadow-2xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 rounded-2xl bg-rose-500/10 text-rose-400">
+                  <Trash2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[var(--text-primary)]">¿Eliminar Cierre de Jornada?</h3>
+                  <p className="text-[11px] font-bold text-[var(--text-muted)]">
+                    {new Date(deletingSession.opened_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-300 font-medium leading-relaxed">
+                Esta acción eliminará de forma permanente el registro de cierre y sus {deletingSession.transactions.length} transacciones vinculadas de la base de datos.
+              </div>
+
+              <div className="space-y-1 text-xs font-bold border p-3 rounded-xl border-[var(--border)] bg-[var(--bg-input)]">
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-muted)]">Base Inicial:</span>
+                  <span>{formatCurrency(deletingSession.opening_balance)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-[var(--text-muted)]">Saldo de Cierre:</span>
+                  <span className="text-[var(--orange)]">{formatCurrency(deletingSession.closing_balance ?? deletingSession.opening_balance)}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingSession(null)}
+                  className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--text-muted)] font-black hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteSession}
+                  disabled={isSavingPastSession}
+                  className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-black shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isSavingPastSession ? 'Eliminando...' : 'Sí, Eliminar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL REGISTRAR CIERRE MANUAL HISTÓRICO */}
+        {isCreatingHistorical && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+            <div className="w-full max-w-md rounded-3xl border border-[var(--border)] bg-[var(--bg-card)] p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b pb-3 border-[var(--border)]">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-orange-500/10 text-[var(--orange)]">
+                    <Plus className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-[var(--text-primary)]">Registrar Cierre Manual</h3>
+                    <p className="text-[10px] font-bold text-[var(--text-muted)]">Añadir sesión histórica de arqueo de caja</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingHistorical(false)}
+                  className="p-1.5 rounded-xl hover:bg-[var(--bg-input)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateHistorical} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Cajero / Responsable</label>
+                  <input
+                    type="text"
+                    value={newOpenedBy}
+                    onChange={(e) => setNewOpenedBy(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Base de Apertura ($)</label>
+                  <input
+                    type="number"
+                    value={newOpeningBalance}
+                    onChange={(e) => setNewOpeningBalance(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Saldo de Cierre Esperado ($)</label>
+                  <input
+                    type="number"
+                    value={newClosingBalance}
+                    onChange={(e) => setNewClosingBalance(e.target.value)}
+                    required
+                    placeholder="Ej: 450000"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Efectivo Real en Caja ($)</label>
+                  <input
+                    type="number"
+                    value={newActualCash}
+                    onChange={(e) => setNewActualCash(e.target.value)}
+                    placeholder="Dejar vacío si coincide con el saldo de cierre"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] font-bold focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Fecha Apertura</label>
+                    <input
+                      type="datetime-local"
+                      value={newOpenedAt}
+                      onChange={(e) => setNewOpenedAt(e.target.value)}
+                      required
+                      className="w-full px-2.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-[var(--text-muted)] mb-1">Fecha Cierre</label>
+                    <input
+                      type="datetime-local"
+                      value={newClosedAt}
+                      onChange={(e) => setNewClosedAt(e.target.value)}
+                      required
+                      className="w-full px-2.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--bg-input)] text-[var(--text-primary)] text-[11px] font-medium focus:outline-none focus:ring-2 focus:ring-[var(--orange)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-[var(--border)]">
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingHistorical(false)}
+                    className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--text-muted)] font-black hover:bg-[var(--bg-input)] transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingPastSession}
+                    className="px-4 py-2 rounded-xl bg-[var(--orange)] text-white font-black shadow-md hover:opacity-90 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingPastSession ? 'Registrando...' : 'Registrar Cierre'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

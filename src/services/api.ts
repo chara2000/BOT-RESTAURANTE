@@ -296,6 +296,65 @@ export const cashService = {
       created_at: String(body.created_at),
     };
   },
+
+  async update(id: string, updates: Partial<CashSession>): Promise<CashSession> {
+    const res = await fetch('/api/cash/register', {
+      method: 'PUT',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ id, ...updates }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo actualizar la sesión de caja');
+    return {
+      id: String(body.id),
+      opened_by: String(body.opened_by ?? ''),
+      opening_balance: Number(body.opening_balance ?? 0),
+      closing_balance: body.closing_balance !== null ? Number(body.closing_balance) : undefined,
+      actual_cash: body.actual_cash !== null ? Number(body.actual_cash) : undefined,
+      difference: body.difference !== null ? Number(body.difference) : undefined,
+      status: body.status,
+      opened_at: body.opened_at,
+      closed_at: body.closed_at,
+      transactions: (body.cash_transactions ?? []).map((t: any) => ({
+        id: String(t.id),
+        type: t.type,
+        amount: Number(t.amount),
+        description: String(t.description ?? ''),
+        created_at: String(t.created_at),
+      })),
+    };
+  },
+
+  async delete(id: string): Promise<void> {
+    const res = await fetch(`/api/cash/register?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo eliminar la sesión de caja');
+  },
+
+  async createHistorical(data: Partial<CashSession>): Promise<CashSession> {
+    const res = await fetch('/api/cash/register', {
+      method: 'POST',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ ...data, status: 'closed' }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'No se pudo registrar el cierre manual');
+    return {
+      id: String(body.id),
+      opened_by: String(body.opened_by ?? 'ChefFlow'),
+      opening_balance: Number(body.opening_balance ?? 0),
+      closing_balance: Number(body.closing_balance ?? 0),
+      actual_cash: Number(body.actual_cash ?? 0),
+      difference: Number(body.difference ?? 0),
+      status: 'closed',
+      opened_at: body.opened_at,
+      closed_at: body.closed_at,
+      transactions: [],
+    };
+  },
 };
 
 export const deliveryService = {

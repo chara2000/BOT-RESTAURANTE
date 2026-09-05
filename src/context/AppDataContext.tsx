@@ -68,6 +68,9 @@ interface AppDataContextValue {
   addCashTransaction: (type: 'income' | 'expense', amount: number, description: string) => Promise<void>;
   openCashRegister: (balance: number, openedBy: string) => Promise<void>;
   closeCashRegister: (actualCash: number) => Promise<void>;
+  deleteCashSession: (id: string) => Promise<void>;
+  updateCashSession: (id: string, updates: Partial<CashSession>) => Promise<void>;
+  createPastCashSession: (data: Partial<CashSession>) => Promise<void>;
   updateSettings: (settings: Partial<TenantSettings>) => Promise<void>;
   assignRider: (orderId: string, riderId: string, riderName: string) => Promise<void>;
   updateRiderPosition: (orderId: string, lat: number, lng: number) => Promise<void>;
@@ -827,6 +830,62 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     }
   }, [cashSession, dataSource]);
 
+  const deleteCashSession = useCallback(async (id: string) => {
+    // Optimistic update
+    setPastCashSessions((prev) => prev.filter((s) => s.id !== id));
+    if (dataSource === 'supabase') {
+      try {
+        await cashService.delete(id);
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase(activeTenantId);
+        throw err;
+      }
+    }
+  }, [dataSource, activeTenantId, syncFromSupabase]);
+
+  const updateCashSession = useCallback(async (id: string, updates: Partial<CashSession>) => {
+    if (dataSource === 'supabase') {
+      try {
+        const updated = await cashService.update(id, updates);
+        setPastCashSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updated } : s)));
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase(activeTenantId);
+        throw err;
+      }
+    } else {
+      setPastCashSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    }
+  }, [dataSource, activeTenantId, syncFromSupabase]);
+
+  const createPastCashSession = useCallback(async (data: Partial<CashSession>) => {
+    if (dataSource === 'supabase') {
+      try {
+        const created = await cashService.createHistorical(data);
+        setPastCashSessions((prev) => [created, ...prev]);
+      } catch (err) {
+        logSupabaseError(err);
+        await syncFromSupabase(activeTenantId);
+        throw err;
+      }
+    } else {
+      const manualSession: CashSession = {
+        id: `CS-${Date.now()}`,
+        opened_by: data.opened_by || 'ChefFlow',
+        opening_balance: data.opening_balance || 0,
+        closing_balance: data.closing_balance || 0,
+        actual_cash: data.actual_cash || 0,
+        difference: data.difference || 0,
+        status: 'closed',
+        opened_at: data.opened_at || new Date().toISOString(),
+        closed_at: data.closed_at || new Date().toISOString(),
+        transactions: [],
+      };
+      setPastCashSessions((prev) => [manualSession, ...prev]);
+    }
+  }, [dataSource, activeTenantId, syncFromSupabase]);
+
   const updateSettings = useCallback(async (partial: Partial<TenantSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }));
     if (dataSource === 'supabase') {
@@ -1046,7 +1105,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       categories, orders, products, customers, inventory, stockMovements, cashSession, pastCashSessions, settings, deliveries,
       updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
-      addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
+      addCashTransaction, openCashRegister, closeCashRegister, deleteCashSession, updateCashSession, createPastCashSession, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
       selectedTenantId, activeTenantId, setSelectedTenantId, allTenants,
     }),
@@ -1054,7 +1113,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       categories, orders, products, customers, inventory, stockMovements, cashSession, pastCashSessions, settings, deliveries,
       updateOrderStatus, addOrder, deleteOrder, updateOrderDetails, updateProduct, addProduct, deleteProduct, addCategory, updateCategory, deleteCategory, updateInventory,
       addInventoryItem, deleteInventoryItem,
-      addCashTransaction, openCashRegister, closeCashRegister, updateSettings,
+      addCashTransaction, openCashRegister, closeCashRegister, deleteCashSession, updateCashSession, createPastCashSession, updateSettings,
       assignRider, updateRiderPosition, stats, lowStockCount, activeOrdersCount, isLoading,
       selectedTenantId, activeTenantId, setSelectedTenantId, allTenants,
     ]

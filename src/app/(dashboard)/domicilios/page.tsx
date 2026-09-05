@@ -65,13 +65,20 @@ export default function DomiciliosPage() {
   }, [activeTenantId]);
 
   const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
 
   const filteredDeliveries = deliveries.filter((d) => {
     // 1. Turno actual vs Historial
     if (deliveryTab === 'shift') {
-      const orderDateStr = getLocalDayString(d.order.created_at);
-      const todayStr = getLocalDayString(new Date());
-      if (orderDateStr !== todayStr) return false;
+      if (sessionOpenedTime > 0) {
+        const orderTime = new Date(d.order.created_at).getTime();
+        if (orderTime < sessionOpenedTime) return false;
+        if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+      } else {
+        const orderDateStr = getLocalDayString(d.order.created_at);
+        const todayStr = getLocalDayString(new Date());
+        if (orderDateStr !== todayStr) return false;
+      }
     } else {
       // Historial con filtros de fecha
       const orderDateStr = getLocalDayString(d.order.created_at);

@@ -28,7 +28,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function DashboardPage() {
   const { dark } = useTheme();
-  const { orders, stats, deliveries, settings, categories, products, customers } = useAppData();
+  const { orders, stats, deliveries, settings, categories, products, customers, cashSession } = useAppData();
   
   // Period Selector: 'today' | 'yesterday' | 'week' | 'month'
   const [period, setPeriod] = useState<'today' | 'yesterday' | 'week' | 'month'>('today');
@@ -39,10 +39,21 @@ export default function DashboardPage() {
   const weekAgo = Date.now() - 7 * 86400000;
   const monthAgo = Date.now() - 30 * 86400000;
 
-  // Filtrado de pedidos según periodo seleccionado
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
+
+  // Filtrado de pedidos según periodo seleccionado (en 'today' se limita estrictamente a la apertura y cierre de caja)
   const periodOrders = orders.filter((o) => {
     const orderDateStr = getLocalDayString(o.created_at);
-    if (period === 'today') return orderDateStr === todayStr;
+    if (period === 'today') {
+      if (sessionOpenedTime > 0) {
+        const orderTime = new Date(o.created_at).getTime();
+        if (orderTime < sessionOpenedTime) return false;
+        if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+        return true;
+      }
+      return orderDateStr === todayStr;
+    }
     if (period === 'yesterday') return orderDateStr === yesterdayStr;
     if (period === 'week') return new Date(o.created_at).getTime() >= weekAgo;
     if (period === 'month') return new Date(o.created_at).getTime() >= monthAgo;
@@ -59,7 +70,15 @@ export default function DashboardPage() {
   const periodCustomers = customers.filter((c) => {
     if (!c.created_at) return false;
     const custDateStr = getLocalDayString(c.created_at);
-    if (period === 'today') return custDateStr === todayStr;
+    if (period === 'today') {
+      if (sessionOpenedTime > 0) {
+        const custTime = new Date(c.created_at).getTime();
+        if (custTime < sessionOpenedTime) return false;
+        if (sessionClosedTime > 0 && custTime > sessionClosedTime) return false;
+        return true;
+      }
+      return custDateStr === todayStr;
+    }
     if (period === 'yesterday') return custDateStr === yesterdayStr;
     if (period === 'week') return new Date(c.created_at).getTime() >= weekAgo;
     if (period === 'month') return new Date(c.created_at).getTime() >= monthAgo;

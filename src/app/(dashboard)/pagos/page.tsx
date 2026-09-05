@@ -63,9 +63,17 @@ export default function PagosPage() {
     const orderDateStr = getLocalDayString(o.created_at);
     const todayStr = getLocalDayString(new Date());
     const yesterdayStr = getLocalDayString(new Date(Date.now() - 86400000));
+    const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+    const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
 
     if (dateFilter === 'today') {
-      if (orderDateStr !== todayStr) return false;
+      if (sessionOpenedTime > 0) {
+        const t = new Date(o.created_at).getTime();
+        if (t < sessionOpenedTime) return false;
+        if (sessionClosedTime > 0 && t > sessionClosedTime) return false;
+      } else {
+        if (orderDateStr !== todayStr) return false;
+      }
     } else if (dateFilter === 'yesterday') {
       if (orderDateStr !== yesterdayStr) return false;
     } else if (dateFilter === 'week') {

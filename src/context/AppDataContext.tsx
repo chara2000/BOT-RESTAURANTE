@@ -100,14 +100,28 @@ export function getLocalDayString(dateInput: Date | string = new Date()): string
   }
 }
 
-function computeStats(orders: Order[], customers: Customer[], products: Product[]): DashboardStats {
+function computeStats(orders: Order[], customers: Customer[], products: Product[], cashSession?: CashSession): DashboardStats {
   const todayStr = getLocalDayString(new Date());
   const yesterdayDate = new Date(Date.now() - 86400000);
   const yesterdayStr = getLocalDayString(yesterdayDate);
 
   // Pedidos válidos (excluye cancelados y borradores)
   const validOrders = orders.filter((o) => !['cancelled', 'draft'].includes(o.status));
-  const todayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === todayStr);
+
+  // Turno actual: si la caja tiene apertura registrada, cuenta únicamente los pedidos desde la apertura hasta el cierre (o ahora si está abierta)
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
+
+  const shiftOrders = validOrders.filter((o) => {
+    if (sessionOpenedTime > 0) {
+      const orderTime = new Date(o.created_at).getTime();
+      if (orderTime < sessionOpenedTime) return false;
+      if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+      return true;
+    }
+    return getLocalDayString(o.created_at) === todayStr;
+  });
+
   const yesterdayOrders = validOrders.filter((o) => getLocalDayString(o.created_at) === yesterdayStr);
 
   const weekAgo = Date.now() - 7 * 86400000;
@@ -150,12 +164,12 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
     amount: dayMap.get(d) || 0
   }));
 
-  // Dynamic sales by hour (10h to 22h) for valid orders of today
+  // Dynamic sales by hour (10h to 22h) for valid orders of active shift
   const hourSlots = ['10h', '12h', '14h', '16h', '18h', '20h', '22h'];
   const hourMap = new Map<string, number>();
   hourSlots.forEach(h => hourMap.set(h, 0));
 
-  todayOrders.forEach(o => {
+  shiftOrders.forEach(o => {
     try {
       const h = new Date(o.created_at).getHours();
       const slot = `${Math.floor(h / 2) * 2}h`;
@@ -171,13 +185,13 @@ function computeStats(orders: Order[], customers: Customer[], products: Product[
   }));
 
   return {
-    salesToday: sum(todayOrders),
+    salesToday: sum(shiftOrders),
     salesYesterday: sum(yesterdayOrders),
     salesWeek: sum(weekOrders),
     salesMonth: sum(monthOrders),
     activeOrders: active.length,
     deliveredOrders: delivered.length,
-    avgTicket: validOrders.length ? Math.round(sum(validOrders) / validOrders.length) : 0,
+    avgTicket: shiftOrders.length ? Math.round(sum(shiftOrders) / shiftOrders.length) : (validOrders.length ? Math.round(sum(validOrders) / validOrders.length) : 0),
     newCustomers: customers.filter((c) => c.segment === 'new').length,
     returningCustomers: customers.filter((c) => ['frequent', 'vip'].includes(c.segment)).length,
     topProducts: [...productSales.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 5),
@@ -1097,7 +1111,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, [user, activeTenantId, syncFromSupabase]);
 
-  const stats = useMemo(() => computeStats(orders, customers, products), [orders, customers, products]);
+  const stats = useMemo(() => computeStats(orders, customers, products, cashSession), [orders, customers, products, cashSession]);
   const lowStockCount = inventory.filter((i) => i.stock <= i.min_stock).length;
   const activeOrdersCount = orders.filter((o) => !['delivered', 'cancelled'].includes(o.status)).length;
 

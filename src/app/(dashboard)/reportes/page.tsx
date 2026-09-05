@@ -30,12 +30,23 @@ export default function ReportesPage() {
     return products.filter(p => p.category_id === categoryFilter || p.category === categoryFilter);
   }, [products, categoryFilter]);
 
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
+
   const filteredOrders = useMemo(() => {
     return orders.filter(o => {
       const orderDateStr = getLocalDayString(o.created_at);
 
-      // 1. Filtro de periodo temporal
-      if (period === 'today' && orderDateStr !== todayStr) return false;
+      // 1. Filtro de periodo temporal (en 'today' se limita estrictamente a la apertura y cierre de caja)
+      if (period === 'today') {
+        if (sessionOpenedTime > 0) {
+          const t = new Date(o.created_at).getTime();
+          if (t < sessionOpenedTime) return false;
+          if (sessionClosedTime > 0 && t > sessionClosedTime) return false;
+        } else {
+          if (orderDateStr !== todayStr) return false;
+        }
+      }
       if (period === 'yesterday' && orderDateStr !== yesterdayStr) return false;
       if (period === 'week' && new Date(o.created_at).getTime() < weekAgo) return false;
       if (period === 'month' && new Date(o.created_at).getTime() < monthAgo) return false;
@@ -70,7 +81,7 @@ export default function ReportesPage() {
       
       return true;
     });
-  }, [orders, period, dateFrom, dateTo, statusFilter, categoryFilter, productFilter, todayStr, yesterdayStr, weekAgo, monthAgo]);
+  }, [orders, period, dateFrom, dateTo, statusFilter, categoryFilter, productFilter, todayStr, yesterdayStr, weekAgo, monthAgo, sessionOpenedTime, sessionClosedTime]);
 
   const localStats = useMemo(() => {
     // Pedidos válidos (no cancelados ni borradores)

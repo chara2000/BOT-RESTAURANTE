@@ -154,11 +154,22 @@ export default function CajaPage() {
     return list;
   }, [cashSession.transactions, pastCashSessions]);
 
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
+
   // Transacciones filtradas por el período seleccionado
   const periodTransactions = useMemo(() => {
     return allTransactions.filter(t => {
       const txDateStr = getLocalDayString(t.created_at);
-      if (cajaPeriod === 'today') return txDateStr === todayStr;
+      if (cajaPeriod === 'today') {
+        if (sessionOpenedTime > 0) {
+          const txTime = new Date(t.created_at).getTime();
+          if (txTime < sessionOpenedTime) return false;
+          if (sessionClosedTime > 0 && txTime > sessionClosedTime) return false;
+          return true;
+        }
+        return txDateStr === todayStr;
+      }
       if (cajaPeriod === 'yesterday') return txDateStr === yesterdayStr;
       if (cajaPeriod === 'week') return new Date(t.created_at).getTime() >= weekAgo;
       if (cajaPeriod === 'month') return new Date(t.created_at).getTime() >= monthAgo;
@@ -168,7 +179,7 @@ export default function CajaPage() {
       }
       return true;
     });
-  }, [allTransactions, cajaPeriod, todayStr, yesterdayStr, weekAgo, monthAgo, cajaDateFrom, cajaDateTo]);
+  }, [allTransactions, cajaPeriod, todayStr, yesterdayStr, weekAgo, monthAgo, cajaDateFrom, cajaDateTo, sessionOpenedTime, sessionClosedTime]);
 
   // Cierres de jornada filtrados por el período seleccionado
   const filteredPastSessions = useMemo(() => {

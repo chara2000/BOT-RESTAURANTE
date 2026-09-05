@@ -357,16 +357,40 @@ export default function PedidosPage() {
     }
   };
 
+  // Control de ámbito: 'shift' (Turno de caja actual = 23 pedidos) o 'today' (Todo el día actual = 24 pedidos)
+  const [dayScope, setDayScope] = useState<'shift' | 'today'>('shift');
+
   const todayStr = getLocalDayString(new Date());
+  const sessionOpenedTime = cashSession?.opened_at ? new Date(cashSession.opened_at).getTime() : 0;
+  const sessionClosedTime = cashSession?.closed_at ? new Date(cashSession.closed_at).getTime() : 0;
 
   const todayOrdersCount = orders.filter(o => getLocalDayString(o.created_at) === todayStr).length;
+  const shiftOrdersCount = orders.filter(o => {
+    if (sessionOpenedTime > 0) {
+      const orderTime = new Date(o.created_at).getTime();
+      if (orderTime < sessionOpenedTime) return false;
+      if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+      return true;
+    }
+    return getLocalDayString(o.created_at) === todayStr;
+  }).length;
 
-  // Órdenes filtradas por día actual, tipo, categoría y búsqueda (muestra todos los pedidos del día de hoy)
+  // Órdenes filtradas por turno de caja / día, tipo, categoría y búsqueda
   const baseFilteredOrders = orders.filter(o => {
     const orderDateStr = getLocalDayString(o.created_at);
 
-    // Muestra todos los pedidos del día actual para que ningún pedido quede por fuera
-    if (orderDateStr !== todayStr) return false;
+    if (dayScope === 'shift') {
+      if (sessionOpenedTime > 0) {
+        const orderTime = new Date(o.created_at).getTime();
+        if (orderTime < sessionOpenedTime) return false;
+        if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+      } else {
+        if (orderDateStr !== todayStr) return false;
+      }
+    } else {
+      // 'today'
+      if (orderDateStr !== todayStr) return false;
+    }
 
     if (filterType !== 'all' && o.type !== filterType) return false;
     
@@ -569,13 +593,28 @@ export default function PedidosPage() {
             </button>
           </div>
 
-          {/* Indicador de pedidos de hoy */}
-          <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[var(--bg-card)] border text-xs font-black shadow-sm" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Pedidos de Hoy:</span>
-            <span className="px-2 py-0.5 rounded-lg bg-[var(--orange)] text-white text-[11px] font-black">
-              {todayOrdersCount}
-            </span>
+          {/* Selector de Ámbito: Turno Caja (23) vs Todo el Día (24) */}
+          <div className="flex bg-[var(--bg-input)] rounded-xl p-1 border shadow-inner text-xs font-bold" style={{ borderColor: 'var(--border)' }}>
+            <button
+              type="button"
+              onClick={() => setDayScope('shift')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer ${
+                dayScope === 'shift' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span>⏱️ Turno Caja</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/20">{shiftOrdersCount}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDayScope('today')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-black transition-all cursor-pointer ${
+                dayScope === 'today' ? 'bg-[var(--orange)] text-white shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span>📅 Todo el Día</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/20">{todayOrdersCount}</span>
+            </button>
           </div>
         </div>
 

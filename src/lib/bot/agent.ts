@@ -420,9 +420,6 @@ async function welcomeScreen(isReturning = false, tenantId?: string): Promise<Bo
     ? `👋 ¡Bienvenido de nuevo a *ChefFlow*! 👏\n\n¿Qué vas a pedir hoy?`
     : `👋 ¡Bienvenido a *ChefFlow*! 🍔\n\n¿En qué te puedo ayudar hoy?`;
 
-  if (menuPdfUrl) {
-    greeting += `\n\n📄 *Carta Digital en PDF:* ${menuPdfUrl}`;
-  }
 
   const buttons: { text: string; callback_data: string }[][] = [
     [{ text: '🍽️ Ver Menú', callback_data: 'menu' }],
@@ -481,9 +478,6 @@ async function menuScreen(tenantId: string, categoryId?: string): Promise<BotRes
 
     return {
       text: menuText,
-      document_url: settings?.menu_pdf_url || undefined,
-      document_filename: 'Carta_Menu.pdf',
-      document_caption: '📖 Aquí tienes nuestra carta completa en PDF con descripciones y precios.',
       image_url: defaultImage || undefined,
       reply_markup: { inline_keyboard: buttons },
     };

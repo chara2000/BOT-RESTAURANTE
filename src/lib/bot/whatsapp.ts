@@ -13,11 +13,32 @@ export interface WhatsAppButton {
 }
 
 /**
+ * Detects whether the identifier is a WhatsApp Business-Scoped User ID (BSUID) or username-based ID
+ * rather than a traditional phone number.
+ * Format: 2-letter ISO country code, dot, then alphanumeric string (e.g. CO.1101892408959093, US.13491208655302741918).
+ */
+export function isBSUID(val?: string): boolean {
+  if (!val) return false;
+  const clean = val.replace(/^whatsapp:/i, '').trim();
+  if (/^[A-Za-z]{2}\.[0-9A-Za-z_-]+$/.test(clean)) return true;
+  if (/[a-zA-Z]/.test(clean)) return true;
+  return false;
+}
+
+export function getCleanRecipient(val?: string): string {
+  if (!val) return '';
+  return val.replace(/^whatsapp:/i, '').trim();
+}
+
+/**
  * Normalizes phone numbers to international E.164 format (+[country_code][number]).
  * Automatically formats Colombian 10-digit mobile numbers (starting with 3) as +57XXXXXXXXXX.
  */
 export function formatE164(phone?: string): string | undefined {
   if (!phone) return undefined;
+  // If it's a BSUID (e.g. CO.1101892408959093), do not format as phone number
+  if (isBSUID(phone)) return undefined;
+
   const trimmed = phone.trim();
   if (trimmed.startsWith('+')) {
     return `+${trimmed.slice(1).replace(/\D/g, '')}`;
@@ -46,18 +67,22 @@ export async function sendWhatsAppMessage({
   apiKey,
 }: {
   from?: string;        // Sender phone number in E.164 (e.g. +573116215266)
-  to: string;           // Recipient phone number in E.164 format: +573001234567
+  to: string;           // Recipient phone number in E.164 OR Meta BSUID (e.g. CO.1101892408959093)
   text: string;
   buttons?: WhatsAppButton[];  // Max 3 for WhatsApp interactive buttons
   apiKey: string;
 }): Promise<boolean> {
   if (!apiKey || !to) {
-    console.warn('[ycloud] Missing apiKey or recipient number — message not sent', { apiKey: !!apiKey, to });
+    console.warn('[ycloud] Missing apiKey or recipient identifier — message not sent', { apiKey: !!apiKey, to });
     return false;
   }
 
   const cleanFrom = formatE164(from);
-  const cleanTo = formatE164(to) || to;
+  const isBsuid = isBSUID(to);
+  // YCloud API: BSUID must be sent under `recipient`, standard phone under `to`
+  const recipientTarget = isBsuid
+    ? { recipient: getCleanRecipient(to) }
+    : { to: formatE164(to) || to.trim() };
 
   // Strip Markdown formatting that Telegram uses but WhatsApp doesn't support
   const cleanText = text
@@ -79,7 +104,7 @@ export async function sendWhatsAppMessage({
 
     body = {
       ...(cleanFrom ? { from: cleanFrom } : {}),
-      to: cleanTo,
+      ...recipientTarget,
       type: 'interactive',
       interactive: {
         type: 'button',
@@ -91,7 +116,7 @@ export async function sendWhatsAppMessage({
     // Plain text message
     body = {
       ...(cleanFrom ? { from: cleanFrom } : {}),
-      to: cleanTo,
+      ...recipientTarget,
       type: 'text',
       text: { body: cleanText },
     };
@@ -130,7 +155,7 @@ export async function sendWhatsAppMessage({
       // Fallback: if interactive message failed, retry as plain text without buttons and without 'from'
       if (buttons && buttons.length > 0) {
         console.log('[ycloud] Retrying as plain text without buttons...');
-        return await sendWhatsAppMessage({ to: cleanTo, text, apiKey });
+        return await sendWhatsAppMessage({ to, text, apiKey });
       }
       return false;
     }
@@ -161,16 +186,20 @@ export async function sendWhatsAppDocument({
   apiKey: string;
 }): Promise<boolean> {
   if (!apiKey || !to || !documentUrl) {
-    console.warn('[ycloud] Missing apiKey, recipient number, or documentUrl', { hasKey: !!apiKey, to, documentUrl });
+    console.warn('[ycloud] Missing apiKey, recipient identifier, or documentUrl', { hasKey: !!apiKey, to, documentUrl });
     return false;
   }
 
   const cleanFrom = formatE164(from);
-  const cleanTo = formatE164(to) || to;
+  const isBsuid = isBSUID(to);
+  // YCloud API: BSUID must be sent under `recipient`, standard phone under `to`
+  const recipientTarget = isBsuid
+    ? { recipient: getCleanRecipient(to) }
+    : { to: formatE164(to) || to.trim() };
 
   const buildBody = (includeFrom: boolean) => ({
     ...(includeFrom && cleanFrom ? { from: cleanFrom } : {}),
-    to: cleanTo,
+    ...recipientTarget,
     type: 'document',
     document: {
       link: documentUrl,
@@ -209,7 +238,7 @@ export async function sendWhatsAppDocument({
       return false;
     }
 
-    console.log('[ycloud] Document sent successfully to', cleanTo);
+    console.log('[ycloud] Document sent successfully to', isBsuid ? recipientTarget.recipient : recipientTarget.to);
     return true;
   } catch (err) {
     console.error('[ycloud] Network error sending document:', (err as Error).message);

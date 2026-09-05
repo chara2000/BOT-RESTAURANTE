@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { processMessage, processCallback } from '@/lib/bot/agent';
-import { sendWhatsAppMessage, sendWhatsAppDocument, verifyYCloudSignature } from '@/lib/bot/whatsapp';
+import { sendWhatsAppMessage, sendWhatsAppDocument, verifyYCloudSignature, isBSUID } from '@/lib/bot/whatsapp';
 import { sanitizeUsername } from '@/lib/bot/guards/MessageGuard';
 
 const supabase = createClient(
@@ -258,12 +258,18 @@ export async function POST(
 
   const senderFrom: string | undefined = message.to || creds.phone || undefined;
 
-  // YCloud uses E.164 numbers or user IDs as chat IDs — convert to number for session key
+  // YCloud uses E.164 numbers or user IDs (BSUIDs) as chat IDs — convert to number for session key
   // We prefix with 'wa_' to avoid collision with Telegram IDs
-  const cleanId = recipientTo.replace(/\D/g, '') || recipientTo;
-  const chatIdStr = `wa_${cleanId}`;
-  let chatId = parseInt(cleanId, 10);
-  if (isNaN(chatId)) {
+  const isBsuidUser = isBSUID(recipientTo);
+  const chatIdStr = isBsuidUser
+    ? `wa_${recipientTo.replace(/[^a-zA-Z0-9]/g, '_')}`
+    : `wa_${recipientTo.replace(/\D/g, '') || recipientTo}`;
+
+  let chatId = isBsuidUser
+    ? Math.abs(recipientTo.split('').reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0))
+    : parseInt(recipientTo.replace(/\D/g, ''), 10);
+
+  if (isNaN(chatId) || chatId === 0 || chatId > Number.MAX_SAFE_INTEGER) {
     chatId = Math.abs(recipientTo.split('').reduce((acc, char) => (acc << 5) - acc + char.charCodeAt(0), 0));
   }
   const rawName = message.customerProfile?.name || message.customerProfile?.username || message.customerName || message.from || message.fromUserId || 'Cliente WhatsApp';

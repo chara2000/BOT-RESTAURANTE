@@ -695,18 +695,55 @@ function cartScreen(session: BotSession): BotResponse {
   }
 
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = 5000;
-  const finalTotal = subtotal + deliveryFee;
 
   const buttons: { text: string; callback_data: string }[][] = [
     [{ text: '💳 Proceder al Pago', callback_data: 'pay' }],
+    [{ text: '❌ Quitar Producto', callback_data: 'remove_item' }],
     [{ text: '🍽️ Seguir comprando', callback_data: 'menu' }],
+  ];
+
+  return {
+    text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n💰 *TOTAL: $${subtotal.toLocaleString('es-CO')}*`,
+    reply_markup: { inline_keyboard: buttons },
+  };
+}
+
+function removeItemScreen(session: BotSession): BotResponse {
+  if (session.cart.length === 0) return cartScreen(session);
+
+  const itemButtons: { text: string; callback_data: string }[][] = session.cart.map((item) => [
+    {
+      text: `❌ ${item.product.name}${item.quantity > 1 ? ` x${item.quantity}` : ''}`,
+      callback_data: `rm:${item.id}`,
+    },
+  ]);
+
+  const actionButtons: { text: string; callback_data: string }[][] = [
+    [{ text: '↩️ Volver al Carrito', callback_data: 'cart' }],
     [{ text: '🗑️ Vaciar Carrito', callback_data: 'clear_cart' }],
   ];
 
   return {
-    text: `🛒 *Tu Carrito*\n\n${cartSummaryText(session.cart)}\n\n📦 *Productos:* $${subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio estimado:* $${deliveryFee.toLocaleString('es-CO')}\n💰 *TOTAL FINAL: $${finalTotal.toLocaleString('es-CO')}*`,
-    reply_markup: { inline_keyboard: buttons },
+    text: `🗑️ *Quitar producto del carrito*\n\nSelecciona el producto que deseas retirar:`,
+    reply_markup: {
+      inline_keyboard: [...itemButtons, ...actionButtons],
+    },
+  };
+}
+
+async function deliveryModeScreen(session: BotSession, tenantId: string): Promise<BotResponse> {
+  if (session.cart.length === 0) return cartScreen(session);
+  const subtotal = cartTotal(session.cart);
+
+  return {
+    text: `🛵 *Método de Entrega*\n\nSubtotal productos: *$${subtotal.toLocaleString('es-CO')}*\n\n¿Cómo deseas recibir tu pedido hoy?`,
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: '🛵 A Domicilio', callback_data: 'mode_delivery' }],
+        [{ text: '🏪 Recoger en Local', callback_data: 'mode_pickup' }],
+        [{ text: '↩️ Volver al Carrito', callback_data: 'cart' }],
+      ],
+    },
   };
 }
 
@@ -714,16 +751,21 @@ async function paymentOptionsScreen(session: BotSession, tenantId: string): Prom
   if (session.cart.length === 0) return cartScreen(session);
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = settings.delivery_fee ?? 5000;
+  const isDelivery = session.deliveryMode === 'delivery';
+  const deliveryFee = isDelivery ? (settings.delivery_fee ?? 5000) : 0;
   const finalTotal = subtotal + deliveryFee;
 
+  const modeLine = isDelivery
+    ? `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*`
+    : `🏪 Modalidad: *Recoger en local ($0)*`;
+
   return {
-    text: `🛒 *Resumen del Pedido*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*\n💰 *Total Final: $${finalTotal.toLocaleString('es-CO')}*\n\n¿Confirmas tu pedido por *$${finalTotal.toLocaleString('es-CO')}*?\n\nSelecciona tu método de pago:`,
+    text: `🛒 *Resumen del Pedido*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n${modeLine}\n💰 *Total Final: $${finalTotal.toLocaleString('es-CO')}*\n\n¿Confirmas tu pedido por *$${finalTotal.toLocaleString('es-CO')}*?\n\nSelecciona tu método de pago:`,
     reply_markup: {
       inline_keyboard: [
         [{ text: '💵 Efectivo', callback_data: 'pay_cash' }],
         [{ text: '📱 Nequi / Daviplata', callback_data: 'pay_digital' }],
-        [{ text: '↩️ Volver al carrito', callback_data: 'cart' }],
+        [{ text: '↩️ Cambiar entrega', callback_data: 'pay' }],
       ],
     },
   };
@@ -733,13 +775,18 @@ async function cashAmountScreen(session: BotSession, tenantId: string): Promise<
   session.state = 'checkout_cash_amount';
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = settings.delivery_fee ?? 5000;
+  const isDelivery = session.deliveryMode === 'delivery';
+  const deliveryFee = isDelivery ? (settings.delivery_fee ?? 5000) : 0;
   const finalTotal = subtotal + deliveryFee;
 
+  const modeLine = isDelivery
+    ? `🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*\n`
+    : `🏪 Modalidad: *Recoger en local ($0)*\n`;
+
   return {
-    text: `💵 *Pago en Efectivo*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n🛵 Domicilio: *$${deliveryFee.toLocaleString('es-CO')}*\n💰 *Total a Pagar: $${finalTotal.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar\n_(ej: 50000 o 100000)_`,
+    text: `💵 *Pago en Efectivo*\n\n📦 Productos: *$${subtotal.toLocaleString('es-CO')}*\n${modeLine}💰 *Total a Pagar: $${finalTotal.toLocaleString('es-CO')}*\n\n✏️ Escribe el valor del billete con el que vas a pagar\n_(ej: 50000 o 100000)_`,
     reply_markup: {
-      inline_keyboard: [[{ text: '↩️ Cancelar y volver', callback_data: 'pay' }]],
+      inline_keyboard: [[{ text: '↩️ Cancelar y volver', callback_data: 'pay_back_summary' }]],
     },
   };
 }
@@ -747,7 +794,8 @@ async function cashAmountScreen(session: BotSession, tenantId: string): Promise<
 async function handleCashAmount(session: BotSession, text: string, tenantId: string): Promise<BotResponse> {
   const settings = await getTenantSettings(tenantId);
   const subtotal = cartTotal(session.cart);
-  const deliveryFee = Math.round(settings.delivery_fee ?? 5000);
+  const isDelivery = session.deliveryMode === 'delivery';
+  const deliveryFee = isDelivery ? Math.round(settings.delivery_fee ?? 5000) : 0;
   const finalTotal = Math.round(subtotal) + deliveryFee;
 
   // Usar InputValidator.validateAmount (aritmética de enteros COP)
@@ -755,13 +803,19 @@ async function handleCashAmount(session: BotSession, text: string, tenantId: str
   if (!amountResult.valid) {
     return {
       text: amountResult.errorMessage,
-      reply_markup: { inline_keyboard: [[{ text: '↩️ Cancelar y volver', callback_data: 'pay' }]] },
+      reply_markup: { inline_keyboard: [[{ text: '↩️ Cancelar y volver', callback_data: 'pay_back_summary' }]] },
     };
   }
 
   session.changeAmount = amountResult.value.change;
   session.paymentMethod = 'cash';
   session.paymentStatus = 'pending';
+
+  // Si es para recoger en el local, confirmamos el pedido directamente
+  if (!isDelivery) {
+    return confirmOrderScreen(session, 'Para Recoger en el local', tenantId);
+  }
+
   session.state = 'checkout_address';
 
   return {
@@ -769,10 +823,8 @@ async function handleCashAmount(session: BotSession, text: string, tenantId: str
     reply_markup: {
       keyboard: [
         [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
-        [{ text: '🏪 Voy a recoger en el local' }],
       ],
       inline_keyboard: [
-        [{ text: '🏪 Voy a recoger en el local', callback_data: 'recoger' }],
         [{ text: '↩️ Cancelar y volver', callback_data: 'cart' }],
       ],
       one_time_keyboard: true,
@@ -795,11 +847,15 @@ async function digitalPaymentScreen(session: BotSession, tenantId: string): Prom
   const bancoNum = settings.bancolombia_number || '123-456789-00';
   const bancoType = settings.bancolombia_type || 'Ahorros';
 
+  const modeLine = isPickup
+    ? `🏪 *Modalidad:* Recoger en local ($0)\n`
+    : `🛵 *Modalidad:* A Domicilio (+$${deliveryFee.toLocaleString('es-CO')})\n`;
+
   return {
-    text: `📱 *Pago Digital por Transferencia*\n\n💰 *Total a Transferir:* *$${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 *Paso siguiente:* Realiza la transferencia y **envíame una foto o captura del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca un botón para cambiar o cancelar)_`,
+    text: `📱 *Pago Digital por Transferencia*\n\n${modeLine}💰 *Total a Transferir:* *$${finalTotal.toLocaleString('es-CO')}*\n\n🏦 *Nequi / Daviplata:* \`${nequi}\`\n💳 *Bancolombia (${bancoType}):* \`${bancoNum}\`\n\n📸 *Paso siguiente:* Realiza la transferencia y **envíame una foto o captura del comprobante** por aquí mismo para registrar tu pedido.\n\n_(O toca un botón para cambiar o cancelar)_`,
     reply_markup: {
       inline_keyboard: [
-        [{ text: '↩️ Cambiar método de pago', callback_data: 'pay' }],
+        [{ text: '↩️ Cambiar método de pago', callback_data: 'pay_back_summary' }],
         [{ text: '❌ Cancelar pedido', callback_data: 'menu' }]
       ],
     },
@@ -865,8 +921,28 @@ async function handlePaymentReceipt(
   (session as any).proofStatus = proofResult?.status ?? 'MANUAL_REVIEW';
   (session as any).proofScore = proofResult?.score ?? 50;
 
-  const defaultAddr = isPickup ? 'Para Recoger en el local' : (session.deliveryAddress || 'Ubicación registrada');
-  return confirmOrderScreen(session, defaultAddr, tenantId);
+  if (isPickup) {
+    return confirmOrderScreen(session, 'Para Recoger en el local', tenantId);
+  }
+
+  if (session.deliveryAddress) {
+    return confirmOrderScreen(session, session.deliveryAddress, tenantId);
+  }
+
+  session.state = 'checkout_address';
+  return {
+    text: `✅ *Comprobante recibido con éxito.*\n\n📍 *¿A dónde enviamos tu pedido?*\n\n🗺️ Por favor, escribe tu dirección de entrega (calle, carrera, barrio) O comparte tu ubicación GPS:`,
+    reply_markup: {
+      keyboard: [
+        [{ text: '📍 Compartir mi ubicación GPS', request_location: true }],
+      ],
+      inline_keyboard: [
+        [{ text: '↩️ Volver', callback_data: 'cart' }],
+      ],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    },
+  };
 }
 
 function onDeliveryScreen(session: BotSession): BotResponse {
@@ -1557,6 +1633,34 @@ async function handleProcessMessage(
     }
     if (/^(proceder\s+al\s+pago|pagar|pago|comprar|finalizar|hacer\s+pedido)$/i.test(rawText)) {
       if (session.cart.length === 0) return cartScreen(session);
+      return deliveryModeScreen(session, tenantId);
+    }
+    if (/^(quitar|eliminar|borrar)\s+(\d+)$/i.test(rawText)) {
+      const match = rawText.match(/^(quitar|eliminar|borrar)\s+(\d+)$/i);
+      const index = parseInt(match![2], 10) - 1;
+      if (session.cart[index]) {
+        const item = session.cart[index];
+        session.cart.splice(index, 1);
+        const cScreen = cartScreen(session);
+        return {
+          ...cScreen,
+          text: `🗑️ Has quitado *${item.product.name}* de tu carrito.\n\n${cScreen.text}`,
+        };
+      }
+    }
+    if (/^(quitar|eliminar|borrar)(\s+producto(s)?)?$/i.test(rawText)) {
+      if (session.cart.length === 0) return cartScreen(session);
+      return removeItemScreen(session);
+    }
+    if (['domicilio', 'a domicilio', 'pedir a domicilio', 'para domicilio'].includes(rawText)) {
+      if (session.cart.length === 0) return cartScreen(session);
+      session.deliveryMode = 'delivery';
+      return paymentOptionsScreen(session, tenantId);
+    }
+    if (['recoger', 'para recoger', 'recoger en local', 'en el local', 'pasar a recoger'].includes(rawText)) {
+      if (session.cart.length === 0) return cartScreen(session);
+      session.deliveryMode = 'pickup';
+      session.deliveryAddress = 'Para Recoger en el local';
       return paymentOptionsScreen(session, tenantId);
     }
     if (/^(vaciar\s+carrito|limpiar\s+carrito|vaciar\s+todo\s+el\s+carrito)$/i.test(rawText)) {
@@ -1799,14 +1903,24 @@ async function handleProcessCallback(
     session.deliveryMode = 'delivery';
     return confirmOrderScreen(session, defaultAddr, tenantId);
   }
-  if (callbackData === 'pay') return paymentOptionsScreen(session, tenantId);
+  if (callbackData === 'pay') return deliveryModeScreen(session, tenantId);
+  if (callbackData === 'mode_delivery') {
+    session.deliveryMode = 'delivery';
+    return paymentOptionsScreen(session, tenantId);
+  }
+  if (callbackData === 'mode_pickup' || callbackData === 'recoger') {
+    session.deliveryMode = 'pickup';
+    session.deliveryAddress = 'Para Recoger en el local';
+    if (session.state === 'checkout_address') {
+      return confirmOrderScreen(session, 'Para Recoger en el local', tenantId);
+    }
+    return paymentOptionsScreen(session, tenantId);
+  }
+  if (callbackData === 'pay_back_summary') return paymentOptionsScreen(session, tenantId);
+  if (callbackData === 'remove_item') return removeItemScreen(session);
   if (callbackData === 'pay_cash') return cashAmountScreen(session, tenantId);
   if (callbackData === 'pay_digital') return digitalPaymentScreen(session, tenantId);
   if (callbackData === 'pay_ondelivery') return onDeliveryScreen(session);
-  if (callbackData === 'recoger' || callbackData === 'mode_pickup') {
-    session.deliveryMode = 'pickup';
-    return confirmOrderScreen(session, 'Para Recoger en el local', tenantId);
-  }
   if (callbackData === 'clear_cart') {
     session.cart = [];
     session.state = 'idle';
@@ -1814,8 +1928,14 @@ async function handleProcessCallback(
   }
   if (callbackData.startsWith('rm:')) {
     const rmId = callbackData.replace('rm:', '');
+    const removedItem = session.cart.find(i => i.id === rmId);
     session.cart = session.cart.filter(i => i.id !== rmId);
-    return cartScreen(session);
+    const itemName = removedItem ? removedItem.product.name : 'Producto';
+    const cScreen = cartScreen(session);
+    return {
+      ...cScreen,
+      text: `🗑️ Has quitado *${itemName}* de tu carrito.\n\n${cScreen.text}`,
+    };
   }
   if (callbackData.startsWith('cat:')) {
     session.state = 'idle';

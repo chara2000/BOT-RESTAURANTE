@@ -89,12 +89,13 @@ function formatWhatsAppResponse(
     return { text: formattedText, buttons };
   }
 
-  // Check if options are catalog list items (categories, products, additions)
+  // Check if options are catalog list items (categories, products, additions, remove items)
   const isListOptions = flatButtons.some(b => 
     b.callback_data.startsWith('cat:') || 
     b.callback_data.startsWith('product:') || 
     b.callback_data.startsWith('add_ad:') || 
-    b.callback_data.startsWith('add_addition:')
+    b.callback_data.startsWith('add_addition:') ||
+    b.callback_data.startsWith('rm:')
   );
 
   if (isListOptions) {
@@ -103,7 +104,8 @@ function formatWhatsAppResponse(
       b.callback_data.startsWith('cat:') || 
       b.callback_data.startsWith('product:') || 
       b.callback_data.startsWith('add_ad:') || 
-      b.callback_data.startsWith('add_addition:')
+      b.callback_data.startsWith('add_addition:') ||
+      b.callback_data.startsWith('rm:')
     );
 
     const actionButtons = flatButtons.filter(b => !itemButtons.includes(b));

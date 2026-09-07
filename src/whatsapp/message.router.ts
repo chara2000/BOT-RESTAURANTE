@@ -24,6 +24,16 @@ export class MessageRouter {
       return false;
     }
 
+    // Ignore if sender is the bot itself (prevent self-loop)
+    if (creds.phone) {
+      const cleanFrom = inbound.from.replace(/\D/g, '');
+      const cleanBotPhone = creds.phone.replace(/\D/g, '');
+      if (cleanBotPhone && (cleanFrom.endsWith(cleanBotPhone) || cleanBotPhone.endsWith(cleanFrom))) {
+        console.log(`[MessageRouter] Ignoring self-outbound message from bot number: ${inbound.from}`);
+        return true;
+      }
+    }
+
     let processedText = inbound.text || '';
     const extra: {
       isPhoto?: boolean;

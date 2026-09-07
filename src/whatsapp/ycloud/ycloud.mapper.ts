@@ -19,13 +19,28 @@ export class YCloudMapper {
   public static mapWebhook(body: any): NormalizedInboundMessage | null {
     if (!body || typeof body !== 'object') return null;
 
-    const message =
-      body.whatsappInboundMessage ||
-      body.message ||
-      body.data?.message ||
-      body.whatsappMessage;
+    // 1. Drop status updates and delivery receipts immediately
+    const eventType = (body.type || body.event || '').toLowerCase();
+    if (eventType && eventType !== 'whatsapp.inbound_message.received' && eventType !== 'whatsapp.message.incoming') {
+      // whatsapp.message.updated, delivery/read receipts, etc. are NOT customer messages!
+      return null;
+    }
+
+    // 2. Only inbound messages from customers must be processed
+    // NEVER use body.whatsappMessage as that contains outbound messages sent by the bot/business
+    const message = body.whatsappInboundMessage || (!eventType ? (body.message || body.data?.message) : null);
 
     if (!message) return null;
+
+    // 3. Drop if message indicates delivery status or outbound direction
+    const status = (message.status || '').toLowerCase();
+    if (status && ['sent', 'delivered', 'read', 'failed', 'accepted', 'undelivered'].includes(status)) {
+      return null;
+    }
+
+    if (message.direction === 'outbound') {
+      return null;
+    }
 
     const messageId = message.id || body.id || `msg_${Date.now()}`;
     const from = message.from || message.whatsapp?.from || message.fromUserId || message.author || '';

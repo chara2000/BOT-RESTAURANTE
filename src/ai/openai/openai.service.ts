@@ -36,45 +36,19 @@ export class OpenAIService {
   }
 
   /**
-   * High-Performance AI Execution:
-   * 1. Primary: Groq LPU (openai/gpt-oss-120b) -> ultra-fast ~300ms response with tool calling
-   * 2. Secondary: OpenAI gpt-4o-mini
-   * 3. Tertiary: OpenAI gpt-4o
+   * Resilient AI Execution:
+   * 1. Primary: OpenAI gpt-4o-mini (Rock-solid, 200k+ TPM, native tool calling, ~1s response)
+   * 2. Secondary: OpenAI gpt-4o (Flagship reasoning fallback)
+   * 3. Tertiary: Groq LPU (Optional failover)
    */
   public static async complete(
     messages: ChatCompletionMessageParam[],
     tools?: ChatCompletionTool[]
   ) {
-    const groq = this.getGroqClient();
     const openai = this.getOpenAIClient();
+    const groq = this.getGroqClient();
 
-    // 1. Primary: Groq LPU (Sub-second speed ~300ms)
-    if (groq) {
-      try {
-        const response = await groq.chat.completions.create({
-          model: 'openai/gpt-oss-120b',
-          messages,
-          tools: tools && tools.length > 0 ? tools : undefined,
-          tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
-          temperature: 0.2,
-          max_tokens: 600,
-        });
-
-        const choice = response.choices[0];
-        if (choice?.message) {
-          return {
-            message: choice.message,
-            finishReason: choice.finish_reason,
-            usage: response.usage,
-            provider: 'groq-lpu',
-          };
-        }
-      } catch (groqErr: any) {
-        console.warn('[OpenAIService] Groq error, falling back to OpenAI:', groqErr?.message || groqErr);
-      }
-    }
-
-    // 2. Secondary: OpenAI gpt-4o-mini
+    // 1. Primary: OpenAI (defaults to gpt-4o-mini, high TPM, zero rate-limit issues)
     if (openai) {
       const primaryModel = this.getModel();
       try {
@@ -84,7 +58,7 @@ export class OpenAIService {
           tools: tools && tools.length > 0 ? tools : undefined,
           tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
           temperature: 0.2,
-          max_tokens: 600,
+          max_tokens: 500,
         });
 
         const choice = response.choices[0];
@@ -99,7 +73,7 @@ export class OpenAIService {
       } catch (err: any) {
         console.warn(`[OpenAIService] ${primaryModel} error:`, err?.message || err);
 
-        // 3. Tertiary: OpenAI flagship gpt-4o
+        // 2. Secondary: OpenAI flagship gpt-4o
         if (primaryModel !== 'gpt-4o') {
           try {
             console.log('[OpenAIService] Retrying with OpenAI gpt-4o...');
@@ -109,7 +83,7 @@ export class OpenAIService {
               tools: tools && tools.length > 0 ? tools : undefined,
               tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
               temperature: 0.2,
-              max_tokens: 600,
+              max_tokens: 500,
             });
 
             const choice = response.choices[0];
@@ -122,12 +96,39 @@ export class OpenAIService {
               };
             }
           } catch (gpt4Err: any) {
-            console.error('[OpenAIService] All providers failed:', gpt4Err?.message || gpt4Err);
+            console.warn('[OpenAIService] gpt-4o error:', gpt4Err?.message || gpt4Err);
           }
         }
       }
     }
 
-    throw new Error('No AI provider available (both Groq and OpenAI failed or unconfigured).');
+    // 3. Tertiary: Groq LPU failover
+    if (groq) {
+      try {
+        console.log('[OpenAIService] Attempting Groq failover...');
+        const response = await groq.chat.completions.create({
+          model: 'openai/gpt-oss-120b',
+          messages,
+          tools: tools && tools.length > 0 ? tools : undefined,
+          tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
+          temperature: 0.2,
+          max_tokens: 500,
+        });
+
+        const choice = response.choices[0];
+        if (choice?.message) {
+          return {
+            message: choice.message,
+            finishReason: choice.finish_reason,
+            usage: response.usage,
+            provider: 'groq-failover',
+          };
+        }
+      } catch (groqErr: any) {
+        console.warn('[OpenAIService] Groq failover error:', groqErr?.message || groqErr);
+      }
+    }
+
+    throw new Error('No AI provider available (OpenAI and Groq failed or unconfigured).');
   }
 }

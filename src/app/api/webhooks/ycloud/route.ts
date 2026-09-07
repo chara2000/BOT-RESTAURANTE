@@ -1,21 +1,12 @@
-/**
- * Dynamic WhatsApp/YCloud webhook route per tenant.
- * URL: /api/bots/whatsapp/[tenantId]
- *
- * Configured in YCloud dashboard as the webhook endpoint for each tenant.
- * Delegates cleanly to YCloudMapper and MessageRouter -> AgentOrchestrator.
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getTenantCreds, verifyYCloudSignature } from '@/lib/bot/whatsapp';
 import { YCloudMapper } from '@/whatsapp/ycloud/ycloud.mapper';
 import { MessageRouter } from '@/whatsapp/message.router';
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ tenantId: string }> }
-) {
-  // YCloud webhook verification — returns challenge token
+const DEFAULT_TENANT_ID = 'ecc2c874-ed2d-4991-864f-215e443db324'; // Shek House
+
+export async function GET(req: NextRequest) {
+  // YCloud webhook verification challenge
   const { searchParams } = new URL(req.url);
   const challenge = searchParams.get('challenge');
   if (challenge) {
@@ -24,21 +15,23 @@ export async function GET(
   return NextResponse.json({ ok: true });
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ tenantId: string }> }
-) {
-  const { tenantId } = await params;
+export async function POST(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const tenantId =
+    searchParams.get('tenantId') ||
+    searchParams.get('tenant_id') ||
+    req.headers.get('x-tenant-id') ||
+    DEFAULT_TENANT_ID;
 
   const creds = await getTenantCreds(tenantId);
   if (!creds) {
-    console.warn('[bot/whatsapp] No YCloud credentials found for tenant:', tenantId);
-    return NextResponse.json({ ok: true }); // Always 200 to acknowledge YCloud
+    console.warn('[webhooks/ycloud] No YCloud credentials found for tenant:', tenantId);
+    return NextResponse.json({ ok: true });
   }
 
   const rawBody = await req.text();
 
-  // Verify YCloud signature if secret is configured
+  // Signature verification if secret configured
   if (creds.webhookSecret) {
     const signature =
       req.headers.get('ycloud-signature') ||
@@ -47,7 +40,7 @@ export async function POST(
       '';
     const valid = await verifyYCloudSignature(rawBody, signature, creds.webhookSecret);
     if (!valid) {
-      console.warn('[bot/whatsapp] Invalid signature for tenant:', tenantId);
+      console.warn('[webhooks/ycloud] Invalid signature for tenant:', tenantId);
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
   }
@@ -59,15 +52,17 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
+  // Normalize message using YCloudMapper
   const mapped = YCloudMapper.mapWebhook(body);
   if (!mapped) {
     return NextResponse.json({ ok: true });
   }
 
+  // Route event asynchronously or directly to MessageRouter
   try {
     await MessageRouter.route(tenantId, mapped);
   } catch (err) {
-    console.error('[bot/whatsapp] Error handling message via MessageRouter:', err);
+    console.error('[webhooks/ycloud] Router execution error:', err);
   }
 
   return NextResponse.json({ ok: true });

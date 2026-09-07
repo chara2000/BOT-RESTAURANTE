@@ -26,8 +26,10 @@ export class DeliveryService {
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
+    const rawFee = Number(data?.delivery_fee ?? 5000);
+    const cleanFee = Math.round(rawFee / 100) * 100;
     return {
-      delivery_fee: Number(data?.delivery_fee ?? 5000),
+      delivery_fee: cleanFee,
       coverage_city: data?.coverage_city || 'Puerto Tejada',
       coverage_department: data?.coverage_department || 'Cauca',
       coverage_keywords: data?.coverage_keywords || ['calle', 'cra', 'carrera', 'diagonal', 'transversal', 'av', 'avenida', 'barrio'],

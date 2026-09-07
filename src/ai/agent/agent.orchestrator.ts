@@ -52,10 +52,69 @@ export class AgentOrchestrator {
     // 3. Clean and normalize input for fast routing
     const cleanNormalized = userText.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[¡!¿?.,]/g, '');
 
-    // Fast-path: Greetings (warm, high-converting Colombia welcome)
+    // Fast-path: Greetings (warm, high-converting Colombian welcome, resets stale sessions > 10m)
     const isGreeting = /^(hola|buenas|buenas tardes|buenos dias|buenas noches|hey|ola|saludos|inicio)$/i.test(cleanNormalized);
-    if (isGreeting && memory.cart.length === 0) {
+    const isSessionStale = (Date.now() - (memory.last_activity || 0)) > 10 * 60 * 1000;
+    if (isGreeting && (memory.cart.length === 0 || isSessionStale || memory.current_state === 'ORDER_CONFIRMED')) {
+      memory.cart = [];
+      memory.subtotal = 0;
+      memory.delivery_fee = 0;
+      memory.total = 0;
+      memory.payment_method = undefined;
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+      memory.history = [];
+      memory.summary = '';
+      memory.current_state = 'WELCOME';
+      memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const reply = ResponseBuilder.buildWelcomeGreeting('Shek Food');
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return { text: reply };
+    }
+
+    // Fast-path: Explicit Reset / Forget Previous Orders
+    const isResetRequest = /^(olvidate|olvidate de los pedidos anteriores|olvida los pedidos anteriores|borrar pedido|cancelar pedido|reiniciar|empezar de nuevo|nuevo pedido|vaciar carrito|limpiar|olvidar)$/i.test(cleanNormalized) ||
+      cleanNormalized.includes('olvidate') ||
+      cleanNormalized.includes('pedidos anteriores') ||
+      cleanNormalized.includes('empezar de nuevo') ||
+      cleanNormalized.includes('nuevo pedido');
+    if (isResetRequest) {
+      memory.cart = [];
+      memory.subtotal = 0;
+      memory.delivery_fee = 0;
+      memory.total = 0;
+      memory.payment_method = undefined;
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+      memory.order_id = undefined;
+      memory.order_code = undefined;
+      memory.last_order_id = undefined;
+      memory.last_order_code = undefined;
+      memory.history = [];
+      memory.summary = '';
+      memory.current_state = 'WELCOME';
+      memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const reply = '¡Listo! ✨ He borrado el carrito y todo el historial de pedidos anteriores. Comenzamos totalmente desde cero. 🍟🍔🥤\n\n¿Qué se te antoja ordenar hoy? Puedes pedirme la *carta* o decirme directamente qué platillo deseas. 😋❤️';
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return { text: reply };
+    }
+
+    // Fast-path: Direct Order Summary / Review Request (prevents AI hallucinating numbers)
+    const isReviewRequest = /^(dame el resumen|dame el resumen del pedido|resumen|resumen del pedido|el resumen|ver pedido|muestrame el pedido|ver carrito|mi pedido|como va mi pedido|que he pedido|el pedido)$/i.test(cleanNormalized) ||
+      cleanNormalized.includes('resumen del pedido') ||
+      cleanNormalized.includes('dame el resumen') ||
+      cleanNormalized.includes('muestrame el pedido');
+    if (isReviewRequest) {
+      if (memory.cart.length === 0) {
+        const reply = '🛒 Tu carrito está vacío en este momento. 🍟✨ ¿Qué delicia de Shek Food te gustaría ordenar? Escribe *carta* para ver nuestro menú completo. 😋';
+        MemoryService.addMessage(memory, 'assistant', reply);
+        await ConversationService.saveConversation(memory);
+        return { text: reply };
+      }
+      MemoryService.recalculateCartTotals(memory);
+      const reply = ResponseBuilder.buildOrderReview(memory);
       MemoryService.addMessage(memory, 'assistant', reply);
       await ConversationService.saveConversation(memory);
       return { text: reply };
@@ -126,6 +185,15 @@ export class AgentOrchestrator {
             rawArguments = JSON.parse(toolCall.function.arguments || '{}');
           } catch {
             rawArguments = {};
+          }
+
+          // Fallback note extractor: if user specified "sin ..." and rawArguments.notes is missing
+          if (functionName === 'add_to_cart' && !rawArguments.notes) {
+            const sinMatch = userText.match(/\b(sin\s+[a-záéíóúñ\s]+?)(?=\s+(?:a domicilio|para domicilio|por favor|y\s+|con\s+|$))/i) ||
+                             userText.match(/\b(sin\s+[a-záéíóúñ]+)/i);
+            if (sinMatch) {
+              rawArguments.notes = sinMatch[1].trim();
+            }
           }
 
           // Mandatory AI Guard pre-execution gatekeeper
@@ -294,6 +362,10 @@ export class AgentOrchestrator {
 
         // If items were added to cart, construct authoritative consolidated confirmation
         if (addedItemsList.length > 0) {
+          const feeBreakdown = memory.delivery_mode === 'delivery' && memory.delivery_fee > 0
+            ? `🛒 *Subtotal productos:* $${memory.subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}\n💰 *Total actual:* $${memory.total.toLocaleString('es-CO')}`
+            : `💰 *Total actual:* $${memory.total.toLocaleString('es-CO')}`;
+
           if (addedItemsList.length === 1) {
             const item = addedItemsList[0];
             const addsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
@@ -302,7 +374,11 @@ export class AgentOrchestrator {
             if (item.additions && item.additions.length > 0) {
               addsStr = '\n' + item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
             }
-            finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${lineTotal.toLocaleString('es-CO')})${addsStr} a tu pedido.\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar algo más 🥤 o te lo enviamos a domicilio? 🛵😋`;
+            let notesStr = '';
+            if (item.notes) {
+              notesStr = `\n   📝 _Nota: ${item.notes}_`;
+            }
+            finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${lineTotal.toLocaleString('es-CO')})${addsStr}${notesStr} a tu pedido.\n\n${feeBreakdown}\n\n¿Deseas agregar algo más 🥤 o te lo enviamos a domicilio? 🛵😋`;
           } else {
             const lines = addedItemsList.map(item => {
               const addsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
@@ -311,9 +387,12 @@ export class AgentOrchestrator {
               if (item.additions && item.additions.length > 0) {
                 line += '\n' + item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
               }
+              if (item.notes) {
+                line += `\n   📝 _Nota: ${item.notes}_`;
+              }
               return line;
             });
-            finalReply = `¡Listo! 🍟✨ Ya agregué a tu pedido:\n\n${lines.join('\n')}\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar una bebida 🥤 o revisamos tu dirección para el domicilio? 🛵😋`;
+            finalReply = `¡Listo! 🍟✨ Ya agregué a tu pedido:\n\n${lines.join('\n')}\n\n${feeBreakdown}\n\n¿Deseas agregar una bebida 🥤 o revisamos tu dirección para el domicilio? 🛵😋`;
           }
         }
 

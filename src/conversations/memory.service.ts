@@ -2,7 +2,7 @@ import { StructuredMemory, ConversationState, CartItem } from './conversation.ty
 
 export class MemoryService {
   private static readonly MAX_HISTORY_ITEMS = 10;
-  private static readonly INACTIVITY_RESET_MS = 60 * 60 * 1000; // 1 hour
+  private static readonly INACTIVITY_RESET_MS = 15 * 60 * 1000; // 15 minutes
 
   /**
    * Initializes a fresh memory object for a new user/conversation
@@ -46,14 +46,13 @@ export class MemoryService {
       }
     }
 
-    // Maximum 1-hour cart abandonment window
-    if (elapsed > this.INACTIVITY_RESET_MS && memory.current_state !== 'ORDER_CONFIRMED') {
+    // 15-minute inactivity reset window — clear cart and previous financials
+    if (elapsed > this.INACTIVITY_RESET_MS) {
       memory.current_state = 'WELCOME';
       memory.cart = [];
       memory.subtotal = 0;
       memory.total = 0;
       memory.delivery_fee = 0;
-      memory.address = undefined;
       memory.payment_method = undefined;
       memory.cash_amount = undefined;
       memory.change_amount = undefined;
@@ -62,6 +61,7 @@ export class MemoryService {
       memory.reminder_sent = false;
       memory.summary = '';
       memory.history = [];
+      memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     }
 
     memory.last_activity = now;

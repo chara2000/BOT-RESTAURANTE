@@ -159,37 +159,184 @@ export class ResponseBuilder {
   }
 
   /**
-   * Formats Order Status inquiry with short code and live tracking
+   * Formats Order Status inquiry with short code, phase and estimated time (Rule 21)
    */
   public static buildOrderStatus(
     shortCode: string,
     status: string,
-    total: number,
-    orderId: string,
+    total?: number,
+    estimatedTime = '40–50 minutos',
     address?: string
   ): string {
-    const statusMap: Record<string, string> = {
-      pending: '⏳ Pendiente (Esperando confirmación)',
-      confirmed: '✅ Confirmado (En cola de preparación)',
-      preparing: '🍳 En preparación (Cocinando con amor)',
-      ready: '🛍️ Listo para entregar / recoger',
-      shipping: '🛵 En camino (Repartidor asignado)',
-      delivered: '🎉 ¡Entregado! Que lo disfrutes mucho',
-      cancelled: '❌ Cancelado',
+    const statusMap: Record<string, { label: string; icon: string; desc: string }> = {
+      pending: { label: 'Pendiente', icon: '⏳', desc: 'Recibido en sistema, pasando a cocina.' },
+      confirmed: { label: 'Confirmado', icon: '✅', desc: 'En cola para iniciar preparación.' },
+      preparing: { label: 'En preparación', icon: '🍳', desc: 'Cocinando tus platillos con el mejor sabor.' },
+      ready: { label: 'Listo', icon: '🛍️', desc: 'Empacado y listo para entregar / recoger.' },
+      shipping: { label: 'En camino', icon: '🛵', desc: 'El repartidor va rumbo a tu dirección.' },
+      delivered: { label: 'Entregado', icon: '🎉', desc: '¡Pedido entregado! Que lo disfrutes mucho.' },
+      cancelled: { label: 'Cancelado', icon: '❌', desc: 'El pedido fue cancelado.' },
     };
-    const statusLabel = statusMap[status.toLowerCase()] || status;
-    const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${orderId}`;
+    const current = statusMap[status.toLowerCase()] || { label: status, icon: '📋', desc: 'Procesando tu pedido en cocina.' };
 
     return [
       `📦 *Estado de tu pedido (${shortCode})*`,
       ``,
-      `👉 *Estado actual:* ${statusLabel}`,
-      `💰 *Total:* $${Number(total).toLocaleString('es-CO')}`,
+      `👉 *Fase actual:* ${current.icon} *${current.label}*`,
+      `ℹ️ _${current.desc}_`,
+      `⏱️ *Tiempo estimado:* ${estimatedTime}`,
+      ...(total ? [`💰 *Total:* $${Number(total).toLocaleString('es-CO')}`] : []),
       ...(address ? [`📍 *Dirección:* ${address}`] : []),
       ``,
-      `🌐 *Rastreo en tiempo real (Mapa en vivo):*`,
-      trackingUrl,
+      `¿Deseas seguir al repartidor en vivo? Escribe *rastreo* o *dónde viene* 🛵✨`,
     ].join('\n');
+  }
+
+  /**
+   * Formats Order Tracking inquiry with live GPS map link (Rule 21)
+   */
+  public static buildOrderTracking(
+    shortCode: string,
+    orderId: string,
+    status?: string,
+    address?: string
+  ): string {
+    const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${orderId}`;
+    const isShipping = status?.toLowerCase() === 'shipping';
+
+    return [
+      `🛵💨 *Rastreo y Ubicación en Tiempo Real (${shortCode})*`,
+      ``,
+      isShipping
+        ? `📍 Tu repartidor ya va en camino hacia tu dirección${address ? ` (*${address}*)` : ''}.`
+        : `🍳 Tu pedido se encuentra en cocina y saldrá con el repartidor tan pronto esté recién preparado.`,
+      ``,
+      `Puedes ver el mapa interactivo y recorrido en tiempo real aquí:`,
+      `🌐 *Mapa en vivo:*`,
+      trackingUrl,
+      ``,
+      `¡Llegará calientito y listo para disfrutar! 🍟🍔🔥`,
+    ].join('\n');
+  }
+
+  /**
+   * Formats Order Details for an already confirmed order (Rule 20)
+   */
+  public static buildOrderDetails(
+    shortCode: string,
+    order: any,
+    memory?: StructuredMemory
+  ): string {
+    const orderId = order?.id || memory?.order_id || shortCode;
+    const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${orderId}`;
+    const total = order?.total || memory?.total || 0;
+    const address = order?.delivery_address || memory?.address || 'Dirección registrada';
+
+    // Extract payment details
+    const notes = order?.notes || '';
+    let paymentInfo = 'Efectivo';
+    if (notes.includes('[TRANSFERENCIA]')) {
+      paymentInfo = 'Transferencia Bancaria';
+    } else if (notes.includes('[EFECTIVO]')) {
+      const matchPaid = notes.match(/Pagó con:\s*\$([0-9.,]+)/i);
+      const matchChange = notes.match(/Devuelta:\s*\$([0-9.,]+)/i);
+      if (matchPaid && matchChange) {
+        paymentInfo = `Efectivo (Pagas con: $${matchPaid[1]} | Devuelta: $${matchChange[1]})`;
+      } else if (memory?.cash_amount) {
+        paymentInfo = `Efectivo (Pagas con: $${memory.cash_amount.toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
+      }
+    } else if (memory?.payment_method === 'cash') {
+      paymentInfo = `Efectivo (Pagas con: $${(memory.cash_amount || total).toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
+    } else if (memory?.payment_method === 'transfer') {
+      paymentInfo = 'Transferencia Bancaria';
+    }
+
+    const items = order?.order_items || [];
+    const itemsLines = items.map((oi: any, idx: number) => {
+      const pName = oi.products?.name || oi.product_name || `Producto #${idx + 1}`;
+      const lineTotal = Number(oi.total_price || (oi.unit_price * (oi.quantity || 1)) || 0);
+      return `• *${pName}* ×${oi.quantity || 1} — $${lineTotal.toLocaleString('es-CO')}`;
+    });
+
+    return [
+      `📋✨ *DETALLES DE TU PEDIDO ENVIADO A COCINA* ✨📋`,
+      `Código: *${shortCode}*`,
+      ``,
+      ...(itemsLines.length > 0 ? itemsLines : ['• Productos de tu orden confirmada']),
+      ``,
+      `💰 *Total:* $${Number(total).toLocaleString('es-CO')}`,
+      `💳 *Método de pago:* ${paymentInfo}`,
+      `📍 *Dirección de entrega:* ${address}`,
+      `🍳 *Estado actual:* Enviado a cocina`,
+      ``,
+      `🌐 *Rastreo en mapa:* ${trackingUrl}`,
+      ``,
+      `Tu pedido ya está confirmado y en preparación. ¡Muchas gracias por preferir Shek Food! 🍟❤️`,
+    ].join('\n');
+  }
+
+  /**
+   * Translates backend error codes into warm, friendly Colombian messages (Rule 18)
+   */
+  public static formatFriendlyErrorMessage(rawError: string, memory?: StructuredMemory): string {
+    if (!rawError) {
+      return '¡Ups! 🙈 Tuve un pequeño inconveniente. ¿Podrías indicármelo de nuevo? 🍟✨';
+    }
+
+    const upper = rawError.toUpperCase();
+
+    if (upper.includes('MONTO_INSUFICIENTE')) {
+      return 'El valor con el que vas a pagar no alcanza para cubrir el total del pedido 💵. Por favor indícanos un valor suficiente o si prefieres pagar por transferencia. 🍟✨';
+    }
+
+    if (upper.includes('FALTA_METODO_PAGO')) {
+      return '¿Cómo prefieres realizar el pago de tu pedido? 💳 Aceptamos *Efectivo* contra entrega o *Transferencia* (Nequi / Bancolombia). 🍟✨';
+    }
+
+    if (upper.includes('FALTA_MONTO_EFECTIVO')) {
+      return 'Vas a pagar en efectivo 💵. ¿Con cuánto dinero vas a pagar para calcular y llevarte tu devuelta exacta? 🔄✨';
+    }
+
+    if (upper.includes('ORDER_ALREADY_CONFIRMED')) {
+      const code = memory?.order_code || memory?.last_order_code || '';
+      return `Tu pedido${code ? ` (*${code}*)` : ''} ya fue confirmado y se encuentra en cocina. 🍳 Si deseas saber cómo va, escribe *¿cómo va mi pedido?* o consulta su *rastreo*. 🛵✨`;
+    }
+
+    if (upper.includes('ORDER_NOT_FOUND')) {
+      return 'No encontré ningún pedido con ese código 😕. Por favor verifica tu código de pedido (ejemplo: *T-XXXX*) o cuéntame si deseas hacer un pedido nuevo. 🍟✨';
+    }
+
+    if (upper.includes('ORDER_CANNOT_BE_CANCELLED')) {
+      return 'Tu pedido ya se encuentra en camino o fue entregado, por lo que no es posible cancelarlo en este momento. 🛵 Si requieres ayuda, con gusto te comunico con un asesor. 🙋';
+    }
+
+    if (upper.includes('CART_EMPTY')) {
+      return 'Tu carrito está vacío en este momento. 🛒🍟 Escribe *carta* para ver nuestro menú completo o cuéntame qué delicia se te antoja probar hoy. 😋✨';
+    }
+
+    if (upper.includes('PRODUCT_NOT_FOUND')) {
+      return 'No encontré ese producto en nuestra carta oficial 😕. Escribe *carta* para enviarte nuestro menú completo en PDF con todas nuestras opciones reales. 🍟✨';
+    }
+
+    if (upper.includes('STOCK_UNAVAILABLE')) {
+      return 'Ese platillo se nos agotó en este momento 🙈. ¿Te gustaría elegir otra deliciosa opción de nuestra carta? 🍟😋';
+    }
+
+    if (upper.includes('FALTA_DIRECCION')) {
+      return 'Para enviarte el pedido a domicilio necesitamos tu dirección completa 📍 (barrio y nomenclatura en Puerto Tejada). ¿A qué dirección te lo llevamos? 🛵💨';
+    }
+
+    // Clean any technical code names like [A-Z_]{3,} or JSON artifacts
+    let cleaned = rawError
+      .replace(/[A-Z0-9_]{4,}:\s*/g, '')
+      .replace(/[{}\[\]"]/g, '')
+      .trim();
+
+    if (!cleaned || /^[A-Z0-9_]+$/.test(cleaned) || cleaned.includes('error') || cleaned.includes('Error')) {
+      return 'Tuvimos un pequeño inconveniente procesando tu solicitud 🙈. Por favor indícanos nuevamente qué deseas o escribe *asesor* si requieres ayuda. 🍟❤️';
+    }
+
+    return cleaned;
   }
 
   /**

@@ -279,7 +279,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'calculate_change',
-      description: 'Registra el monto en efectivo con el que pagará el cliente y calcula la devuelta exacta desde backend (Regla 15). NUNCA calcules el vuelto tú mismo.',
+      description: 'Registra el monto en efectivo con el que pagará el cliente y calcula la devuelta exacta desde backend (Reglas 15 y 19). NUNCA calcules el vuelto tú mismo ni repitas el monto pagado como si fuera la devuelta.',
       parameters: {
         type: 'object',
         properties: {
@@ -318,7 +318,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'confirm_order',
-      description: 'Crea y confirma definitivamente el pedido en la base de datos tras confirmación explícita del cliente y validación de método de pago (Reglas 15 y 16).',
+      description: 'Crea y confirma definitivamente el pedido en la base de datos tras confirmación explícita del cliente y validación de método de pago (Reglas 15, 16 y 20). Una vez confirmado pasa a enviado_cocina y es inmutable.',
       parameters: {
         type: 'object',
         properties: {
@@ -345,8 +345,34 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'get_order_status',
+      description: 'Consulta la fase actual de preparación (preparando, en camino, entregado) y tiempo estimado de un pedido ya confirmado (Reglas 20 y 21). Úsalo para "¿cómo va mi pedido?" o "¿cuál es el estado?".',
+      parameters: {
+        type: 'object',
+        properties: {
+          order_id: { type: 'string', description: 'Código o UUID del pedido (ej: "T-XXXX"). Opcional si ya está en la sesión.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_order_details',
+      description: 'Consulta los detalles completos de un pedido confirmado: productos, totales, método de pago y devuelta calculada (Regla 20). NUNCA vuelvas a ofrecer confirmar ni digas carrito vacío.',
+      parameters: {
+        type: 'object',
+        properties: {
+          order_id: { type: 'string', description: 'Código o UUID del pedido (ej: "T-XXXX"). Opcional si ya está en la sesión.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_order',
-      description: 'Consulta el estado actual de preparación o entrega de un pedido mediante su código (ej: "T-XXXX").',
+      description: 'Consulta la información de un pedido mediante su código (ej: "T-XXXX").',
       parameters: {
         type: 'object',
         properties: {

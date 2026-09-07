@@ -112,13 +112,122 @@ export class AgentOrchestrator {
       return { text: reply };
     }
 
+    // Fast-path: Order Status Inquiry (Rule 21: phase + ETA, distinct from tracking map)
+    const isOrderStatusRequest = /^(como va mi pedido|como va el pedido|estado de mi pedido|estado del pedido|en que va mi pedido|como va la orden|estado orden|status)$/i.test(cleanNormalized) ||
+      cleanNormalized.includes('como va mi pedido') ||
+      cleanNormalized.includes('estado de mi pedido') ||
+      cleanNormalized.includes('en que va mi pedido');
+    if (isOrderStatusRequest) {
+      const activeOrderCode = memory.order_code || memory.last_order_code;
+      if (activeOrderCode || StateService.isOrderPlaced(memory.current_state)) {
+        const orderResult = await ToolExecutor.execute(tenantId, memory, 'get_order_status', { order_id: activeOrderCode });
+        if (orderResult.success && orderResult.data) {
+          const reply = ResponseBuilder.buildOrderStatus(
+            orderResult.data.order_code,
+            orderResult.data.status,
+            orderResult.data.total,
+            orderResult.data.estimated_time,
+            orderResult.data.address
+          );
+          MemoryService.addMessage(memory, 'assistant', reply);
+          await ConversationService.saveConversation(memory);
+          return {
+            text: reply,
+            buttons: [
+              { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${orderResult.data.order_id}` },
+              { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
+            ],
+          };
+        }
+      }
+      const reply = memory.cart.length > 0
+        ? `Tienes un pedido en preparación en tu carrito 🛒 (Total: $${memory.total.toLocaleString('es-CO')}). ¿Deseas revisarlo para confirmarlo? 🍟✨`
+        : 'Aún no tienes ningún pedido activo en este momento. 🍟✨ ¿Qué delicia de Shek Food te gustaría pedir? Escribe *carta* para ver nuestro menú. 😋';
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return { text: reply };
+    }
+
+    // Fast-path: Live Tracking / Rider Location Inquiry (Rule 21: live map link + GPS)
+    const isTrackingRequest = /^(por donde viene|donde esta el domiciliario|donde viene el domiciliario|donde viene|rastreo|link de rastreo|seguimiento|mapa|ubicacion|donde esta el repartidor|por donde va)$/i.test(cleanNormalized) ||
+      cleanNormalized.includes('por donde viene') ||
+      cleanNormalized.includes('donde esta el domiciliario') ||
+      cleanNormalized.includes('donde viene el domiciliario') ||
+      cleanNormalized.includes('link de rastreo');
+    if (isTrackingRequest) {
+      const activeOrderCode = memory.order_code || memory.last_order_code;
+      if (activeOrderCode || StateService.isOrderPlaced(memory.current_state)) {
+        const orderResult = await ToolExecutor.execute(tenantId, memory, 'get_order', { order_id: activeOrderCode });
+        if (orderResult.success && orderResult.data) {
+          const shortCode = orderResult.data.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || orderResult.data.order_code || activeOrderCode || 'T-ACTIVO';
+          const reply = ResponseBuilder.buildOrderTracking(
+            shortCode,
+            orderResult.data.id || activeOrderCode || '',
+            orderResult.data.status,
+            orderResult.data.delivery_address
+          );
+          MemoryService.addMessage(memory, 'assistant', reply);
+          await ConversationService.saveConversation(memory);
+          return {
+            text: reply,
+            buttons: [
+              { text: '📡 Abrir Mapa en Vivo', callback_data: `TRACK_${orderResult.data.id}` },
+              { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
+            ],
+          };
+        }
+      }
+      const reply = 'No tienes ningún pedido en camino en este momento. 🛵 Si deseas hacer un pedido, escribe *carta* para ver el menú. 🍟✨';
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return { text: reply };
+    }
+
+    // Fast-path: Order Details / Change calculation inquiry on confirmed order (Rule 20)
+    const isOrderDetailsRequest = /^(cuanto es mi devuelta|cuanto es el vuelto|mi devuelta|mi cambio|con cuanto pague|que pedi|detalles de mi pedido|resumen de lo que pedi)$/i.test(cleanNormalized) ||
+      cleanNormalized.includes('cuanto es mi devuelta') ||
+      cleanNormalized.includes('mi devuelta') ||
+      cleanNormalized.includes('con cuanto pague');
+    if (isOrderDetailsRequest) {
+      const activeOrderCode = memory.order_code || memory.last_order_code;
+      if (activeOrderCode || StateService.isOrderPlaced(memory.current_state)) {
+        const orderResult = await ToolExecutor.execute(tenantId, memory, 'get_order_details', { order_id: activeOrderCode });
+        if (orderResult.success && orderResult.data?.order) {
+          const reply = ResponseBuilder.buildOrderDetails(
+            orderResult.data.order_code,
+            orderResult.data.order,
+            memory
+          );
+          MemoryService.addMessage(memory, 'assistant', reply);
+          await ConversationService.saveConversation(memory);
+          return { text: reply };
+        }
+      }
+    }
+
     // Fast-path: Direct Order Summary / Review Request (prevents AI hallucinating numbers)
-    const isReviewRequest = /^(dame el resumen|dame el resumen del pedido|resumen|resumen del pedido|el resumen|ver pedido|muestrame el pedido|ver carrito|mi pedido|como va mi pedido|que he pedido|el pedido)$/i.test(cleanNormalized) ||
+    const isReviewRequest = /^(dame el resumen|dame el resumen del pedido|resumen|resumen del pedido|el resumen|ver pedido|muestrame el pedido|ver carrito|mi pedido|el pedido)$/i.test(cleanNormalized) ||
       cleanNormalized.includes('resumen del pedido') ||
       cleanNormalized.includes('dame el resumen') ||
       cleanNormalized.includes('muestrame el pedido');
     if (isReviewRequest) {
       if (memory.cart.length === 0) {
+        // Rule 20: If there is an active confirmed order, NEVER say "carrito vacío"
+        const activeOrderCode = memory.order_code || memory.last_order_code;
+        if (activeOrderCode || StateService.isOrderPlaced(memory.current_state)) {
+          const orderResult = await ToolExecutor.execute(tenantId, memory, 'get_order_details', { order_id: activeOrderCode });
+          if (orderResult.success && orderResult.data?.order) {
+            const reply = ResponseBuilder.buildOrderDetails(
+              orderResult.data.order_code,
+              orderResult.data.order,
+              memory
+            );
+            MemoryService.addMessage(memory, 'assistant', reply);
+            await ConversationService.saveConversation(memory);
+            return { text: reply };
+          }
+        }
+
         const reply = '🛒 Tu carrito está vacío en este momento. 🍟✨ ¿Qué delicia de Shek Food te gustaría ordenar? Escribe *carta* para ver nuestro menú completo. 😋';
         MemoryService.addMessage(memory, 'assistant', reply);
         await ConversationService.saveConversation(memory);
@@ -215,7 +324,7 @@ export class AgentOrchestrator {
           // Mandatory AI Guard pre-execution gatekeeper
           const guardResult = await AIGuard.validateToolCall(tenantId, memory, functionName, rawArguments);
           if (!guardResult.passed) {
-            finalReply = guardResult.reason || 'Operación bloqueada por reglas de negocio.';
+            finalReply = ResponseBuilder.formatFriendlyErrorMessage(guardResult.reason || '', memory);
             break;
           }
 
@@ -245,7 +354,7 @@ export class AgentOrchestrator {
               } else if (data?.ambiguous && data?.candidates) {
                 finalReply = `Tienes varios productos en tu carrito (${data.candidates.join(', ')}). ¿A cuál de ellos deseas agregarle el adicional? 🤔`;
               } else {
-                finalReply = toolResult.error || 'No fue posible agregar el adicional. ¿Deseas intentar de nuevo?';
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(toolResult.error || 'No fue posible agregar el adicional.', memory);
               }
               break;
             }
@@ -310,7 +419,7 @@ export class AgentOrchestrator {
                   { text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' },
                 ];
               } else {
-                finalReply = data?.error || 'Hubo un inconveniente al confirmar tu pedido. ¿Quieres que lo intentemos de nuevo?';
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(data?.error || toolResult.error || 'Hubo un inconveniente al confirmar tu pedido.', memory);
               }
               break;
             }
@@ -318,9 +427,9 @@ export class AgentOrchestrator {
             case 'calculate_change':
             case 'provide_cash_amount': {
               if (data?.valid) {
-                finalReply = `¡Anotado! 💵 Pagas con *$${(memory.cash_amount || 0).toLocaleString('es-CO')}*.\n🔄 Tu devuelta será de *$${(memory.change_amount || 0).toLocaleString('es-CO')}*.\n\n¿Deseas confirmar tu pedido? Escribe *Confirmo* o *Sí* para prepararlo de inmediato. 🍟🔥`;
+                finalReply = `¡Anotado! 💵 Pagas con *$${(memory.cash_amount || 0).toLocaleString('es-CO')}*.\n🔄 Tu devuelta será de *$${(memory.change_amount || 0).toLocaleString('es-CO')}*.\n\n¿Confirmamos tu pedido? Escribe *Confirmo* o *Sí* para prepararlo de inmediato. 🍟🔥`;
               } else {
-                finalReply = data?.error || 'El monto en efectivo es menor al total del pedido. Por favor indícanos un valor suficiente.';
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(data?.message || data?.error || 'MONTO_INSUFICIENTE', memory);
               }
               break;
             }
@@ -375,22 +484,68 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'get_order_status': {
+              if (data?.order_code) {
+                finalReply = ResponseBuilder.buildOrderStatus(
+                  data.order_code,
+                  data.status,
+                  data.total,
+                  data.estimated_time,
+                  data.address
+                );
+                actionButtons = [
+                  { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${data.order_id}` },
+                  { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
+                ];
+              } else {
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(toolResult.error || 'ORDER_NOT_FOUND', memory);
+              }
+              break;
+            }
+
+            case 'get_order_details': {
+              if (data?.order) {
+                finalReply = ResponseBuilder.buildOrderDetails(
+                  data.order_code,
+                  data.order,
+                  memory
+                );
+                actionButtons = [
+                  { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${data.order_id}` },
+                  { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
+                ];
+              } else {
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(toolResult.error || 'ORDER_NOT_FOUND', memory);
+              }
+              break;
+            }
+
             case 'get_order': {
               if (data) {
                 const shortCode = data.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || data.order_code || `T-${data.id?.slice(0, 4)?.toUpperCase()}`;
-                finalReply = ResponseBuilder.buildOrderStatus(
-                  shortCode,
-                  data.status,
-                  data.total,
-                  data.id,
-                  data.delivery_address
-                );
+                const isTrackingQuery = /\b(rastreo|donde|repartidor|domiciliario|ubicacion|mapa|por donde|camino)\b/i.test(cleanNormalized);
+                if (isTrackingQuery) {
+                  finalReply = ResponseBuilder.buildOrderTracking(
+                    shortCode,
+                    data.id,
+                    data.status,
+                    data.delivery_address
+                  );
+                } else {
+                  finalReply = ResponseBuilder.buildOrderStatus(
+                    shortCode,
+                    data.status,
+                    data.total,
+                    '40–50 minutos',
+                    data.delivery_address
+                  );
+                }
                 actionButtons = [
                   { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${data.id}` },
                   { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
                 ];
               } else {
-                finalReply = 'No encontré ningún pedido con ese código 😕. Por favor indícanos tu código (ejemplo: *T-S5F9*) para revisarlo de inmediato. 🍟✨';
+                finalReply = ResponseBuilder.formatFriendlyErrorMessage(toolResult.error || 'ORDER_NOT_FOUND', memory);
               }
               break;
             }
@@ -398,7 +553,7 @@ export class AgentOrchestrator {
             case 'cancel_order': {
               finalReply = data?.success
                 ? '✅ Tu pedido ha sido cancelado con éxito.'
-                : (data?.error || 'No fue posible cancelar el pedido en este momento.');
+                : ResponseBuilder.formatFriendlyErrorMessage(data?.error || toolResult.error || 'ORDER_CANNOT_BE_CANCELLED', memory);
               break;
             }
 
@@ -463,7 +618,10 @@ export class AgentOrchestrator {
       }
 
       // 7. Plain conversational response (no tool needed)
-      const finalReply = assistantMessage.content || '¡Con mucho gusto! 🍟✨ ¿En qué te puedo colaborar hoy? 😋';
+      let finalReply = assistantMessage.content || '¡Con mucho gusto! 🍟✨ ¿En qué te puedo colaborar hoy? 😋';
+      if (/\b(MONTO_INSUFICIENTE|ORDER_NOT_FOUND|FALTA_METODO_PAGO|STOCK_UNAVAILABLE|CART_EMPTY|ORDER_ALREADY_CONFIRMED)\b/.test(finalReply)) {
+        finalReply = ResponseBuilder.formatFriendlyErrorMessage(finalReply, memory);
+      }
 
       MemoryService.addMessage(memory, 'assistant', finalReply);
       await ConversationService.saveConversation(memory);

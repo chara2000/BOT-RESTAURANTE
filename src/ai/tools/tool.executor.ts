@@ -285,10 +285,57 @@ export class ToolExecutor {
           return { success: result.success, data: result };
         }
 
+        case 'get_order_status': {
+          const targetOrderId = args.order_id || memory.order_code || memory.order_id || memory.last_order_code || memory.last_order_id;
+          if (!targetOrderId) {
+            return { success: false, error: 'ORDER_NOT_FOUND' };
+          }
+          const order = await OrderService.getOrder(tenantId, targetOrderId);
+          if (!order) return { success: false, error: 'ORDER_NOT_FOUND' };
+
+          const shortCode = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || order.order_code || `T-${order.id?.slice(0, 4)?.toUpperCase()}`;
+          return {
+            success: true,
+            data: {
+              type: 'status',
+              order_code: shortCode,
+              order_id: order.id,
+              status: order.status || 'preparing',
+              estimated_time: '40–50 minutos',
+              total: order.total,
+              address: order.delivery_address,
+            },
+          };
+        }
+
+        case 'get_order_details': {
+          const targetOrderId = args.order_id || memory.order_code || memory.order_id || memory.last_order_code || memory.last_order_id;
+          if (!targetOrderId) {
+            return { success: false, error: 'ORDER_NOT_FOUND' };
+          }
+          const order = await OrderService.getOrder(tenantId, targetOrderId);
+          if (!order) return { success: false, error: 'ORDER_NOT_FOUND' };
+
+          const shortCode = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || order.order_code || `T-${order.id?.slice(0, 4)?.toUpperCase()}`;
+          return {
+            success: true,
+            data: {
+              type: 'details',
+              order_code: shortCode,
+              order_id: order.id,
+              order,
+            },
+          };
+        }
+
         case 'get_order': {
           StateService.transition(memory, 'ORDER_TRACKING');
-          const order = await OrderService.getOrder(tenantId, args.order_id);
-          if (!order) return { success: false, error: 'Pedido no encontrado' };
+          const targetOrderId = args.order_id || memory.order_code || memory.order_id || memory.last_order_code || memory.last_order_id;
+          if (!targetOrderId) {
+            return { success: false, error: 'ORDER_NOT_FOUND' };
+          }
+          const order = await OrderService.getOrder(tenantId, targetOrderId);
+          if (!order) return { success: false, error: 'ORDER_NOT_FOUND' };
           return { success: true, data: order };
         }
 

@@ -124,8 +124,16 @@ export class AIGuard {
 
       case 'confirm_order':
       case 'create_order': {
+        // Rule 20: A confirmed order is immutable for cart flow
+        if (memory.current_state === 'ORDER_CONFIRMED' || (memory.order_code && memory.cart.length === 0)) {
+          return {
+            passed: false,
+            reason: `ORDER_ALREADY_CONFIRMED: El pedido ya fue confirmado exitosamente con el código ${memory.order_code || 'activo'}.`,
+          };
+        }
+
         if (memory.cart.length === 0) {
-          return { passed: false, reason: 'No se puede confirmar un pedido con el carrito vacío.' };
+          return { passed: false, reason: 'CART_EMPTY: No se puede confirmar un pedido con el carrito vacío.' };
         }
 
         if (!args.confirmation_explicit) {
@@ -139,7 +147,7 @@ export class AIGuard {
         if (memory.delivery_mode === 'delivery' && (!memory.address || memory.address.length < 5)) {
           return {
             passed: false,
-            reason: 'Falta la dirección de entrega para confirmar el pedido a domicilio (estado: esperando_direccion).',
+            reason: 'FALTA_DIRECCION: Falta la dirección de entrega para confirmar el pedido a domicilio.',
           };
         }
 
@@ -147,22 +155,22 @@ export class AIGuard {
         if (!memory.payment_method) {
           return {
             passed: false,
-            reason: 'FALTA_METODO_PAGO: El pedido no tiene método de pago registrado. Antes de confirmar, debes preguntar al cliente cómo prefiere pagar: Efectivo, Transferencia o Datáfono/Tarjeta.',
+            reason: 'FALTA_METODO_PAGO: El pedido no tiene método de pago registrado. Debes indicar si pagas en Efectivo o Transferencia.',
           };
         }
 
-        // Rule 15: If cash, cash_amount is mandatory before confirming order
+        // Rule 15 & 19: If cash, cash_amount is mandatory before confirming order
         if (memory.payment_method === 'cash') {
           if (!memory.cash_amount || memory.cash_amount <= 0) {
             return {
               passed: false,
-              reason: 'FALTA_MONTO_EFECTIVO: El cliente pagará en efectivo pero no ha indicado con cuánto dinero pagará. Pregúntale: "¿Con cuánto pagas?" para calcular el vuelto/devuelta exacto con calculate_change() antes de confirmar.',
+              reason: 'FALTA_MONTO_EFECTIVO: El cliente pagará en efectivo pero no ha indicado con cuánto dinero pagará.',
             };
           }
           if (memory.total > 0 && memory.cash_amount < memory.total) {
             return {
               passed: false,
-              reason: `MONTO_INSUFICIENTE: El cliente pagará con $${memory.cash_amount.toLocaleString('es-CO')}, monto que no alcanza para cubrir el total de $${memory.total.toLocaleString('es-CO')}. Por favor solicita un valor suficiente.`,
+              reason: `MONTO_INSUFICIENTE: El monto en efectivo ($${memory.cash_amount.toLocaleString('es-CO')}) no alcanza para cubrir el total ($${memory.total.toLocaleString('es-CO')}).`,
             };
           }
         }
@@ -180,6 +188,8 @@ export class AIGuard {
       case 'get_payment_methods':
       case 'get_payment_instructions':
       case 'clear_cart':
+      case 'get_order_status':
+      case 'get_order_details':
       case 'get_order':
       case 'cancel_order':
       case 'escalate_to_human':

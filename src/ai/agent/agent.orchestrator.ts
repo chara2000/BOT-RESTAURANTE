@@ -84,7 +84,7 @@ export class AgentOrchestrator {
       };
     }
 
-    // Fast-path: Explicit Reset / Forget Previous Orders
+    // Fast-path: Explicit Reset / Forget Current Cart (Rule 23)
     const isResetRequest = /^(olvidate|olvidate de los pedidos anteriores|olvida los pedidos anteriores|borrar pedido|cancelar pedido|reiniciar|empezar de nuevo|nuevo pedido|vaciar carrito|limpiar|olvidar)$/i.test(cleanNormalized) ||
       cleanNormalized.includes('olvidate') ||
       cleanNormalized.includes('pedidos anteriores') ||
@@ -98,15 +98,18 @@ export class AgentOrchestrator {
       memory.payment_method = undefined;
       memory.cash_amount = undefined;
       memory.change_amount = undefined;
-      memory.order_id = undefined;
-      memory.order_code = undefined;
-      memory.last_order_id = undefined;
-      memory.last_order_code = undefined;
+      // Rule 23: Confirmed orders are NEVER wiped or affected by clearing cart
       memory.history = [];
       memory.summary = '';
-      memory.current_state = 'WELCOME';
+      if (!memory.order_code) {
+        memory.current_state = 'WELCOME';
+      }
       memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const reply = '¡Listo! ✨ He borrado el carrito y todo el historial de pedidos anteriores. Comenzamos totalmente desde cero. 🍟🍔🥤\n\n¿Qué se te antoja ordenar hoy? Puedes pedirme la *carta* o decirme directamente qué platillo deseas. 😋❤️';
+
+      const hasConfirmedOrder = Boolean(memory.order_code || memory.last_order_code);
+      const reply = hasConfirmedOrder
+        ? `¡Listo! ✨ He vaciado tu carrito actual y pedido en curso. (Tu pedido confirmado *${memory.order_code || memory.last_order_code}* en cocina sigue su curso normal 🛵). 🍟🍔🥤\n\n¿Qué se te antoja ordenar ahora? Escribe *carta* para ver el menú o dime qué platillo deseas. 😋❤️`
+        : '¡Listo! ✨ He vaciado tu carrito actual y pedido en curso. 🍟🍔🥤\n\n¿Qué se te antoja ordenar hoy? Puedes pedirme la *carta* o decirme directamente qué platillo deseas. 😋❤️';
       MemoryService.addMessage(memory, 'assistant', reply);
       await ConversationService.saveConversation(memory);
       return { text: reply };
@@ -240,8 +243,9 @@ export class AgentOrchestrator {
       return { text: reply };
     }
 
-    // Fast-path: Send PDF Menu directly with zero lag and zero AI failure risk
-    const isMenuPdfRequest = /^(quiero la carta|la carta|la carta por favor|carta|el menu|menu|muestrame la carta|mandame la carta|carta en pdf|menu pdf|pdf)$/i.test(cleanNormalized);
+    // Fast-path: Send PDF Menu directly with zero lag and zero AI failure risk (Rule 22: only if no recognizable products in message)
+    const hasProductIntent = /\b(quiero|dame|agrega|agregame|ponme|salchipapa|shek|granizado|hamburguesa|perro|papas|gaseosa|coca|cerveza|cervezas)\b/i.test(cleanNormalized);
+    const isMenuPdfRequest = !hasProductIntent && /^(quiero la carta|la carta|la carta por favor|carta|el menu|menu|muestrame la carta|mandame la carta|carta en pdf|menu pdf|pdf)$/i.test(cleanNormalized);
     if (isMenuPdfRequest) {
       const pdfUrl = menuPdfUrl || (await CatalogService.getMenuPdf(tenantId));
       const reply = `📄 ¡Con mucho gusto! Aquí tienes nuestra carta oficial completa en PDF con fotos, platillos y precios. 🍟🍔🥤\n\n¿Cuál de nuestros platos se te antoja probar hoy? 😋✨`;
@@ -372,7 +376,10 @@ export class AgentOrchestrator {
             }
 
             case 'clear_cart': {
-              finalReply = '¡Carrito vaciado! 🗑️✨ He borrado todos los productos del pedido actual. ¿Qué se te antoja ordenar hoy? 🍟';
+              const hasConfirmedOrder = Boolean(memory.order_code || memory.last_order_code);
+              finalReply = hasConfirmedOrder
+                ? `¡Listo! 🗑️✨ He vaciado tu carrito actual y pedido en curso. (Tu pedido confirmado *${memory.order_code || memory.last_order_code}* en cocina sigue su curso normal 🛵).\n\n¿Qué se te antoja ordenar ahora? Escribe *carta* para ver nuestro menú. 🍟😋`
+                : '¡Listo! 🗑️✨ He vaciado tu carrito actual y pedido en curso. ¿Qué se te antoja ordenar hoy? Escribe *carta* para ver nuestro menú completo. 🍟😋';
               break;
             }
 
@@ -568,11 +575,41 @@ export class AgentOrchestrator {
           }
         }
 
-        // If items were added to cart, construct authoritative consolidated confirmation
+        // If items were added to cart, construct authoritative consolidated confirmation (Rule 22)
         if (addedItemsList.length > 0) {
+          // Rule 22: NEVER send the PDF menu if at least one product was recognized and added
+          documentUrlToSend = undefined;
+
           const feeBreakdown = memory.delivery_mode === 'delivery' && memory.delivery_fee > 0
             ? `🛒 *Subtotal productos:* $${memory.subtotal.toLocaleString('es-CO')}\n🛵 *Domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}\n💰 *Total actual:* $${memory.total.toLocaleString('es-CO')}`
             : `💰 *Total actual:* $${memory.total.toLocaleString('es-CO')}`;
+
+          // Rule 22: Check if there was an unresolved item in a compound message (e.g. plural without quantity like "cervezas")
+          let clarifyingQuestion: string | undefined = undefined;
+          if (assistantMessage.content && assistantMessage.content.includes('?')) {
+            clarifyingQuestion = assistantMessage.content.trim();
+          } else {
+            const missingMatches = userText.match(/\b(cervezas?|gaseosas?|jugos?|bebidas?|papas?|adicion(?:es)?|salsas?)\b/i);
+            if (missingMatches) {
+              const term = missingMatches[0].toLowerCase();
+              const isAlreadyAdded = addedItemsList.some(i => i.productName.toLowerCase().includes(term));
+              if (!isAlreadyAdded) {
+                if (term.includes('cerveza')) {
+                  clarifyingQuestion = '¿Cuántas cervezas te gustaría agregar y de qué marca/tipo? 🍺✨';
+                } else if (term.includes('gaseosa')) {
+                  clarifyingQuestion = '¿De qué sabor o marca prefieres la gaseosa (Coca-Cola, Postobón, etc.) y cuántas? 🥤✨';
+                } else if (term.includes('bebida')) {
+                  clarifyingQuestion = '¿Qué bebida y cuántas unidades te gustaría agregar? 🥤✨';
+                }
+              }
+            }
+          }
+
+          const closingPrompt = clarifyingQuestion
+            ? `\n\n👉 ${clarifyingQuestion}`
+            : (memory.delivery_mode === 'delivery'
+                ? `\n\n¿Deseas agregar una bebida 🥤 o revisamos tu dirección para el domicilio? 🛵😋`
+                : `\n\n¿Deseas agregar algo más 🥤 o revisamos el resumen para confirmar? 😋✨`);
 
           if (addedItemsList.length === 1) {
             const item = addedItemsList[0];
@@ -586,7 +623,7 @@ export class AgentOrchestrator {
             if (item.notes) {
               notesStr = `\n   📝 _Nota: ${item.notes}_`;
             }
-            finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${lineTotal.toLocaleString('es-CO')})${addsStr}${notesStr} a tu pedido.\n\n${feeBreakdown}\n\n¿Deseas agregar algo más 🥤 o te lo enviamos a domicilio? 🛵😋`;
+            finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${lineTotal.toLocaleString('es-CO')})${addsStr}${notesStr} a tu pedido.\n\n${feeBreakdown}${closingPrompt}`;
           } else {
             const lines = addedItemsList.map(item => {
               const addsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
@@ -600,7 +637,7 @@ export class AgentOrchestrator {
               }
               return line;
             });
-            finalReply = `¡Listo! 🍟✨ Ya agregué a tu pedido:\n\n${lines.join('\n')}\n\n${feeBreakdown}\n\n¿Deseas agregar una bebida 🥤 o revisamos tu dirección para el domicilio? 🛵😋`;
+            finalReply = `¡Listo! 🍟✨ Ya agregué a tu pedido:\n\n${lines.join('\n')}\n\n${feeBreakdown}${closingPrompt}`;
           }
         }
 

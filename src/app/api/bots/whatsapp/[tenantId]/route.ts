@@ -59,29 +59,6 @@ export async function POST(
     return NextResponse.json({ ok: true });
   }
 
-  // WhatsApp Coexistence: detect if outbound message was sent from human owner/staff
-  const rawMsg = body.whatsappMessage || body.message || body.data?.message;
-  const isOutbound =
-    body.type === 'whatsapp.message.updated' ||
-    rawMsg?.direction === 'outbound' ||
-    (rawMsg?.from && creds.phone && rawMsg.from.includes(creds.phone.replace(/\D/g, '')));
-
-  if (isOutbound && rawMsg?.to) {
-    const customerPhone = rawMsg.to;
-    try {
-      const { ConversationService } = await import('@/conversations/conversation.service');
-      const memory = await ConversationService.getConversation(tenantId, customerPhone);
-      memory.handoff_status = true;
-      memory.current_state = 'HUMAN_HANDOFF';
-      memory.last_human_interaction = Date.now();
-      await ConversationService.saveConversation(memory);
-      console.log(`[WhatsApp Coexistence] Human owner message detected to ${customerPhone}. Bot muted for 45 min.`);
-    } catch (e) {
-      console.warn('[WhatsApp Coexistence] Error recording human handoff:', e);
-    }
-    return NextResponse.json({ ok: true });
-  }
-
   const mapped = YCloudMapper.mapWebhook(body);
   if (!mapped) {
     return NextResponse.json({ ok: true });

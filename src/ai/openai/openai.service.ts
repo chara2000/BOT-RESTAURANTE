@@ -4,15 +4,12 @@ import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/reso
 let openaiClientInstance: OpenAI | null = null;
 let groqClientInstance: OpenAI | null = null;
 
-// Track OpenAI rate-limit cooldown to avoid consecutive slow 429 retries
-let openAiCooldownUntil = 0;
-
 export class OpenAIService {
   private static getOpenAIClient(): OpenAI | null {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) return null;
     if (!openaiClientInstance) {
-      openaiClientInstance = new OpenAI({ apiKey, timeout: 4_000 });
+      openaiClientInstance = new OpenAI({ apiKey, timeout: 12_000 });
     }
     return openaiClientInstance;
   }
@@ -24,7 +21,7 @@ export class OpenAIService {
       groqClientInstance = new OpenAI({
         apiKey,
         baseURL: 'https://api.groq.com/openai/v1',
-        timeout: 15_000,
+        timeout: 10_000,
       });
     }
     return groqClientInstance;
@@ -39,25 +36,24 @@ export class OpenAIService {
   }
 
   /**
-   * Invokes chat completion with automatic resilient multi-provider failover.
-   * Primary: OpenAI (gpt-4o-mini)
-   * High-Performance Failover: Groq (openai/gpt-oss-120b)
+   * Invokes chat completion with multi-level resilient failover:
+   * 1. Primary: OpenAI gpt-4o-mini
+   * 2. Secondary: OpenAI gpt-4o
+   * 3. High-Performance Failover: Groq LPU (openai/gpt-oss-120b)
    */
   public static async complete(
     messages: ChatCompletionMessageParam[],
     tools?: ChatCompletionTool[]
   ) {
-    const now = Date.now();
-    const isCooldownActive = now < openAiCooldownUntil;
     const openai = this.getOpenAIClient();
     const groq = this.getGroqClient();
 
-    // 1. Try OpenAI if not in active 429 cooldown
-    if (openai && !isCooldownActive) {
+    // 1. Primary: OpenAI (configured model, defaults to gpt-4o-mini)
+    if (openai) {
+      const primaryModel = this.getModel();
       try {
-        const model = this.getModel();
         const response = await openai.chat.completions.create({
-          model,
+          model: primaryModel,
           messages,
           tools: tools && tools.length > 0 ? tools : undefined,
           tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
@@ -66,28 +62,50 @@ export class OpenAIService {
         });
 
         const choice = response.choices[0];
-        return {
-          message: choice?.message,
-          finishReason: choice?.finish_reason,
-          usage: response.usage,
-          provider: 'openai',
-        };
+        if (choice?.message) {
+          return {
+            message: choice.message,
+            finishReason: choice.finish_reason,
+            usage: response.usage,
+            provider: `openai-${primaryModel}`,
+          };
+        }
       } catch (err: any) {
-        const isRateLimit = err?.status === 429 || err?.code === 'rate_limit_exceeded' || String(err?.message || '').includes('429');
-        if (isRateLimit) {
-          // Put OpenAI in 10-minute cooldown
-          openAiCooldownUntil = Date.now() + 10 * 60 * 1000;
-          console.warn('[OpenAIService] OpenAI 429 rate limit detected. Activating Groq failover for 10 minutes...');
-        } else {
-          console.warn('[OpenAIService] OpenAI error:', err?.message || err, '. Attempting Groq fallback...');
+        console.warn(`[OpenAIService] ${primaryModel} error:`, err?.message || err);
+
+        // 1b. Fallback to OpenAI gpt-4o if primary was gpt-4o-mini
+        if (primaryModel !== 'gpt-4o') {
+          try {
+            console.log('[OpenAIService] Retrying with OpenAI gpt-4o...');
+            const response = await openai.chat.completions.create({
+              model: 'gpt-4o',
+              messages,
+              tools: tools && tools.length > 0 ? tools : undefined,
+              tool_choice: tools && tools.length > 0 ? 'auto' : undefined,
+              temperature: 0.2,
+              max_tokens: 600,
+            });
+
+            const choice = response.choices[0];
+            if (choice?.message) {
+              return {
+                message: choice.message,
+                finishReason: choice.finish_reason,
+                usage: response.usage,
+                provider: 'openai-gpt-4o',
+              };
+            }
+          } catch (gpt4Err: any) {
+            console.warn('[OpenAIService] gpt-4o error:', gpt4Err?.message || gpt4Err);
+          }
         }
       }
     }
 
-    // 2. Resilient failover: Groq LPU engine (openai/gpt-oss-120b)
+    // 2. High-Performance Failover: Groq LPU (openai/gpt-oss-120b)
     if (groq) {
       try {
-        console.log('[OpenAIService] Executing via Groq LPU (openai/gpt-oss-120b)...');
+        console.log('[OpenAIService] Executing failover via Groq LPU (openai/gpt-oss-120b)...');
         const response = await groq.chat.completions.create({
           model: 'openai/gpt-oss-120b',
           messages,
@@ -106,7 +124,6 @@ export class OpenAIService {
         };
       } catch (groqErr: any) {
         console.error('[OpenAIService] Groq failover error:', groqErr?.message || groqErr);
-        throw groqErr;
       }
     }
 

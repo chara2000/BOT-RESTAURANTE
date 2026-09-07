@@ -59,6 +59,10 @@ export class ConversationService {
       memory = MemoryService.createDefault(tenantId, phone, customerName);
     } else {
       memory = MemoryService.checkInactivity(memory);
+      memory.handoff_status = false;
+      if (memory.current_state === 'HUMAN_HANDOFF') {
+        memory.current_state = 'WELCOME';
+      }
       if (customerName && !memory.customer_name) {
         memory.customer_name = customerName;
       }

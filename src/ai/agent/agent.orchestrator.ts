@@ -38,14 +38,24 @@ export class AgentOrchestrator {
     const formattedHours = RestaurantService.formatBusinessHours(settings?.business_hours);
     const menuPdfUrl = settings?.menu_pdf_url || (settings?.logo_url?.toLowerCase().includes('.pdf') ? settings.logo_url : null);
 
-    // 2. Handle location payload directly if attached
+    // 2. Handle button callback payloads if received from interactive buttons
+    if (userText.startsWith('TRACK_') || userText === 'TRACK_ORDER') {
+      const targetId = userText.startsWith('TRACK_') && userText !== 'TRACK_ORDER'
+        ? userText.replace('TRACK_', '').trim()
+        : (memory.order_code || memory.order_id || '');
+      userText = `¿Cuál es el estado de mi pedido ${targetId}?`;
+    } else if (userText === 'HUMAN_HANDOFF') {
+      userText = 'Por favor quiero hablar con un asesor humano';
+    }
+
+    // 3. Handle location payload directly if attached
     if (extra?.location) {
       memory.location = extra.location;
       memory.delivery_mode = 'delivery';
       userText = userText || `Mi ubicación GPS (${extra.location.latitude}, ${extra.location.longitude})`;
     }
 
-    // 3. Append user message to memory
+    // 4. Append user message to memory
     MemoryService.addMessage(memory, 'user', userText);
 
     // 4. Build prompt context with schedule and PDF awareness
@@ -69,6 +79,7 @@ export class AgentOrchestrator {
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         let finalReply = '';
         let documentUrlToSend: string | undefined = undefined;
+        let actionButtons: Array<{ text: string; callback_data: string }> | undefined = undefined;
 
         for (const toolCall of assistantMessage.tool_calls) {
           if (toolCall.type !== 'function') continue;
@@ -139,7 +150,13 @@ export class AgentOrchestrator {
 
             case 'create_order': {
               if (data?.success && memory.order_code) {
-                finalReply = ResponseBuilder.buildOrderConfirmed(memory, memory.order_code);
+                const orderId = data.orderId || memory.order_id || '';
+                const items = data.items || [];
+                finalReply = ResponseBuilder.buildOrderConfirmed(memory, memory.order_code, orderId, items);
+                actionButtons = [
+                  { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${orderId}` },
+                  { text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' },
+                ];
               } else {
                 finalReply = data?.error || 'Hubo un inconveniente al confirmar tu pedido. ¿Quieres que lo intentemos de nuevo?';
               }
@@ -207,9 +224,20 @@ export class AgentOrchestrator {
 
             case 'get_order': {
               if (data) {
-                finalReply = `📦 *Estado de tu pedido #${data.id?.slice(0, 6)?.toUpperCase()}:*\n👉 *${data.status}*\n💰 Total: $${Number(data.total).toLocaleString('es-CO')}`;
+                const shortCode = data.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || data.order_code || `T-${data.id?.slice(0, 4)?.toUpperCase()}`;
+                finalReply = ResponseBuilder.buildOrderStatus(
+                  shortCode,
+                  data.status,
+                  data.total,
+                  data.id,
+                  data.delivery_address
+                );
+                actionButtons = [
+                  { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${data.id}` },
+                  { text: '🙋 Hablar con Asesor', callback_data: 'HUMAN_HANDOFF' },
+                ];
               } else {
-                finalReply = 'No encontré ningún pedido con ese código 😕.';
+                finalReply = 'No encontré ningún pedido con ese código 😕. Por favor indícanos tu código (ejemplo: *T-S5F9*) para revisarlo de inmediato. 🍟✨';
               }
               break;
             }
@@ -237,6 +265,7 @@ export class AgentOrchestrator {
 
         return {
           text: finalReply,
+          buttons: actionButtons,
           document_url: documentUrlToSend,
           document_filename: documentUrlToSend ? 'Carta_Shek_Food.pdf' : undefined,
           document_caption: documentUrlToSend ? '📄 Carta oficial de Shek Food en PDF 🍟✨' : undefined,

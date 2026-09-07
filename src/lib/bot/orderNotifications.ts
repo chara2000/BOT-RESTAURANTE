@@ -73,8 +73,8 @@ export async function notifyCustomerOrderStatus(
       return { success: false, channel: 'none' };
     }
 
-    // 3. Formatear contenido del mensaje
-    const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order.id.slice(0, 6).toUpperCase()}`;
+    // 3. Formatear contenido del mensaje con nomenclatura uniforme (T-XXXX)
+    const shortId = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `T-${order.id.slice(0, 4).toUpperCase()}`;
 
     const statusMap: Record<string, string> = {
       pending: '⏳ Pendiente (Esperando confirmación)',
@@ -87,23 +87,30 @@ export async function notifyCustomerOrderStatus(
     };
 
     const statusText = statusMap[status] || status;
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://bot-restaurante-sigma.vercel.app';
     const trackingToken = order.tracking_token || order.id;
     const trackingUrl = `${baseUrl}/public/rastreo/${trackingToken}`;
 
-    let messageBody = customMsg || `🔔 *Actualización de tu pedido (${shortId})*\n\nEl estado de tu orden ha cambiado a:\n👉 *${statusText}*`;
+    let messageBody = customMsg || [
+      `📦 *Estado de tu pedido (${shortId})*`,
+      ``,
+      `👉 *Estado actual:* ${statusText}`,
+    ].join('\n');
 
     if (status === 'shipping') {
-      messageBody += `\n\n🛵 *¡Tu pedido ya va en camino!*`;
+      messageBody += `\n\n🛵 *¡Tu pedido ya va en camino hacia tu dirección!*`;
       if (order.delivery_pin) {
-        messageBody += `\n\n🔑 *Código de Seguridad para la entrega:* *${order.delivery_pin}*\n_Por favor indícale este código al repartidor al recibir tu pedido._`;
+        messageBody += `\n🔑 *Código de Seguridad para la entrega:* *${order.delivery_pin}*\n_Indícale este código al repartidor al recibir tu pedido._`;
       }
-      messageBody += `\n\n📍 Puedes seguir la entrega en vivo aquí:\n${trackingUrl}`;
     } else if (status === 'preparing') {
-      messageBody += `\n\n🍳 Nuestro equipo de cocina está alistando tus platillos frescos y calientes. ¡Te avisaremos cuando salga!`;
+      messageBody += `\n\n🍳 Nuestro equipo de cocina está alistando tus platillos con mucho cariño. ❤️`;
+    } else if (status === 'ready') {
+      messageBody += `\n\n🛍️ ¡Tu pedido ya está listo y empacado!`;
     } else if (status === 'delivered') {
-      messageBody += `\n\n❤️ ¡Muchas gracias por tu compra! Esperamos que disfrutes tu comida.`;
+      messageBody += `\n\n❤️ ¡Muchas gracias por tu compra en Shek Food! Esperamos que lo disfrutes un montón. 😋✨`;
     }
+
+    messageBody += `\n\n🌐 *Rastreo en tiempo real (Mapa en vivo):*\n${trackingUrl}`;
 
     // 4. Si el estado es 'delivered', buscar datos del repartidor para calificar
     let riderName: string | null = null;

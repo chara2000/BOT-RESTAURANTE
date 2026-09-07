@@ -5,7 +5,7 @@ import { DeliveryService } from './delivery.service';
 import crypto from 'crypto';
 
 // In-memory idempotency cache: idempotencyKey -> order result
-const createdOrdersIdempotencyMap = new Map<string, { orderId: string; orderCode: string; total: number; timestamp: number }>();
+const createdOrdersIdempotencyMap = new Map<string, { orderId: string; orderCode: string; total: number; items?: any[]; timestamp: number }>();
 
 export class OrderService {
   private static getSupabase(): SupabaseClient {
@@ -55,6 +55,7 @@ export class OrderService {
     orderId?: string;
     orderCode?: string;
     total: number;
+    items?: any[];
     error?: string;
     duplicate?: boolean;
   }> {
@@ -68,6 +69,7 @@ export class OrderService {
         orderId: cached.orderId,
         orderCode: cached.orderCode,
         total: cached.total,
+        items: cached.items,
         duplicate: true,
       };
     }
@@ -195,11 +197,15 @@ export class OrderService {
       });
     }
 
-    // 9. Record idempotency in memory
+    // 9. Snapshot ordered items before clearing cart
+    const orderedItems = memory.cart.map(i => ({ ...i }));
+
+    // Record idempotency in memory
     createdOrdersIdempotencyMap.set(resolvedKey, {
       orderId,
       orderCode,
       total: memory.total,
+      items: orderedItems,
       timestamp: Date.now(),
     });
 
@@ -215,6 +221,7 @@ export class OrderService {
       orderId,
       orderCode,
       total: memory.total,
+      items: orderedItems,
       duplicate: false,
     };
   }

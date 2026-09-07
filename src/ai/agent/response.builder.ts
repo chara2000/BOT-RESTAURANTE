@@ -48,19 +48,77 @@ export class ResponseBuilder {
   }
 
   /**
-   * Formats Order Confirmation receipt
+   * Formats Order Confirmation receipt with live tracking URL and UX/UI
    */
-  public static buildOrderConfirmed(memory: StructuredMemory, orderCode: string): string {
+  public static buildOrderConfirmed(
+    memory: StructuredMemory,
+    orderCode: string,
+    orderId?: string,
+    items?: Array<{ productName: string; quantity: number; unitPrice: number; variantName?: string }>
+  ): string {
+    const trackingId = orderId || memory.order_id || orderCode;
+    const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${trackingId}`;
+
+    // Format items list
+    const cartItems = items && items.length > 0 ? items : memory.cart;
+    const itemsLines = cartItems.map((item, idx) => {
+      const name = item.variantName ? `${item.productName} (${item.variantName})` : item.productName;
+      return `${idx + 1}. ${name} x${item.quantity} — $${(item.unitPrice * item.quantity).toLocaleString('es-CO')}`;
+    });
+
+    const isDelivery = memory.delivery_mode !== 'pickup';
+    const addressLine = isDelivery
+      ? (memory.address || 'Carrera 19, El Centro, Puerto Tejada')
+      : 'Recoger en el local (Shek Food)';
+
     return [
-      `🎉🍟 *¡PEDIDO CONFIRMADO CON ÉXITO!* 🍟🎉`,
+      `🎉 ¡Pedido Confirmado!`,
+      `📋 Código: ${orderCode}`,
+      `📍 Dirección: ${addressLine}`,
+      `🛒 Resumen de tu pedido:`,
+      ...(itemsLines.length > 0 ? itemsLines : ['1. Productos seleccionados']),
+      ...(isDelivery ? [`🛵 Domicilio: $${(memory.delivery_fee || 5000).toLocaleString('es-CO')}`] : []),
+      `💰 TOTAL: $${memory.total.toLocaleString('es-CO')}`,
+      `⏱️ Tiempo estimado: 50–70 minutos`,
+      `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.`,
+      `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
       ``,
-      `📦 *Código de Pedido: #${orderCode}*`,
-      `💰 *Total:* *$${memory.total.toLocaleString('es-CO')}*`,
-      memory.delivery_mode === 'delivery'
-        ? `🛵 Tu pedido está en cocina y pronto un repartidor saldrá hacia tu dirección. ¡Te avisaremos cuando esté en camino!`
-        : `🏪 ¡Excelente! Tu orden se está alistando para que la recojas caliente y fresca en nuestro local.`,
+      `🌐 *Rastreo en tiempo real (Mapa en vivo):*`,
+      trackingUrl,
+    ].join('\n');
+  }
+
+  /**
+   * Formats Order Status inquiry with short code and live tracking
+   */
+  public static buildOrderStatus(
+    shortCode: string,
+    status: string,
+    total: number,
+    orderId: string,
+    address?: string
+  ): string {
+    const statusMap: Record<string, string> = {
+      pending: '⏳ Pendiente (Esperando confirmación)',
+      confirmed: '✅ Confirmado (En cola de preparación)',
+      preparing: '🍳 En preparación (Cocinando con amor)',
+      ready: '🛍️ Listo para entregar / recoger',
+      shipping: '🛵 En camino (Repartidor asignado)',
+      delivered: '🎉 ¡Entregado! Que lo disfrutes mucho',
+      cancelled: '❌ Cancelado',
+    };
+    const statusLabel = statusMap[status.toLowerCase()] || status;
+    const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${orderId}`;
+
+    return [
+      `📦 *Estado de tu pedido (${shortCode})*`,
       ``,
-      `¡Muchas gracias por preferir Shek Food! ❤️🔥`,
+      `👉 *Estado actual:* ${statusLabel}`,
+      `💰 *Total:* $${Number(total).toLocaleString('es-CO')}`,
+      ...(address ? [`📍 *Dirección:* ${address}`] : []),
+      ``,
+      `🌐 *Rastreo en tiempo real (Mapa en vivo):*`,
+      trackingUrl,
     ].join('\n');
   }
 

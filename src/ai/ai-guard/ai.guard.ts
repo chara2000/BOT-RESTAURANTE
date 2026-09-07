@@ -113,17 +113,19 @@ export class AIGuard {
         return { passed: true, sanitizedArguments: { address: address.trim() } };
       }
 
+      case 'calculate_change':
       case 'provide_cash_amount': {
-        const rawAmount = Number(args.cash_amount);
+        const rawAmount = Number(args.monto_entregado !== undefined ? args.monto_entregado : args.cash_amount);
         if (isNaN(rawAmount) || rawAmount <= 0) {
           return { passed: false, reason: 'El monto en efectivo debe ser un número positivo.' };
         }
-        return { passed: true, sanitizedArguments: { cash_amount: rawAmount } };
+        return { passed: true, sanitizedArguments: { cash_amount: rawAmount, monto_entregado: rawAmount } };
       }
 
+      case 'confirm_order':
       case 'create_order': {
         if (memory.cart.length === 0) {
-          return { passed: false, reason: 'No se puede crear un pedido con el carrito vacío.' };
+          return { passed: false, reason: 'No se puede confirmar un pedido con el carrito vacío.' };
         }
 
         if (!args.confirmation_explicit) {
@@ -139,6 +141,30 @@ export class AIGuard {
             passed: false,
             reason: 'Falta la dirección de entrega para confirmar el pedido a domicilio (estado: esperando_direccion).',
           };
+        }
+
+        // Rule 15: Payment method is mandatory before confirming order
+        if (!memory.payment_method) {
+          return {
+            passed: false,
+            reason: 'FALTA_METODO_PAGO: El pedido no tiene método de pago registrado. Antes de confirmar, debes preguntar al cliente cómo prefiere pagar: Efectivo, Transferencia o Datáfono/Tarjeta.',
+          };
+        }
+
+        // Rule 15: If cash, cash_amount is mandatory before confirming order
+        if (memory.payment_method === 'cash') {
+          if (!memory.cash_amount || memory.cash_amount <= 0) {
+            return {
+              passed: false,
+              reason: 'FALTA_MONTO_EFECTIVO: El cliente pagará en efectivo pero no ha indicado con cuánto dinero pagará. Pregúntale: "¿Con cuánto pagas?" para calcular el vuelto/devuelta exacto con calculate_change() antes de confirmar.',
+            };
+          }
+          if (memory.total > 0 && memory.cash_amount < memory.total) {
+            return {
+              passed: false,
+              reason: `MONTO_INSUFICIENTE: El cliente pagará con $${memory.cash_amount.toLocaleString('es-CO')}, monto que no alcanza para cubrir el total de $${memory.total.toLocaleString('es-CO')}. Por favor solicita un valor suficiente.`,
+            };
+          }
         }
 
         return { passed: true, sanitizedArguments: args };

@@ -245,11 +245,13 @@ export class ToolExecutor {
           return { success: true, data: instructions };
         }
 
+        case 'calculate_change':
         case 'provide_cash_amount': {
+          const rawAmount = Number(args.monto_entregado !== undefined ? args.monto_entregado : args.cash_amount);
           memory.payment_method = 'cash';
-          memory.cash_amount = args.cash_amount;
+          memory.cash_amount = rawAmount;
           await OrderService.calculateOrder(memory);
-          const changeResult = PaymentService.calculateCashChange(memory.total, args.cash_amount);
+          const changeResult = PaymentService.calculateCashChange(memory.total, rawAmount);
           if (changeResult.valid) {
             memory.change_amount = changeResult.change;
             StateService.transition(memory, 'ORDER_REVIEW');
@@ -274,6 +276,7 @@ export class ToolExecutor {
           };
         }
 
+        case 'confirm_order':
         case 'create_order': {
           const result = await OrderService.createOrder(memory);
           if (result.success) {

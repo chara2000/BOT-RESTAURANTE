@@ -55,6 +55,7 @@ export class OrderService {
     orderId?: string;
     orderCode?: string;
     total: number;
+    delivery_fee?: number;
     items?: any[];
     error?: string;
     duplicate?: boolean;
@@ -216,6 +217,7 @@ export class OrderService {
     memory.order_code = orderCode;
     memory.current_state = 'ORDER_CONFIRMED';
     const confirmedTotal = memory.total;
+    const confirmedDeliveryFee = isPickup ? 0 : (memory.delivery_fee || 5000);
 
     // Wipe cart & financial state so subsequent orders in the same session start completely fresh
     memory.cart = [];
@@ -232,6 +234,7 @@ export class OrderService {
       orderId,
       orderCode,
       total: confirmedTotal,
+      delivery_fee: confirmedDeliveryFee,
       items: orderedItems,
       duplicate: false,
     };

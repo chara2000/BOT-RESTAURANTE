@@ -280,11 +280,31 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'confirm_order':
             case 'create_order': {
               if (data?.success && memory.order_code) {
                 const orderId = data.orderId || memory.order_id || '';
                 const items = data.items || [];
-                finalReply = ResponseBuilder.buildOrderConfirmed(memory, memory.order_code, orderId, items);
+                const confirmedTotal = data.total;
+                const confirmedDeliveryFee = data.delivery_fee;
+                const confirmedAddress = memory.address;
+
+                // Rule 16 safeguard: if total is <= 0 or inconsistent, fail safe to human
+                if (!confirmedTotal || confirmedTotal <= 0) {
+                  finalReply = '🙋 Detectamos una pequeña inconsistencia al confirmar el total de tu pedido. Un asesor humano te contactará de inmediato para confirmarlo. ¡Muchas gracias!';
+                  actionButtons = [{ text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' }];
+                  break;
+                }
+
+                finalReply = ResponseBuilder.buildOrderConfirmed(
+                  memory,
+                  memory.order_code,
+                  orderId,
+                  items,
+                  confirmedTotal,
+                  confirmedDeliveryFee,
+                  confirmedAddress
+                );
                 actionButtons = [
                   { text: '📡 Rastrear en Vivo', callback_data: `TRACK_${orderId}` },
                   { text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' },
@@ -295,6 +315,7 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'calculate_change':
             case 'provide_cash_amount': {
               if (data?.valid) {
                 finalReply = `¡Anotado! 💵 Pagas con *$${(memory.cash_amount || 0).toLocaleString('es-CO')}*.\n🔄 Tu devuelta será de *$${(memory.change_amount || 0).toLocaleString('es-CO')}*.\n\n¿Deseas confirmar tu pedido? Escribe *Confirmo* o *Sí* para prepararlo de inmediato. 🍟🔥`;

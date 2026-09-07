@@ -278,6 +278,21 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'calculate_change',
+      description: 'Registra el monto en efectivo con el que pagará el cliente y calcula la devuelta exacta desde backend (Regla 15). NUNCA calcules el vuelto tú mismo.',
+      parameters: {
+        type: 'object',
+        properties: {
+          monto_entregado: { type: 'number', description: 'Monto con el que paga el cliente en efectivo (ej: 50000, 100000)' },
+          total: { type: 'number', description: 'Total del pedido (opcional)' },
+        },
+        required: ['monto_entregado'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'provide_cash_amount',
       description: 'Registra el monto en efectivo con el que pagará el cliente y calcula la devuelta exacta.',
       parameters: {
@@ -297,6 +312,20 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
       name: 'calculate_order',
       description: 'Calcula determinísticamente subtotal, domicilio y total final del pedido desde backend.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'confirm_order',
+      description: 'Crea y confirma definitivamente el pedido en la base de datos tras confirmación explícita del cliente y validación de método de pago (Reglas 15 y 16).',
+      parameters: {
+        type: 'object',
+        properties: {
+          confirmation_explicit: { type: 'boolean', description: 'Debe ser true solo si el cliente confirmó explícitamente ("sí", "confirmo", "dale")' },
+        },
+        required: ['confirmation_explicit'],
+      },
     },
   },
   {

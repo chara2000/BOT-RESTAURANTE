@@ -84,7 +84,10 @@ export class ResponseBuilder {
     memory: StructuredMemory,
     orderCode: string,
     orderId?: string,
-    items?: Array<{ productName: string; quantity: number; unitPrice: number; variantName?: string; notes?: string; additions?: any[] }>
+    items?: Array<{ productName: string; quantity: number; unitPrice: number; variantName?: string; notes?: string; additions?: any[] }>,
+    confirmedTotal?: number,
+    confirmedDeliveryFee?: number,
+    confirmedAddress?: string
   ): string {
     const trackingId = orderId || memory.order_id || orderCode;
     const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${trackingId}`;
@@ -97,7 +100,7 @@ export class ResponseBuilder {
       const lineTotal = (item.unitPrice + additionsTotal) * item.quantity;
       let block = `${idx + 1}. *${name}* x${item.quantity} — $${lineTotal.toLocaleString('es-CO')}`;
       if (item.additions && item.additions.length > 0) {
-        const adds = item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+        const adds = item.additions.map(a => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
         block += '\n' + adds;
       }
       if (item.notes) {
@@ -107,9 +110,19 @@ export class ResponseBuilder {
     });
 
     const isDelivery = memory.delivery_mode !== 'pickup';
-    const addressLine = isDelivery
-      ? (memory.address || 'Carrera 19, El Centro, Puerto Tejada')
-      : 'Recoger en el local (Shek Food)';
+    const addressLine = confirmedAddress || memory.address || (isDelivery ? 'Carrera 19, El Centro, Puerto Tejada' : 'Recoger en el local (Shek Food)');
+    const deliveryFeeVal = confirmedDeliveryFee !== undefined ? confirmedDeliveryFee : (memory.delivery_fee || 5000);
+
+    // Calculate items subtotal fallback
+    const itemsSubtotal = cartItems.reduce((sum, item) => {
+      const additionsTotal = (item.additions || []).reduce((s: number, a: any) => s + (a.price || 0), 0);
+      return sum + ((item.unitPrice + additionsTotal) * item.quantity);
+    }, 0);
+
+    // Rule 16: Ensure total is NEVER 0 and matches confirmed total / subtotal + fee
+    const validTotal = (confirmedTotal !== undefined && confirmedTotal > 0)
+      ? confirmedTotal
+      : (memory.total > 0 ? memory.total : (itemsSubtotal + (isDelivery ? deliveryFeeVal : 0)));
 
     return [
       `🎉 ¡Pedido Confirmado!`,
@@ -117,8 +130,8 @@ export class ResponseBuilder {
       `📍 Dirección: ${addressLine}`,
       `🛒 Resumen de tu pedido:`,
       ...(itemsLines.length > 0 ? itemsLines : ['1. Productos seleccionados']),
-      ...(isDelivery ? [`🛵 Domicilio: $${(memory.delivery_fee || 5000).toLocaleString('es-CO')}`] : []),
-      `💰 TOTAL: $${memory.total.toLocaleString('es-CO')}`,
+      ...(isDelivery ? [`🛵 Domicilio: $${deliveryFeeVal.toLocaleString('es-CO')}`] : []),
+      `💰 TOTAL: $${validTotal.toLocaleString('es-CO')}`,
       `⏱️ Tiempo estimado: 50–70 minutos`,
       `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.`,
       `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,

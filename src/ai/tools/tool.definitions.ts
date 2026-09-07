@@ -40,6 +40,14 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'send_menu_pdf',
+      description: 'Envía el documento PDF oficial de la carta del restaurante con fotos, descripciones completas y precios.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_product_variants',
       description: 'Obtiene las variantes de tamaño o precio de un producto (ej: tamaños de Salchipapas Shek S, M, L, XL, XXL).',
       parameters: {

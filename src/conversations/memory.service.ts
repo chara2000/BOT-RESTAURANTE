@@ -21,6 +21,8 @@ export class MemoryService {
       total: 0,
       last_activity: Date.now(),
       handoff_status: false,
+      last_human_interaction: undefined,
+      reminder_sent: false,
       summary: '',
       history: [],
     };
@@ -33,7 +35,19 @@ export class MemoryService {
     const now = Date.now();
     const elapsed = now - (memory.last_activity || now);
 
-    if (elapsed > this.INACTIVITY_RESET_MS && memory.current_state !== 'ORDER_CONFIRMED' && memory.current_state !== 'HUMAN_HANDOFF') {
+    // If human handoff was active for > 45 min without interaction, release handoff
+    if (memory.handoff_status && memory.last_human_interaction) {
+      const humanElapsed = now - memory.last_human_interaction;
+      if (humanElapsed > 45 * 60 * 1000) {
+        memory.handoff_status = false;
+        if (memory.current_state === 'HUMAN_HANDOFF') {
+          memory.current_state = 'WELCOME';
+        }
+      }
+    }
+
+    // Maximum 1-hour cart abandonment window
+    if (elapsed > this.INACTIVITY_RESET_MS && memory.current_state !== 'ORDER_CONFIRMED') {
       memory.current_state = 'WELCOME';
       memory.cart = [];
       memory.subtotal = 0;
@@ -45,6 +59,7 @@ export class MemoryService {
       memory.change_amount = undefined;
       memory.order_id = undefined;
       memory.order_code = undefined;
+      memory.reminder_sent = false;
       memory.summary = '';
       memory.history = [];
     }

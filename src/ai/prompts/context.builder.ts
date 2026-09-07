@@ -8,7 +8,12 @@ export class ContextBuilder {
    */
   public static build(
     memory: StructuredMemory,
-    restaurantName = 'Shek Food'
+    restaurantName = 'Shek Food',
+    extraContext?: {
+      isOpen?: boolean;
+      formattedHours?: string;
+      menuPdfUrl?: string | null;
+    }
   ): ChatCompletionMessageParam[] {
     const messages: ChatCompletionMessageParam[] = [];
 
@@ -23,6 +28,10 @@ export class ContextBuilder {
       ? memory.cart.map(i => `${i.productName} ×${i.quantity} ($${(i.unitPrice * i.quantity).toLocaleString('es-CO')})`).join(', ')
       : 'Vacío';
 
+    const closedNotice = extraContext && extraContext.isOpen === false
+      ? `\n⚠️ [ESTADO DEL LOCAL: CERRADO EN ESTE MOMENTO 🌙]\nHorario de atención:\n${extraContext.formattedHours || '16:00 - 23:00'}\nCarta en PDF disponible: ${extraContext.menuPdfUrl ? 'Sí' : 'No'}\nREGLA: Si el cliente saluda o intenta pedir ahora, explícale cordialmente que la cocina está cerrada por ahora, muéstrale los horarios y ofrécele la carta en PDF llamando a send_menu_pdf. No crees pedidos inmediatos.`
+      : '';
+
     const stateContext = `
 [ESTADO ACTUAL DEL SISTEMA]
 - Restaurante: ${restaurantName}
@@ -35,6 +44,7 @@ export class ContextBuilder {
 - Pago en efectivo: ${memory.cash_amount ? `$${memory.cash_amount.toLocaleString('es-CO')} (Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})` : 'N/A'}
 - Último producto / variante conversado: ${memory.last_product || 'Ninguno'} ${memory.last_variant ? `(${memory.last_variant})` : ''}
 ${memory.order_code ? `- Pedido creado: ${memory.order_code}` : ''}
+${closedNotice}
 ${memory.summary ? `\n[RESUMEN DE CONVERSACIÓN PREVIA]:\n${memory.summary}` : ''}
 `.trim();
 

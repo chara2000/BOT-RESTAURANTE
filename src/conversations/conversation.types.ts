@@ -73,6 +73,8 @@ export interface StructuredMemory {
   last_message_id?: string;
   last_activity: number;
   handoff_status: boolean;
+  last_human_interaction?: number;
+  reminder_sent?: boolean;
   summary: string;
   history: Array<{
     role: 'user' | 'assistant' | 'system' | 'tool';

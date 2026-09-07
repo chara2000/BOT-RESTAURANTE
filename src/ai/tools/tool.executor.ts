@@ -56,6 +56,19 @@ export class ToolExecutor {
           };
         }
 
+        case 'send_menu_pdf': {
+          const pdfUrl = await CatalogService.getMenuPdf(tenantId);
+          return {
+            success: true,
+            data: {
+              pdf_url: pdfUrl,
+              message: pdfUrl
+                ? '📄 Aquí tienes nuestra carta oficial en PDF con fotos, platillos y precios. 🍟✨'
+                : 'En este momento no hay un archivo PDF configurado, pero puedes consultar todo el menú escribiendo "ver menú" 🍽️',
+            },
+          };
+        }
+
         case 'get_product_variants': {
           const variants = await CatalogService.getProductVariants(tenantId, args.product_name);
           return { success: true, data: variants };

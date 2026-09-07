@@ -47,9 +47,9 @@ export async function notifyCustomerOrderStatus(
     let telegramChatId: string | null = customer?.telegram_chat_id || null;
     let whatsappRecipient: string | null = customer?.whatsapp_id || null;
 
-    // Buscar en las notas del pedido: [CHAT_ID: ...]
+    // Buscar en las notas del pedido: [CHAT_ID: ...] o [WA: ...]
     if (order.notes) {
-      const match = order.notes.match(/\[CHAT_ID:\s*([^\]\s]+)\]/i);
+      const match = order.notes.match(/\[(?:CHAT_ID|WA):\s*([^\]\s]+)\]/i);
       if (match) {
         const rawChatId = match[1];
         if (isBSUID(rawChatId) || rawChatId.startsWith('+') || rawChatId.length > 10) {

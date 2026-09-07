@@ -46,6 +46,23 @@ export class CatalogService {
   }
 
   /**
+   * Gets the official PDF menu URL if configured in tenant_settings
+   */
+  public static async getMenuPdf(tenantId: string): Promise<string | null> {
+    const supabase = this.getSupabase();
+    const { data } = await supabase
+      .from('tenant_settings')
+      .select('menu_pdf_url, logo_url')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (!data) return null;
+    if (data.menu_pdf_url) return data.menu_pdf_url;
+    if (data.logo_url && data.logo_url.toLowerCase().includes('.pdf')) return data.logo_url;
+    return null;
+  }
+
+  /**
    * Gets available products for a tenant, optionally filtered by category
    */
   public static async getProducts(tenantId: string, categoryId?: string): Promise<Product[]> {

@@ -133,7 +133,7 @@ export class OrderService {
     } catch {}
 
     // 5. Build order notes
-    let notes = `[ID: ${orderCode}] [WA: ${phone}] [Cliente: ${memory.customer_name || 'Cliente WhatsApp'}]`;
+    let notes = `[ID: ${orderCode}] [CHAT_ID: ${phone}] [WA: ${phone}] [Cliente: ${memory.customer_name || 'Cliente WhatsApp'}]`;
     if (memory.payment_method === 'cash') {
       const changeText = memory.change_amount !== undefined
         ? `Devuelta: $${memory.change_amount.toLocaleString('es-CO')}`

@@ -112,4 +112,47 @@ export class ConversationService {
     await this.saveConversation(memory);
     return memory;
   }
+
+  /**
+   * Scans active conversations and sends abandonment reminders for carts left pending (30 - 55 min)
+   * Max abandonment window: 1 hour
+   */
+  public static async processAbandonmentReminders(): Promise<{ checked: number; sent: number }> {
+    const now = Date.now();
+    let checked = 0;
+    let sent = 0;
+
+    const { getTenantCreds } = await import('@/lib/bot/whatsapp');
+    const { YCloudService } = await import('@/whatsapp/ycloud/ycloud.service');
+    const { CartService } = await import('@/backend/cart.service');
+    const { ResponseBuilder } = await import('@/ai/agent/response.builder');
+
+    for (const [key, memory] of Object.entries(globalMemoryStore)) {
+      checked++;
+      if (memory.cart && memory.cart.length > 0 && memory.current_state !== 'ORDER_CONFIRMED' && !memory.reminder_sent) {
+        const elapsed = now - (memory.last_activity || now);
+        // Window: between 30 min and 58 min
+        if (elapsed >= 30 * 60 * 1000 && elapsed <= 58 * 60 * 1000) {
+          const creds = await getTenantCreds(memory.tenant_id);
+          if (creds?.apiKey) {
+            const summary = CartService.formatCartSummary(memory);
+            const reminderText = ResponseBuilder.buildAbandonmentReminder(memory.customer_name, summary);
+            const ok = await YCloudService.sendText({
+              apiKey: creds.apiKey,
+              to: memory.phone,
+              text: reminderText,
+              from: creds.phone || undefined,
+            });
+            if (ok) {
+              sent++;
+              memory.reminder_sent = true;
+              await this.saveConversation(memory);
+            }
+          }
+        }
+      }
+    }
+
+    return { checked, sent };
+  }
 }

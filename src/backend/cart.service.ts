@@ -260,4 +260,116 @@ export class CartService {
       `💰 *TOTAL: $${memory.total.toLocaleString('es-CO')}*`,
     ].filter(Boolean).join('\n');
   }
+
+  /**
+   * Adds an addon/topping to an existing item in the cart (Rule 4).
+   * Prevents creating a new product when the customer wanted to modify an existing one.
+   * Prompts if ambiguous (Rule 6).
+   */
+  public static async addAddonToItem(
+    memory: StructuredMemory,
+    itemQuery: string | undefined,
+    addonName: string
+  ): Promise<{
+    success: boolean;
+    item?: CartItem;
+    addon?: { name: string; price: number };
+    newItemUnitPrice?: number;
+    newItemTotalPrice?: number;
+    total?: number;
+    ambiguous?: boolean;
+    candidates?: string[];
+    error?: string;
+  }> {
+    if (!memory.cart || memory.cart.length === 0) {
+      return { success: false, error: 'El carrito está vacío. Agrega primero un producto antes de pedir una adición.' };
+    }
+
+    if (!addonName || !addonName.trim()) {
+      return { success: false, error: 'Debes especificar el nombre de la adición (ej: Guacamole, Tocineta, Queso).' };
+    }
+
+    let targetItem: CartItem | null = null;
+
+    if (itemQuery && itemQuery.trim()) {
+      const cleanQ = CatalogService.normalize(itemQuery);
+      const matches = memory.cart.filter(i => {
+        const cleanName = CatalogService.normalize(i.productName);
+        return i.id === itemQuery || cleanName.includes(cleanQ) || cleanQ.includes(cleanName);
+      });
+
+      if (matches.length === 1) {
+        targetItem = matches[0];
+      } else if (matches.length > 1) {
+        return {
+          success: false,
+          ambiguous: true,
+          error: 'AMBIGUOUS_ITEM',
+          candidates: matches.map(m => m.productName),
+        };
+      } else {
+        // Fallback check: if user said "salchipapa" and cart has Shek items
+        const isSalchipapaQuery = cleanQ.includes('salchipapa') || cleanQ.includes('shek');
+        const shekMatches = memory.cart.filter(i => {
+          const norm = CatalogService.normalize(i.productName);
+          return norm.includes('shek') || norm.includes('salchipapa');
+        });
+        if (isSalchipapaQuery && shekMatches.length === 1) {
+          targetItem = shekMatches[0];
+        } else if (isSalchipapaQuery && shekMatches.length > 1) {
+          return {
+            success: false,
+            ambiguous: true,
+            error: 'AMBIGUOUS_ITEM',
+            candidates: shekMatches.map(m => m.productName),
+          };
+        }
+      }
+    }
+
+    // If still no target resolved and query was not specific
+    if (!targetItem) {
+      if (memory.cart.length === 1) {
+        targetItem = memory.cart[0];
+      } else {
+        // Filter food items capable of taking toppings
+        const foodItems = memory.cart.filter(i => {
+          const norm = CatalogService.normalize(i.productName);
+          return norm.includes('shek') || norm.includes('salchipapa') || norm.includes('hamburguesa');
+        });
+        if (foodItems.length === 1) {
+          targetItem = foodItems[0];
+        } else {
+          return {
+            success: false,
+            ambiguous: true,
+            error: 'AMBIGUOUS_ITEM',
+            candidates: memory.cart.map(c => c.productName),
+          };
+        }
+      }
+    }
+
+    // Resolve addition price and details from catalog
+    const product = await CatalogService.getProduct(memory.tenant_id, targetItem.productId);
+    const resolved = CatalogService.resolveAdditions(product || ({ additions: [] } as any), [addonName]);
+    const addon = resolved[0] || { id: `add_${Date.now()}`, name: addonName.trim(), price: 4000 };
+
+    targetItem.additions = targetItem.additions || [];
+    targetItem.additions.push(addon);
+
+    MemoryService.recalculateCartTotals(memory);
+
+    const additionsTotal = (targetItem.additions || []).reduce((sum, a) => sum + (a.price || 0), 0);
+    const newItemUnitPrice = targetItem.unitPrice + additionsTotal;
+
+    return {
+      success: true,
+      item: targetItem,
+      addon,
+      newItemUnitPrice,
+      newItemTotalPrice: newItemUnitPrice * targetItem.quantity,
+      total: memory.total,
+    };
+  }
 }

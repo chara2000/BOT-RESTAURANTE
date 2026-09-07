@@ -279,4 +279,29 @@ export class CatalogService {
 
     return result;
   }
+
+  /**
+   * Validates if a preparation note or modifier makes sense for a given product.
+   * Prevents food notes ('sin salsa de piña', 'sin cebolla') from sticking to drinks ('granizado de lulo').
+   */
+  public static isNoteApplicableToProduct(productName: string, note?: string): boolean {
+    if (!note || !note.trim()) return true;
+    const p = this.normalize(productName);
+    const n = this.normalize(note);
+
+    const isDrink = p.includes('granizado') || p.includes('bebida') || p.includes('jugo') || p.includes('gaseosa') || p.includes('agua') || p.includes('milo');
+    const isFoodOnlyNote = /\b(salsa|pina|cebolla|tartara|ripio|queso|tocineta|salchicha|carne|pollo|papas|huevo|mostaza|mayonesa|rosada|verde|ripio|lechuga|tomate)\b/i.test(n);
+
+    if (isDrink && isFoodOnlyNote) {
+      return false; // Drinks do not carry food sauces or fast-food toppings
+    }
+
+    const isFood = p.includes('shek') || p.includes('salchipapa') || p.includes('hamburguesa') || p.includes('perro');
+    const isDrinkOnlyNote = /\b(hielo|azucar|pitillo|vaso)\b/i.test(n);
+    if (isFood && isDrinkOnlyNote) {
+      return false;
+    }
+
+    return true;
+  }
 }

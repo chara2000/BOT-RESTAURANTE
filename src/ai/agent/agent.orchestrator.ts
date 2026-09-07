@@ -52,10 +52,15 @@ export class AgentOrchestrator {
     // 3. Clean and normalize input for fast routing
     const cleanNormalized = userText.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[¡!¿?.,]/g, '');
 
-    // Fast-path: Greetings (warm, high-converting Colombian welcome, resets stale sessions > 10m)
-    const isGreeting = /^(hola|buenas|buenas tardes|buenos dias|buenas noches|hey|ola|saludos|inicio)$/i.test(cleanNormalized);
+    // Fast-path: Greetings (warm Colombian welcome + sends PDF menu automatically per Rule 1)
+    const isGreeting = /^(hola|buenas|buenas tardes|buenos dias|buenas noches|buen dia|hey|ola|saludos|inicio|que tal)\b/i.test(cleanNormalized) ||
+      cleanNormalized.startsWith('hola') ||
+      cleanNormalized.startsWith('buenas') ||
+      cleanNormalized.startsWith('buenos dias') ||
+      cleanNormalized.startsWith('buenas tardes') ||
+      cleanNormalized.startsWith('buenas noches');
     const isSessionStale = (Date.now() - (memory.last_activity || 0)) > 10 * 60 * 1000;
-    if (isGreeting && (memory.cart.length === 0 || isSessionStale || memory.current_state === 'ORDER_CONFIRMED')) {
+    if (isGreeting && (memory.cart.length === 0 || isSessionStale || memory.current_state === 'ORDER_CONFIRMED' || memory.history.length === 0)) {
       memory.cart = [];
       memory.subtotal = 0;
       memory.delivery_fee = 0;
@@ -67,10 +72,16 @@ export class AgentOrchestrator {
       memory.summary = '';
       memory.current_state = 'WELCOME';
       memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const pdfUrl = menuPdfUrl || (await CatalogService.getMenuPdf(tenantId));
       const reply = ResponseBuilder.buildWelcomeGreeting('Shek Food');
       MemoryService.addMessage(memory, 'assistant', reply);
       await ConversationService.saveConversation(memory);
-      return { text: reply };
+      return {
+        text: reply,
+        document_url: pdfUrl || undefined,
+        document_filename: 'Carta_Shek_Food.pdf',
+        document_caption: '📄 Carta oficial de Shek Food en PDF 🍟✨',
+      };
     }
 
     // Fast-path: Explicit Reset / Forget Previous Orders
@@ -188,11 +199,16 @@ export class AgentOrchestrator {
           }
 
           // Fallback note extractor: if user specified "sin ..." and rawArguments.notes is missing
+          // Rule 9: only apply if the note makes sense for this product!
           if (functionName === 'add_to_cart' && !rawArguments.notes) {
             const sinMatch = userText.match(/\b(sin\s+[a-záéíóúñ\s]+?)(?=\s+(?:a domicilio|para domicilio|por favor|y\s+|con\s+|$))/i) ||
                              userText.match(/\b(sin\s+[a-záéíóúñ]+)/i);
             if (sinMatch) {
-              rawArguments.notes = sinMatch[1].trim();
+              const matchedNote = sinMatch[1].trim();
+              const targetProduct = rawArguments.product_name_or_id || '';
+              if (CatalogService.isNoteApplicableToProduct(targetProduct, matchedNote)) {
+                rawArguments.notes = matchedNote;
+              }
             }
           }
 
@@ -222,6 +238,18 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'add_addon': {
+              if (toolResult.success && data) {
+                finalReply = `Listo, agregué *${data.addon?.name || 'adición'}* a tu *${data.item?.productName || 'pedido'}*. Nuevo precio de ese ítem: $${(data.newItemUnitPrice || 0).toLocaleString('es-CO')}. 🧀✨\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar algo más o revisamos el resumen para confirmar? 😋`;
+              } else if (data?.ambiguous && data?.candidates) {
+                finalReply = `Tienes varios productos en tu carrito (${data.candidates.join(', ')}). ¿A cuál de ellos deseas agregarle el adicional? 🤔`;
+              } else {
+                finalReply = toolResult.error || 'No fue posible agregar el adicional. ¿Deseas intentar de nuevo?';
+              }
+              break;
+            }
+
+            case 'update_quantity':
             case 'update_cart_item': {
               finalReply = `¡Listo! 🍟 Ya actualicé tu pedido.\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar algo más o revisamos el resumen para confirmar? ✨`;
               break;
@@ -233,7 +261,7 @@ export class AgentOrchestrator {
             }
 
             case 'clear_cart': {
-              finalReply = '¡Carrito vaciado! 🗑️✨ Cuando gustes puedes comenzar un nuevo pedido. ¿Qué se te antoja hoy? 🍟';
+              finalReply = '¡Carrito vaciado! 🗑️✨ He borrado todos los productos del pedido actual. ¿Qué se te antoja ordenar hoy? 🍟';
               break;
             }
 
@@ -243,6 +271,7 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'get_cart_summary':
             case 'get_cart':
             case 'calculate_order': {
               finalReply = ResponseBuilder.buildOrderReview(memory);

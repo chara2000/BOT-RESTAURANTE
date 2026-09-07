@@ -80,6 +80,7 @@ export class ToolExecutor {
         }
 
         // ── Cart ──
+        case 'get_cart_summary':
         case 'get_cart': {
           StateService.transition(memory, 'CART');
           await OrderService.calculateOrder(memory);
@@ -90,6 +91,9 @@ export class ToolExecutor {
               subtotal: memory.subtotal,
               delivery_fee: memory.delivery_fee,
               total: memory.total,
+              delivery_mode: memory.delivery_mode,
+              address: memory.address,
+              payment_method: memory.payment_method,
               formattedSummary: CartService.formatCartSummary(memory),
             },
           };
@@ -115,6 +119,47 @@ export class ToolExecutor {
               addedItem: result.item,
               currentTotal: memory.total,
               cartItemCount: memory.cart.length,
+            },
+          };
+        }
+
+        case 'add_addon': {
+          const result = await CartService.addAddonToItem(memory, args.item_query, args.addon_name);
+          if (!result.success) {
+            return {
+              success: false,
+              error: result.error,
+              data: {
+                ambiguous: result.ambiguous,
+                candidates: result.candidates,
+              },
+            };
+          }
+          StateService.transition(memory, 'CART');
+          await OrderService.calculateOrder(memory);
+          return {
+            success: true,
+            data: {
+              item: result.item,
+              addon: result.addon,
+              newItemUnitPrice: result.newItemUnitPrice,
+              newItemTotalPrice: result.newItemTotalPrice,
+              currentTotal: memory.total,
+            },
+          };
+        }
+
+        case 'update_quantity': {
+          const qtyResult = CartService.updateItemQuantity(memory, args.item_query, {
+            totalQuantity: args.quantity,
+          });
+          if (!qtyResult.success) return { success: false, error: qtyResult.error };
+          await OrderService.calculateOrder(memory);
+          return {
+            success: true,
+            data: {
+              cart: memory.cart,
+              total: memory.total,
             },
           };
         }

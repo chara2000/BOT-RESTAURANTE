@@ -47,6 +47,12 @@ export class AIGuard {
           };
         }
 
+        // Rule 9: Discard notes that do not make sense for this product category
+        let verifiedNotes = args.notes ? String(args.notes).trim() : undefined;
+        if (verifiedNotes && !CatalogService.isNoteApplicableToProduct(selected.name, verifiedNotes)) {
+          verifiedNotes = undefined;
+        }
+
         // Sanitize arguments with verified product ID and database price
         return {
           passed: true,
@@ -55,12 +61,23 @@ export class AIGuard {
             product_name: selected.name,
             unit_price: Number(selected.price),
             quantity,
-            notes: args.notes || undefined,
+            notes: verifiedNotes,
             additions: args.additions || undefined,
           },
         };
       }
 
+      case 'add_addon': {
+        if (memory.cart.length === 0) {
+          return { passed: false, reason: 'El carrito está vacío. Debes agregar un producto primero antes de pedir una adición.' };
+        }
+        if (!args.addon_name || typeof args.addon_name !== 'string' || !args.addon_name.trim()) {
+          return { passed: false, reason: 'Debes indicar el nombre del adicional (ej: Guacamole, Tocineta, Queso).' };
+        }
+        return { passed: true, sanitizedArguments: args };
+      }
+
+      case 'update_quantity':
       case 'update_cart_item': {
         if (memory.cart.length === 0) {
           return { passed: false, reason: 'El carrito está vacío. No hay items para modificar.' };
@@ -108,6 +125,7 @@ export class AIGuard {
       }
 
       case 'calculate_order':
+      case 'get_cart_summary':
       case 'get_cart':
       case 'get_categories':
       case 'get_products':

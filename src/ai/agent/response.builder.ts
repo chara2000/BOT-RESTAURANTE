@@ -5,6 +5,7 @@ export class ResponseBuilder {
    * Formats an Order Review summary when customer asks to see the order or enters review state
    */
   public static buildOrderReview(memory: StructuredMemory): string {
+    // 1. Lista de productos (con adiciones/notas debajo de cada uno)
     const itemsLines = memory.cart.map(item => {
       const emoji = item.productName.toLowerCase().includes('granizado') ? '🍧' : '🍟';
       const additionsTotal = (item.additions || []).reduce((sum, a) => sum + (a.price || 0), 0);
@@ -21,62 +22,58 @@ export class ResponseBuilder {
       return itemBlock;
     });
 
+    // 2. Subtotal
+    const subtotalLine = `🛒 *Subtotal:* $${memory.subtotal.toLocaleString('es-CO')}`;
+
+    // 3. Costo de domicilio
     let feeLine = '';
     if (memory.delivery_mode === 'pickup') {
-      feeLine = '🏪 *Entrega:* Para recoger en el local (Shek Food)';
+      feeLine = '🛵 *Costo de domicilio:* $0 (Para recoger en local Shek Food)';
     } else if (memory.delivery_mode === 'delivery') {
       feeLine = memory.delivery_fee > 0
-        ? `🛵 *Domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
-        : '🛵 *Domicilio:* Por liquidar según tu dirección';
+        ? `🛵 *Costo de domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
+        : '🛵 *Costo de domicilio:* $5.000 (Sujeto a confirmación de dirección)';
     } else {
-      feeLine = '🛵 *Entrega:* A domicilio (O puedes recoger en el local)';
+      feeLine = memory.delivery_fee > 0
+        ? `🛵 *Costo de domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
+        : '🛵 *Costo de domicilio:* $5.000 (A domicilio o puedes recoger en local)';
     }
 
-    let paymentInfo = '';
+    // 4. Total
+    const totalLine = `💰 *Total:* $${memory.total.toLocaleString('es-CO')}`;
+
+    // 5. Dirección registrada
+    const addressLine = memory.address
+      ? `📍 *Dirección registrada:* ${memory.address}`
+      : '📍 *Dirección registrada:* Por registrar';
+
+    // 6. Método de pago
+    let paymentLine = '';
     if (memory.payment_method === 'cash') {
       if (memory.cash_amount) {
-        if (memory.cash_amount < memory.total) {
-          paymentInfo = [
-            `💵 *Pago:* Efectivo`,
-            `⚠️ *Pagas con:* $${memory.cash_amount.toLocaleString('es-CO')} (⚠️ Monto menor al total de $${memory.total.toLocaleString('es-CO')})`,
-            `🔄 *Devuelta:* Por favor indícanos un valor igual o mayor al total`,
-          ].join('\n');
-        } else {
-          const changeVal = memory.change_amount !== undefined
-            ? memory.change_amount
-            : (memory.cash_amount - memory.total);
-          paymentInfo = [
-            `💵 *Pago:* Efectivo`,
-            `💸 *Pagas con:* $${memory.cash_amount.toLocaleString('es-CO')}`,
-            `🔄 *Devuelta:* $${changeVal.toLocaleString('es-CO')}`,
-          ].join('\n');
-        }
+        paymentLine = `💳 *Método de pago:* Efectivo (Pagas con: $${memory.cash_amount.toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
       } else {
-        paymentInfo = [
-          `💵 *Pago:* Efectivo`,
-          `💸 *Pagas con:* Por definir (indícanos con cuánto pagas para calcular tu cambio)`,
-        ].join('\n');
+        paymentLine = `💳 *Método de pago:* Efectivo (Indícanos con cuánto pagas para calcular tu devuelta)`;
       }
     } else if (memory.payment_method === 'transfer') {
-      paymentInfo = '📲 *Pago:* Transferencia Bancaria (Nequi / Bancolombia)';
+      paymentLine = '💳 *Método de pago:* Transferencia Bancaria (Nequi / Bancolombia)';
     } else {
-      paymentInfo = '💳 *Pago:* Contra entrega (Efectivo o Transferencia)';
+      paymentLine = '💳 *Método de pago:* Por definir (Efectivo o Transferencia)';
     }
 
-    const addressInfo = memory.address ? `📍 *Dirección:* ${memory.address}` : '📍 *Dirección:* Por confirmar';
-
+    // Formato estricto según Regla 7
     return [
       `📦✨ *RESUMEN DE TU PEDIDO EN SHEK FOOD* ✨📦`,
       ``,
       ...itemsLines,
+      ``,
+      subtotalLine,
       feeLine,
+      totalLine,
+      addressLine,
+      paymentLine,
       ``,
-      `💰 *TOTAL A PAGAR: $${memory.total.toLocaleString('es-CO')}*`,
-      ``,
-      paymentInfo,
-      addressInfo,
-      ``,
-      `¿Deseas confirmar tu pedido? Escribe *Confirmo* o *Sí* para prepararlo de inmediato. 🍟🔥`,
+      `¿Deseas agregar algo más o confirmamos tu pedido? 🍟🔥`,
     ].join('\n');
   }
 
@@ -132,19 +129,19 @@ export class ResponseBuilder {
   }
 
   /**
-   * Generates a warm, appetizing, and commercial Colombian welcome greeting
+   * Generates a warm, appetizing Colombian welcome greeting with 3 options (Rule 1)
    */
   public static buildWelcomeGreeting(restaurantName = 'Shek Food'): string {
     return [
-      `¡Hola! 👋 Qué alegría saludarte. Te damos una cálida bienvenida a *${restaurantName}* 🍟🍔🥤`,
-      `¡Los mejores sabores, salchipapas cargadas y granizados refrescantes listos para ti! 🔥✨`,
+      `¡Hola! 👋 Te damos una cálida bienvenida a *${restaurantName}* 🍟🍔🥤`,
+      `📄 Aquí tienes adjunta nuestra carta oficial completa en PDF con fotos, platillos y precios. ✨`,
       ``,
-      `¿Qué se te antoja hoy? Puedes elegir:`,
-      `📄 1. Ver nuestra *Carta oficial en PDF* con fotos y precios`,
-      `🍟 2. Armar tu *Pedido* (Salchipapas Shek, Hamburguesas, Granizados)`,
-      `🛵 3. Consultar cobertura y costo de *Domicilio*`,
+      `¿En qué te podemos colaborar hoy?`,
+      `1️⃣ *Ver la carta* 📄`,
+      `2️⃣ *Armar tu pedido* 🍟 (Salchipapas Shek, Hamburguesas, Granizados)`,
+      `3️⃣ *Consultar domicilio* 🛵`,
       ``,
-      `Escribe lo que prefieras o cuéntame qué deseas pedir y con muchísimo gusto te atiendo. 😋❤️`,
+      `Cuéntame qué se te antoja o cuál opción prefieres y con muchísimo gusto te atendemos. 😋❤️`,
     ].join('\n');
   }
 

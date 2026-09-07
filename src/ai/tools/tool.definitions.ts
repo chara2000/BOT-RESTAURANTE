@@ -79,6 +79,14 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'get_cart_summary',
+      description: 'Consulta los items actuales en el carrito, subtotal, domicilio y total calculados por el backend (Regla 2 y 7).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_cart',
       description: 'Consulta los items actuales en el carrito, subtotal y total calculados por el backend.',
       parameters: { type: 'object', properties: {} },
@@ -95,14 +103,44 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
           product_name_or_id: { type: 'string', description: 'Nombre o ID del producto (ej: "Granizado de Limón", "Salchipapa Shek XL")' },
           variant: { type: 'string', description: 'Variante o tamaño si aplica (ej: "XL", "M", "L", "S", "XXL")' },
           quantity: { type: 'number', description: 'Cantidad de unidades (por defecto 1)' },
-          notes: { type: 'string', description: 'Instrucciones especiales (ej: "sin cebolla")' },
+          notes: { type: 'string', description: 'Instrucciones especiales para este producto (ej: "sin cebolla")' },
           additions: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Lista de adiciones solicitadas por el cliente (ej: ["Guacamole", "Tocineta", "Queso Costeño"])',
+            description: 'Lista de adiciones solicitadas por el cliente al pedir el producto (ej: ["Guacamole", "Tocineta"])',
           },
         },
         required: ['product_name_or_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_addon',
+      description: 'Agrega una adición o topping (guacamole, tocineta, queso costeño, etc.) a un producto que YA existe en el carrito (Regla 4). NUNCA uses add_to_cart para esto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          item_query: { type: 'string', description: 'Nombre o ID del producto en el carrito al que se le agrega la adición (ej: "Shek XL")' },
+          addon_name: { type: 'string', description: 'Nombre exacto de la adición (ej: "Guacamole", "Tocineta", "Queso Costeño")' },
+        },
+        required: ['addon_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_quantity',
+      description: 'Actualiza o consolida la cantidad de un producto existente en el carrito (Regla 5).',
+      parameters: {
+        type: 'object',
+        properties: {
+          item_query: { type: 'string', description: 'Nombre o ID del producto en el carrito' },
+          quantity: { type: 'number', description: 'Nueva cantidad total deseada' },
+        },
+        required: ['quantity'],
       },
     },
   },
@@ -140,7 +178,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'clear_cart',
-      description: 'Vacía por completo el carrito de compras.',
+      description: 'Vacía por completo el carrito de compras (Regla 8).',
       parameters: { type: 'object', properties: {} },
     },
   },

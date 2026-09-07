@@ -7,27 +7,60 @@ export class ResponseBuilder {
   public static buildOrderReview(memory: StructuredMemory): string {
     const itemsLines = memory.cart.map(item => {
       const emoji = item.productName.toLowerCase().includes('granizado') ? '🍧' : '🍟';
-      const lineTotal = item.unitPrice * item.quantity;
-      return `${emoji} *${item.productName}* ×${item.quantity} — $${lineTotal.toLocaleString('es-CO')}`;
+      const additionsTotal = (item.additions || []).reduce((sum, a) => sum + (a.price || 0), 0);
+      const lineUnitPrice = item.unitPrice + additionsTotal;
+      const lineTotal = lineUnitPrice * item.quantity;
+      let itemBlock = `${emoji} *${item.productName}* ×${item.quantity} — $${lineTotal.toLocaleString('es-CO')}`;
+      if (item.additions && item.additions.length > 0) {
+        const adds = item.additions.map(a => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+        itemBlock += '\n' + adds;
+      }
+      if (item.notes) {
+        itemBlock += `\n   📝 _Nota: ${item.notes}_`;
+      }
+      return itemBlock;
     });
 
-    const feeLine = memory.delivery_mode === 'delivery' && memory.delivery_fee > 0
-      ? `🛵 *Domicilio* — $${memory.delivery_fee.toLocaleString('es-CO')}`
-      : '🏪 *Entrega* — Para recoger en el local';
+    let feeLine = '';
+    if (memory.delivery_mode === 'pickup') {
+      feeLine = '🏪 *Entrega:* Para recoger en el local (Shek Food)';
+    } else if (memory.delivery_mode === 'delivery') {
+      feeLine = memory.delivery_fee > 0
+        ? `🛵 *Domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
+        : '🛵 *Domicilio:* Por liquidar según tu dirección';
+    } else {
+      feeLine = '🛵 *Entrega:* A domicilio (O puedes recoger en el local)';
+    }
 
     let paymentInfo = '';
     if (memory.payment_method === 'cash') {
-      const cashStr = memory.cash_amount ? `$${memory.cash_amount.toLocaleString('es-CO')}` : 'Por definir';
-      const changeStr = memory.change_amount !== undefined ? `$${memory.change_amount.toLocaleString('es-CO')}` : 'Exacto';
-      paymentInfo = [
-        `💵 *Pago:* Efectivo`,
-        `💸 *Pagas con:* ${cashStr}`,
-        `🔄 *Devuelta:* ${changeStr}`,
-      ].join('\n');
+      if (memory.cash_amount) {
+        if (memory.cash_amount < memory.total) {
+          paymentInfo = [
+            `💵 *Pago:* Efectivo`,
+            `⚠️ *Pagas con:* $${memory.cash_amount.toLocaleString('es-CO')} (⚠️ Monto menor al total de $${memory.total.toLocaleString('es-CO')})`,
+            `🔄 *Devuelta:* Por favor indícanos un valor igual o mayor al total`,
+          ].join('\n');
+        } else {
+          const changeVal = memory.change_amount !== undefined
+            ? memory.change_amount
+            : (memory.cash_amount - memory.total);
+          paymentInfo = [
+            `💵 *Pago:* Efectivo`,
+            `💸 *Pagas con:* $${memory.cash_amount.toLocaleString('es-CO')}`,
+            `🔄 *Devuelta:* $${changeVal.toLocaleString('es-CO')}`,
+          ].join('\n');
+        }
+      } else {
+        paymentInfo = [
+          `💵 *Pago:* Efectivo`,
+          `💸 *Pagas con:* Por definir (indícanos con cuánto pagas para calcular tu cambio)`,
+        ].join('\n');
+      }
     } else if (memory.payment_method === 'transfer') {
       paymentInfo = '📲 *Pago:* Transferencia Bancaria (Nequi / Bancolombia)';
     } else {
-      paymentInfo = '💳 *Pago:* Contra entrega';
+      paymentInfo = '💳 *Pago:* Contra entrega (Efectivo o Transferencia)';
     }
 
     const addressInfo = memory.address ? `📍 *Dirección:* ${memory.address}` : '📍 *Dirección:* Por confirmar';
@@ -54,7 +87,7 @@ export class ResponseBuilder {
     memory: StructuredMemory,
     orderCode: string,
     orderId?: string,
-    items?: Array<{ productName: string; quantity: number; unitPrice: number; variantName?: string }>
+    items?: Array<{ productName: string; quantity: number; unitPrice: number; variantName?: string; notes?: string; additions?: any[] }>
   ): string {
     const trackingId = orderId || memory.order_id || orderCode;
     const trackingUrl = `https://bot-restaurante-sigma.vercel.app/public/rastreo/${trackingId}`;
@@ -63,7 +96,17 @@ export class ResponseBuilder {
     const cartItems = items && items.length > 0 ? items : memory.cart;
     const itemsLines = cartItems.map((item, idx) => {
       const name = item.variantName ? `${item.productName} (${item.variantName})` : item.productName;
-      return `${idx + 1}. ${name} x${item.quantity} — $${(item.unitPrice * item.quantity).toLocaleString('es-CO')}`;
+      const additionsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
+      const lineTotal = (item.unitPrice + additionsTotal) * item.quantity;
+      let block = `${idx + 1}. *${name}* x${item.quantity} — $${lineTotal.toLocaleString('es-CO')}`;
+      if (item.additions && item.additions.length > 0) {
+        const adds = item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+        block += '\n' + adds;
+      }
+      if (item.notes) {
+        block += `\n   📝 _Nota: ${item.notes}_`;
+      }
+      return block;
     });
 
     const isDelivery = memory.delivery_mode !== 'pickup';
@@ -85,6 +128,23 @@ export class ResponseBuilder {
       ``,
       `🌐 *Rastreo en tiempo real (Mapa en vivo):*`,
       trackingUrl,
+    ].join('\n');
+  }
+
+  /**
+   * Generates a warm, appetizing, and commercial Colombian welcome greeting
+   */
+  public static buildWelcomeGreeting(restaurantName = 'Shek Food'): string {
+    return [
+      `¡Hola! 👋 Qué alegría saludarte. Te damos una cálida bienvenida a *${restaurantName}* 🍟🍔🥤`,
+      `¡Los mejores sabores, salchipapas cargadas y granizados refrescantes listos para ti! 🔥✨`,
+      ``,
+      `¿Qué se te antoja hoy? Puedes elegir:`,
+      `📄 1. Ver nuestra *Carta oficial en PDF* con fotos y precios`,
+      `🍟 2. Armar tu *Pedido* (Salchipapas Shek, Hamburguesas, Granizados)`,
+      `🛵 3. Consultar cobertura y costo de *Domicilio*`,
+      ``,
+      `Escribe lo que prefieras o cuéntame qué deseas pedir y con muchísimo gusto te atiendo. 😋❤️`,
     ].join('\n');
   }
 

@@ -101,7 +101,8 @@ export class ToolExecutor {
             args.product_name_or_id,
             args.quantity || 1,
             args.notes,
-            args.variant
+            args.variant,
+            args.additions
           );
           if (!result.success) {
             return { success: false, error: result.error };

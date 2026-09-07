@@ -56,6 +56,7 @@ export class AIGuard {
             unit_price: Number(selected.price),
             quantity,
             notes: args.notes || undefined,
+            additions: args.additions || undefined,
           },
         };
       }

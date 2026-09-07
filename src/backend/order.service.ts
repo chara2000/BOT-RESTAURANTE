@@ -209,18 +209,29 @@ export class OrderService {
       timestamp: Date.now(),
     });
 
-    // 10. Update memory with placed order details
+    // 10. Update memory with placed order details and reset active session financials
+    memory.last_order_id = orderId;
+    memory.last_order_code = orderCode;
     memory.order_id = orderId;
     memory.order_code = orderCode;
     memory.current_state = 'ORDER_CONFIRMED';
-    // Clear cart
+    const confirmedTotal = memory.total;
+
+    // Wipe cart & financial state so subsequent orders in the same session start completely fresh
     memory.cart = [];
+    memory.subtotal = 0;
+    memory.delivery_fee = 0;
+    memory.total = 0;
+    memory.payment_method = undefined;
+    memory.cash_amount = undefined;
+    memory.change_amount = undefined;
+    memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     return {
       success: true,
       orderId,
       orderCode,
-      total: memory.total,
+      total: confirmedTotal,
       items: orderedItems,
       duplicate: false,
     };

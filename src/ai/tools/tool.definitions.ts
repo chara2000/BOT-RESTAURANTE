@@ -95,7 +95,12 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
           product_name_or_id: { type: 'string', description: 'Nombre o ID del producto (ej: "Granizado de Limón", "Salchipapa Shek XL")' },
           variant: { type: 'string', description: 'Variante o tamaño si aplica (ej: "XL", "M", "L", "S", "XXL")' },
           quantity: { type: 'number', description: 'Cantidad de unidades (por defecto 1)' },
-          notes: { type: 'string', description: 'Instrucciones especiales o adiciones' },
+          notes: { type: 'string', description: 'Instrucciones especiales (ej: "sin cebolla")' },
+          additions: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Lista de adiciones solicitadas por el cliente (ej: ["Guacamole", "Tocineta", "Queso Costeño"])',
+          },
         },
         required: ['product_name_or_id'],
       },

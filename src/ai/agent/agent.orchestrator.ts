@@ -9,6 +9,7 @@ import { AIGuard } from '../ai-guard/ai.guard';
 import { ToolExecutor } from '../tools/tool.executor';
 import { ResponseBuilder } from './response.builder';
 import { RestaurantService } from '@/backend/restaurant.service';
+import { CatalogService } from '@/backend/catalog.service';
 
 export class AgentOrchestrator {
   /**
@@ -48,17 +49,51 @@ export class AgentOrchestrator {
       userText = 'Por favor quiero hablar con un asesor humano';
     }
 
-    // 3. Handle location payload directly if attached
+    // 3. Clean and normalize input for fast routing
+    const cleanNormalized = userText.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[¡!¿?.,]/g, '');
+
+    // Fast-path: Greetings (warm, high-converting Colombia welcome)
+    const isGreeting = /^(hola|buenas|buenas tardes|buenos dias|buenas noches|hey|ola|saludos|inicio)$/i.test(cleanNormalized);
+    if (isGreeting && memory.cart.length === 0) {
+      const reply = ResponseBuilder.buildWelcomeGreeting('Shek Food');
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return { text: reply };
+    }
+
+    // Fast-path: Send PDF Menu directly with zero lag and zero AI failure risk
+    const isMenuPdfRequest = /^(quiero la carta|la carta|la carta por favor|carta|el menu|menu|muestrame la carta|mandame la carta|carta en pdf|menu pdf|pdf)$/i.test(cleanNormalized);
+    if (isMenuPdfRequest) {
+      const pdfUrl = menuPdfUrl || (await CatalogService.getMenuPdf(tenantId));
+      const reply = `📄 ¡Con mucho gusto! Aquí tienes nuestra carta oficial completa en PDF con fotos, platillos y precios. 🍟🍔🥤\n\n¿Cuál de nuestros platos se te antoja probar hoy? 😋✨`;
+      MemoryService.addMessage(memory, 'assistant', reply);
+      await ConversationService.saveConversation(memory);
+      return {
+        text: reply,
+        document_url: pdfUrl || undefined,
+        document_filename: 'Carta_Shek_Food.pdf',
+        document_caption: '📄 Carta oficial de Shek Food en PDF 🍟✨',
+      };
+    }
+
+    // Auto-detect Delivery vs Pickup intent directly from text
+    if (/\b(a domicilio|para domicilio|domicilio|a mi casa|para enviar|me lo envian|envio)\b/i.test(cleanNormalized)) {
+      memory.delivery_mode = 'delivery';
+    } else if (/\b(para recoger|recojo en el local|pasar a recoger|paso por el|en el local)\b/i.test(cleanNormalized)) {
+      memory.delivery_mode = 'pickup';
+    }
+
+    // 4. Handle location payload directly if attached
     if (extra?.location) {
       memory.location = extra.location;
       memory.delivery_mode = 'delivery';
       userText = userText || `Mi ubicación GPS (${extra.location.latitude}, ${extra.location.longitude})`;
     }
 
-    // 4. Append user message to memory
+    // 5. Append user message to memory
     MemoryService.addMessage(memory, 'user', userText);
 
-    // 4. Build prompt context with schedule and PDF awareness
+    // 6. Build prompt context with schedule and PDF awareness
     const messages = ContextBuilder.build(memory, 'Shek Food', {
       isOpen,
       formattedHours,
@@ -67,7 +102,7 @@ export class AgentOrchestrator {
     messages.push({ role: 'user', content: userText });
 
     try {
-      // 5. Single Turn: Call LLM with Tool Calling (Groq LPU primary ~300ms, OpenAI fallback)
+      // 7. Single Turn: Call LLM with Tool Calling (Groq LPU primary ~300ms, OpenAI fallback)
       const firstResponse = await OpenAIService.complete(messages, AGENT_TOOLS);
       const assistantMessage = firstResponse.message;
 
@@ -75,11 +110,12 @@ export class AgentOrchestrator {
         throw new Error('No response message received from LLM.');
       }
 
-      // 6. Execute tool if chosen by the LLM
+      // 8. Execute tool if chosen by the LLM
       if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
         let finalReply = '';
         let documentUrlToSend: string | undefined = undefined;
         let actionButtons: Array<{ text: string; callback_data: string }> | undefined = undefined;
+        const addedItemsList: Array<{ productName: string; quantity: number; unitPrice: number; additions?: any[]; notes?: string }> = [];
 
         for (const toolCall of assistantMessage.tool_calls) {
           if (toolCall.type !== 'function') continue;
@@ -112,11 +148,8 @@ export class AgentOrchestrator {
           // Build instant, rich, authoritative response directly from backend data (no slow 2nd LLM call!)
           switch (functionName) {
             case 'add_to_cart': {
-              const item = data?.addedItem;
-              if (item) {
-                finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${(item.unitPrice * item.quantity).toLocaleString('es-CO')}) a tu pedido.\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar una bebida 🥤 o te lo enviamos a domicilio? 🛵😋`;
-              } else {
-                finalReply = `¡Listo! 🍟 Producto agregado al pedido. Total: $${memory.total.toLocaleString('es-CO')}.`;
+              if (data?.addedItem) {
+                addedItemsList.push(data.addedItem);
               }
               break;
             }
@@ -256,6 +289,31 @@ export class AgentOrchestrator {
 
             default:
               finalReply = '¡Listo! Operación procesada. 🍟✨ ¿En qué más te puedo colaborar?';
+          }
+        }
+
+        // If items were added to cart, construct authoritative consolidated confirmation
+        if (addedItemsList.length > 0) {
+          if (addedItemsList.length === 1) {
+            const item = addedItemsList[0];
+            const addsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
+            const lineTotal = (item.unitPrice + addsTotal) * item.quantity;
+            let addsStr = '';
+            if (item.additions && item.additions.length > 0) {
+              addsStr = '\n' + item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+            }
+            finalReply = `¡Listo! 🍟✨ Ya agregué *${item.productName}* ×${item.quantity} ($${lineTotal.toLocaleString('es-CO')})${addsStr} a tu pedido.\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar algo más 🥤 o te lo enviamos a domicilio? 🛵😋`;
+          } else {
+            const lines = addedItemsList.map(item => {
+              const addsTotal = (item.additions || []).reduce((sum: number, a: any) => sum + (a.price || 0), 0);
+              const lineTotal = (item.unitPrice + addsTotal) * item.quantity;
+              let line = `• *${item.productName}* ×${item.quantity} — $${lineTotal.toLocaleString('es-CO')}`;
+              if (item.additions && item.additions.length > 0) {
+                line += '\n' + item.additions.map((a: any) => `   └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+              }
+              return line;
+            });
+            finalReply = `¡Listo! 🍟✨ Ya agregué a tu pedido:\n\n${lines.join('\n')}\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}\n\n¿Deseas agregar una bebida 🥤 o revisamos tu dirección para el domicilio? 🛵😋`;
           }
         }
 

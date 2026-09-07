@@ -69,7 +69,7 @@ export class CatalogService {
     const supabase = this.getSupabase();
     let query = supabase
       .from('products')
-      .select('id, name, price, description, image_url, is_available, category_id, is_combo')
+      .select('id, name, price, description, image_url, is_available, category_id, is_combo, additions')
       .eq('tenant_id', tenantId)
       .eq('is_available', true)
       .order('created_at', { ascending: true });
@@ -115,6 +115,7 @@ export class CatalogService {
 
   /**
    * Searches products by natural text query (fuzzy keyword matching)
+   * Normalizes "salchipapa shek", "salchipapa", "shek" across all size variants (S, M, L, XL, XXL)
    */
   public static async searchProducts(tenantId: string, query: string): Promise<Product[]> {
     const products = await this.getProducts(tenantId);
@@ -133,28 +134,30 @@ export class CatalogService {
       else if (pName.startsWith(cleanQuery)) score += 500;
       else if (pName.includes(cleanQuery)) score += 200;
 
-      // Size variant detection for Shek Salchipapas
-      const hasShekWord = cleanQuery.includes('salchipapa') || cleanQuery.includes('shek') || cleanQuery.includes('papa');
-      const isSizeM = /\b(m|mediana|mediano)\b/.test(cleanQuery);
-      const isSizeS = /\b(s|pequeña|pequena|pequeno)\b/.test(cleanQuery);
-      const isSizeL = /\b(l|grande)\b/.test(cleanQuery) && !cleanQuery.includes('xl');
-      const isSizeXL = /\b(xl)\b/.test(cleanQuery) && !cleanQuery.includes('xxl');
-      const isSizeXXL = /\b(xxl)\b/.test(cleanQuery);
+      // Salchipapa and Shek size variant normalization
+      const isSalchipapaQuery = cleanQuery.includes('salchipapa') || cleanQuery.includes('shek') || cleanQuery.includes('papa');
+      const isSizeXXL = /\b(xxl|doble extra grande|doble extra|gigante)\b/i.test(cleanQuery);
+      const isSizeXL = /\b(xl|extra grande)\b/i.test(cleanQuery) && !isSizeXXL;
+      const isSizeL = /\b(l|grande)\b/i.test(cleanQuery) && !isSizeXL && !isSizeXXL;
+      const isSizeM = /\b(m|mediana|mediano)\b/i.test(cleanQuery);
+      const isSizeS = /\b(s|pequena|pequeno|personal|chica)\b/i.test(cleanQuery);
 
-      if (hasShekWord || isSizeM || isSizeS || isSizeL || isSizeXL || isSizeXXL) {
-        if (isSizeXL && pName === 'shek xl') score += 800;
-        if (isSizeXXL && pName === 'shek xxl') score += 800;
-        if (isSizeL && pName === 'shek l') score += 800;
-        if (isSizeM && pName === 'shek m') score += 800;
-        if (isSizeS && pName === 'shek s') score += 800;
+      const isSalchipapaProduct = pName.includes('shek') || pName.includes('salchipapa');
+
+      if (isSalchipapaProduct && (isSalchipapaQuery || isSizeXXL || isSizeXL || isSizeL || isSizeM || isSizeS)) {
+        if (isSizeXXL && (pName === 'shek xxl' || pName.includes('xxl'))) score += 1500;
+        else if (isSizeXL && (pName === 'shek xl' || (pName.includes('xl') && !pName.includes('xxl')))) score += 1500;
+        else if (isSizeL && (pName === 'shek l' || (pName.includes(' l') && !pName.includes('xl')))) score += 1500;
+        else if (isSizeM && (pName === 'shek m' || pName.includes(' m') || pName.includes('mediana'))) score += 1500;
+        else if (isSizeS && (pName === 'shek s' || pName.includes(' s') || pName.includes('personal'))) score += 1500;
       }
 
       // Flavour detection for granizados
-      if (cleanQuery.includes('limon') && pName.includes('limon')) score += 600;
-      if (cleanQuery.includes('milo') && pName.includes('milo')) score += 600;
-      if (cleanQuery.includes('lulo') && pName.includes('lulo')) score += 600;
-      if (cleanQuery.includes('maracuya') && pName.includes('maracuya')) score += 600;
-      if (cleanQuery.includes('frutos rojos') && pName.includes('frutos rojos')) score += 600;
+      if (cleanQuery.includes('lulo') && pName.includes('lulo')) score += 1200;
+      else if (cleanQuery.includes('limon') && pName.includes('limon')) score += 1200;
+      else if (cleanQuery.includes('maracuya') && pName.includes('maracuya')) score += 1200;
+      else if (cleanQuery.includes('frutos rojos') && pName.includes('frutos rojos')) score += 1200;
+      else if (cleanQuery.includes('milo') && pName.includes('milo')) score += 1200;
 
       // Token matching
       const tokens = cleanQuery.split(/\s+/).filter(Boolean);
@@ -210,5 +213,70 @@ export class CatalogService {
 
     // Default to available if product is active
     return { available: product.is_available, currentStock: 999 };
+  }
+
+  /**
+   * Matches requested addition names against product additions or known common additions (guacamole, tocineta, queso)
+   */
+  public static resolveAdditions(
+    product: Product,
+    requestedAdditions: string[]
+  ): Array<{ id: string; name: string; price: number }> {
+    if (!requestedAdditions || requestedAdditions.length === 0) return [];
+
+    const result: Array<{ id: string; name: string; price: number }> = [];
+    const productAdditions = (product.additions || []).filter(a => a.is_available !== false);
+
+    // Known fallback prices for common additions in fast-food if not explicitly in product additions
+    const commonFallbacks: Record<string, { name: string; price: number }> = {
+      guacamole: { name: 'Adición de Guacamole', price: 4000 },
+      queso: { name: 'Adición de Queso Costeño', price: 5000 },
+      tocineta: { name: 'Adición de Tocineta', price: 5000 },
+      papas: { name: 'Adición de Papas', price: 6000 },
+      salchicha: { name: 'Adición de Salchicha', price: 4000 },
+      carne: { name: 'Adición de Carne', price: 6000 },
+      pollo: { name: 'Adición de Pollo', price: 6000 },
+      huevo: { name: 'Adición de Huevo de Codorniz', price: 3000 },
+    };
+
+    for (const req of requestedAdditions) {
+      const cleanReq = this.normalize(req);
+      if (!cleanReq) continue;
+
+      // 1. Try to find in product.additions
+      const matched = productAdditions.find(a => {
+        const aNorm = this.normalize(a.name);
+        return aNorm.includes(cleanReq) || cleanReq.includes(aNorm);
+      });
+
+      if (matched) {
+        result.push({
+          id: matched.id || `add_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: matched.name,
+          price: Number(matched.price),
+        });
+        continue;
+      }
+
+      // 2. Check common fallbacks
+      const fallbackKey = Object.keys(commonFallbacks).find(k => cleanReq.includes(k));
+      if (fallbackKey) {
+        const fb = commonFallbacks[fallbackKey];
+        result.push({
+          id: `add_fb_${fallbackKey}`,
+          name: fb.name,
+          price: fb.price,
+        });
+      } else {
+        // Generic addition with 0 or minimal price if user just wrote a note
+        result.push({
+          id: `add_custom_${Date.now()}`,
+          name: req.trim(),
+          price: 0,
+        });
+      }
+    }
+
+    return result;
   }
 }

@@ -70,6 +70,8 @@ export interface StructuredMemory {
   payment_receipt_url?: string;
   order_id?: string;
   order_code?: string;
+  last_order_id?: string;
+  last_order_code?: string;
   last_message_id?: string;
   last_activity: number;
   handoff_status: boolean;

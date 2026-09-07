@@ -104,6 +104,12 @@ export class MemoryService {
    * Calculates subtotal and total based on cart and delivery fee
    */
   public static recalculateCartTotals(memory: StructuredMemory): void {
+    if (!memory.cart || memory.cart.length === 0) {
+      memory.subtotal = 0;
+      memory.total = 0;
+      return;
+    }
+
     const subtotal = memory.cart.reduce((sum, item) => {
       const additionsTotal = (item.additions || []).reduce((aSum, a) => aSum + (a.price || 0), 0);
       return sum + (item.unitPrice + additionsTotal) * item.quantity;

@@ -11,8 +11,24 @@ export class CartService {
     productId: string,
     quantity = 1,
     notes?: string,
-    variantId?: string
+    variantId?: string,
+    additions?: string[] | Array<{ id?: string; name: string; price: number }>
   ): Promise<{ success: boolean; item?: CartItem; error?: string }> {
+    // 0. Auto-reset session if previous order was confirmed (prevents reusing previous payment/cash amounts)
+    if (memory.current_state === 'ORDER_CONFIRMED') {
+      memory.cart = [];
+      memory.subtotal = 0;
+      memory.delivery_fee = 0;
+      memory.total = 0;
+      memory.payment_method = undefined;
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+      memory.order_code = undefined;
+      memory.order_id = undefined;
+      memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      memory.current_state = 'CART';
+    }
+
     const targetProductId = variantId || productId;
     let product = await CatalogService.getProduct(memory.tenant_id, targetProductId);
 
@@ -33,9 +49,29 @@ export class CartService {
 
     const safeQuantity = Math.max(1, Math.min(quantity, 50));
 
-    // Check if same product/variant with same notes already exists in cart
+    // Resolve additions
+    let resolvedAdditions: Array<{ id: string; name: string; price: number }> = [];
+    if (Array.isArray(additions) && additions.length > 0) {
+      if (typeof additions[0] === 'string') {
+        resolvedAdditions = CatalogService.resolveAdditions(product, additions as string[]);
+      } else {
+        resolvedAdditions = additions as Array<{ id: string; name: string; price: number }>;
+      }
+    } else if (notes && (notes.toLowerCase().includes('adicion') || notes.toLowerCase().includes('con '))) {
+      const commonKeywords = ['guacamole', 'queso', 'tocineta', 'papas', 'salchicha', 'carne', 'pollo', 'huevo'];
+      const matchedKeywords = commonKeywords.filter(k => notes.toLowerCase().includes(k));
+      if (matchedKeywords.length > 0) {
+        resolvedAdditions = CatalogService.resolveAdditions(product, matchedKeywords);
+      }
+    }
+
+    const additionsKey = JSON.stringify((resolvedAdditions || []).map(a => a.name).sort());
+
+    // Check if same product/variant with same notes and additions already exists in cart
     const existingIndex = memory.cart.findIndex(
-      i => i.productId === product.id && (i.notes || '') === (notes || '')
+      i => i.productId === product.id &&
+           (i.notes || '') === (notes || '') &&
+           JSON.stringify((i.additions || []).map(a => a.name).sort()) === additionsKey
     );
 
     let item: CartItem;
@@ -51,6 +87,7 @@ export class CartService {
         unitPrice: Number(product.price), // Authoritative price from DB
         quantity: safeQuantity,
         notes: notes || undefined,
+        additions: resolvedAdditions.length > 0 ? resolvedAdditions : undefined,
       };
       memory.cart.push(item);
     }
@@ -197,9 +234,18 @@ export class CartService {
     }
 
     const lines = memory.cart.map((item, idx) => {
-      const noteStr = item.notes ? ` _(${item.notes})_` : '';
-      const itemTotal = item.unitPrice * item.quantity;
-      return `• *${item.productName}* ×${item.quantity} — $${itemTotal.toLocaleString('es-CO')}${noteStr}`;
+      const additionsTotal = (item.additions || []).reduce((sum, a) => sum + (a.price || 0), 0);
+      const lineUnitPrice = item.unitPrice + additionsTotal;
+      const itemTotal = lineUnitPrice * item.quantity;
+      let block = `• *${item.productName}* ×${item.quantity} — $${itemTotal.toLocaleString('es-CO')}`;
+      if (item.additions && item.additions.length > 0) {
+        const adds = item.additions.map(a => `  └ 🧀 _+ ${a.name} ($${a.price.toLocaleString('es-CO')})_`).join('\n');
+        block += '\n' + adds;
+      }
+      if (item.notes) {
+        block += `\n  📝 _Nota: ${item.notes}_`;
+      }
+      return block;
     });
 
     const feeLine = memory.delivery_mode === 'delivery' && memory.delivery_fee > 0

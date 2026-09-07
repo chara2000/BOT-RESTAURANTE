@@ -231,6 +231,7 @@ export class AgentOrchestrator {
 
           // Build instant, rich, authoritative response directly from backend data (no slow 2nd LLM call!)
           switch (functionName) {
+            case 'add_item':
             case 'add_to_cart': {
               if (data?.addedItem) {
                 addedItemsList.push(data.addedItem);
@@ -255,6 +256,7 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'remove_item':
             case 'remove_cart_item': {
               finalReply = `¡Entendido! 🗑️ Producto retirado de tu pedido.\n\n🛒 *Total actual:* $${memory.total.toLocaleString('es-CO')}`;
               break;
@@ -379,8 +381,9 @@ export class AgentOrchestrator {
               break;
             }
 
+            case 'escalate_to_human':
             case 'handoff_to_human': {
-              finalReply = '🙋 He notificado a nuestro equipo. Un asesor humano te responderá muy pronto. ¡Muchas gracias por tu paciencia! ❤️';
+              finalReply = '🙋 He transferido tu conversación a nuestro equipo de atención. Un asesor humano se comunicará contigo de inmediato por este chat para asistirte y confirmar tu pedido. ¡Muchas gracias por tu paciencia! ❤️';
               break;
             }
 

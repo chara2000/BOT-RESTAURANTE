@@ -14,10 +14,21 @@ export class AIGuard {
     args: Record<string, any>
   ): Promise<GuardValidationResult> {
     switch (toolName) {
+      case 'add_item':
       case 'add_to_cart': {
-        const query = args.product_name_or_id || '';
-        const variant = args.variant;
+        // Rule 11: Cannot add items if order has already been sent to kitchen
+        if (['ORDER_CONFIRMED', 'ORDER_PREPARING', 'ORDER_READY', 'ORDER_DELIVERING', 'ORDER_COMPLETED'].includes(memory.current_state)) {
+          return {
+            passed: false,
+            reason: 'Tu pedido ya fue enviado a cocina y se encuentra en preparación. Para modificarlo o agregar más productos, por favor usa escalate_to_human.',
+          };
+        }
+
+        const query = args.product_id || args.product_name_or_id || '';
+        const variant = args.size || args.variant;
         const quantity = Number(args.quantity) || 1;
+        const rawNotes = Array.isArray(args.notes) ? args.notes.join(', ') : (args.notes || '');
+        const rawAdditions = args.addons || args.additions;
 
         if (quantity <= 0 || quantity > 50) {
           return { passed: false, reason: 'Cantidad inválida. Debe ser entre 1 y 50.' };
@@ -48,7 +59,7 @@ export class AIGuard {
         }
 
         // Rule 9: Discard notes that do not make sense for this product category
-        let verifiedNotes = args.notes ? String(args.notes).trim() : undefined;
+        let verifiedNotes = rawNotes ? String(rawNotes).trim() : undefined;
         if (verifiedNotes && !CatalogService.isNoteApplicableToProduct(selected.name, verifiedNotes)) {
           verifiedNotes = undefined;
         }
@@ -62,7 +73,7 @@ export class AIGuard {
             unit_price: Number(selected.price),
             quantity,
             notes: verifiedNotes,
-            additions: args.additions || undefined,
+            additions: rawAdditions || undefined,
           },
         };
       }
@@ -71,7 +82,8 @@ export class AIGuard {
         if (memory.cart.length === 0) {
           return { passed: false, reason: 'El carrito está vacío. Debes agregar un producto primero antes de pedir una adición.' };
         }
-        if (!args.addon_name || typeof args.addon_name !== 'string' || !args.addon_name.trim()) {
+        const addonName = args.addon_id || args.addon_name;
+        if (!addonName || typeof addonName !== 'string' || !addonName.trim()) {
           return { passed: false, reason: 'Debes indicar el nombre del adicional (ej: Guacamole, Tocineta, Queso).' };
         }
         return { passed: true, sanitizedArguments: args };
@@ -81,6 +93,14 @@ export class AIGuard {
       case 'update_cart_item': {
         if (memory.cart.length === 0) {
           return { passed: false, reason: 'El carrito está vacío. No hay items para modificar.' };
+        }
+        return { passed: true, sanitizedArguments: args };
+      }
+
+      case 'remove_item':
+      case 'remove_cart_item': {
+        if (memory.cart.length === 0) {
+          return { passed: false, reason: 'El carrito está vacío. No hay items para eliminar.' };
         }
         return { passed: true, sanitizedArguments: args };
       }
@@ -113,11 +133,11 @@ export class AIGuard {
           };
         }
 
-        // Ensure delivery address is provided if mode is delivery
+        // Rule 11: Ensure delivery address is provided if mode is delivery (esperando_direccion)
         if (memory.delivery_mode === 'delivery' && (!memory.address || memory.address.length < 5)) {
           return {
             passed: false,
-            reason: 'Falta la dirección de entrega para el pedido a domicilio.',
+            reason: 'Falta la dirección de entrega para confirmar el pedido a domicilio (estado: esperando_direccion).',
           };
         }
 
@@ -136,6 +156,7 @@ export class AIGuard {
       case 'clear_cart':
       case 'get_order':
       case 'cancel_order':
+      case 'escalate_to_human':
       case 'handoff_to_human':
         return { passed: true, sanitizedArguments: args };
 

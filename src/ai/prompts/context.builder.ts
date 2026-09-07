@@ -32,12 +32,31 @@ export class ContextBuilder {
       ? `\n⚠️ [ESTADO DEL LOCAL: CERRADO EN ESTE MOMENTO 🌙]\nHorario de atención:\n${extraContext.formattedHours || '16:00 - 23:00'}\nCarta en PDF disponible: ${extraContext.menuPdfUrl ? 'Sí' : 'No'}\nREGLA: Si el cliente saluda o intenta pedir ahora, explícale cordialmente que la cocina está cerrada por ahora, muéstrale los horarios y ofrécele la carta en PDF llamando a send_menu_pdf. No crees pedidos inmediatos.`
       : '';
 
+    // Rule 11: Explicit Order State (armando_carrito | esperando_direccion | esperando_pago | confirmando | enviado_cocina)
+    let explicitState: 'armando_carrito' | 'esperando_direccion' | 'esperando_pago' | 'confirmando' | 'enviado_cocina' = 'armando_carrito';
+    if (['ORDER_CONFIRMED', 'ORDER_PREPARING', 'ORDER_READY', 'ORDER_DELIVERING', 'ORDER_COMPLETED'].includes(memory.current_state)) {
+      explicitState = 'enviado_cocina';
+    } else if (memory.current_state === 'ORDER_REVIEW') {
+      explicitState = 'confirmando';
+    } else if (memory.cart.length > 0) {
+      if (memory.delivery_mode === 'delivery' && (!memory.address || memory.address.length < 5)) {
+        explicitState = 'esperando_direccion';
+      } else if (!memory.payment_method) {
+        explicitState = 'esperando_pago';
+      } else {
+        explicitState = 'confirmando';
+      }
+    } else {
+      explicitState = 'armando_carrito';
+    }
+
     const stateContext = `
 [ESTADO ACTUAL DEL SISTEMA]
 - Restaurante: ${restaurantName}
-- Estado de la conversación: ${memory.current_state}
+- Estado del pedido explícito (Regla 11): ${explicitState}
+- Estado interno: ${memory.current_state}
 - Carrito activo: ${cartItemsStr}
-- Subtotal: $${memory.subtotal.toLocaleString('es-CO')} | Domicilio: $${memory.delivery_fee.toLocaleString('es-CO')} | Total: $${memory.total.toLocaleString('es-CO')}
+- Subtotal: $${(memory.subtotal || 0).toLocaleString('es-CO')} | Domicilio: $${(memory.delivery_fee || 0).toLocaleString('es-CO')} | Total: $${(memory.total || 0).toLocaleString('es-CO')}
 - Modalidad: ${memory.delivery_mode || 'No definida'}
 - Dirección registrada: ${memory.address || 'No registrada'}
 - Método de pago: ${memory.payment_method || 'No definido'}

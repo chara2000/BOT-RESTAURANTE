@@ -99,14 +99,21 @@ export class ToolExecutor {
           };
         }
 
+        case 'add_item':
         case 'add_to_cart': {
+          const productNameOrId = args.product_id || args.product_name_or_id;
+          const variant = args.size || args.variant;
+          const quantity = Number(args.quantity) || 1;
+          const notes = Array.isArray(args.notes) ? args.notes.join(', ') : args.notes;
+          const additions = args.addons || args.additions;
+
           const result = await CartService.addItem(
             memory,
-            args.product_name_or_id,
-            args.quantity || 1,
-            args.notes,
-            args.variant,
-            args.additions
+            productNameOrId,
+            quantity,
+            notes,
+            variant,
+            additions
           );
           if (!result.success) {
             return { success: false, error: result.error };
@@ -124,7 +131,9 @@ export class ToolExecutor {
         }
 
         case 'add_addon': {
-          const result = await CartService.addAddonToItem(memory, args.item_query, args.addon_name);
+          const itemQuery = args.cart_item_id || args.item_query;
+          const addonName = args.addon_id || args.addon_name;
+          const result = await CartService.addAddonToItem(memory, itemQuery, addonName);
           if (!result.success) {
             return {
               success: false,
@@ -150,8 +159,10 @@ export class ToolExecutor {
         }
 
         case 'update_quantity': {
-          const qtyResult = CartService.updateItemQuantity(memory, args.item_query, {
-            totalQuantity: args.quantity,
+          const itemQuery = args.cart_item_id || args.item_query;
+          const quantity = args.qty !== undefined ? args.qty : args.quantity;
+          const qtyResult = CartService.updateItemQuantity(memory, itemQuery, {
+            totalQuantity: quantity,
           });
           if (!qtyResult.success) return { success: false, error: qtyResult.error };
           await OrderService.calculateOrder(memory);
@@ -186,8 +197,10 @@ export class ToolExecutor {
           };
         }
 
+        case 'remove_item':
         case 'remove_cart_item': {
-          const removed = CartService.removeItem(memory, args.item_query);
+          const itemQuery = args.cart_item_id || args.item_query;
+          const removed = CartService.removeItem(memory, itemQuery);
           await OrderService.calculateOrder(memory);
           return { success: removed, data: { total: memory.total, cart: memory.cart } };
         }
@@ -282,10 +295,11 @@ export class ToolExecutor {
         }
 
         // ── Human Handoff ──
+        case 'escalate_to_human':
         case 'handoff_to_human': {
           StateService.transition(memory, 'HUMAN_HANDOFF');
           memory.handoff_status = true;
-          return { success: true, data: { message: 'Transferido a agente humano' } };
+          return { success: true, data: { message: 'Transferido a asesor humano', reason: args.reason } };
         }
 
         default:

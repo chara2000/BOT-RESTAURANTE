@@ -95,6 +95,32 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'add_item',
+      description: 'Agrega un producto con su tamaño, adiciones y notas al pedido (Regla 10).',
+      parameters: {
+        type: 'object',
+        properties: {
+          product_id: { type: 'string', description: 'Nombre o ID del producto (ej: "Shek XL", "Granizado de Lulo", "Salchipapa Shek")' },
+          size: { type: 'string', description: 'Tamaño o variante si aplica (ej: "S", "M", "L", "XL", "XXL")' },
+          quantity: { type: 'number', description: 'Cantidad de unidades (por defecto 1)' },
+          addons: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Lista de adiciones iniciales (ej: ["Guacamole", "Tocineta"])',
+          },
+          notes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Lista de notas específicas para este producto (ej: ["sin salsa de piña"])',
+          },
+        },
+        required: ['product_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_to_cart',
       description: 'Agrega un producto o variante al carrito de compras con precio validado en base de datos.',
       parameters: {
@@ -118,14 +144,14 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'add_addon',
-      description: 'Agrega una adición o topping (guacamole, tocineta, queso costeño, etc.) a un producto que YA existe en el carrito (Regla 4). NUNCA uses add_to_cart para esto.',
+      description: 'Agrega una adición o topping (guacamole, tocineta, queso costeño, etc.) a un producto que YA existe en el carrito (Regla 4 y 10). NUNCA uses add_item para esto.',
       parameters: {
         type: 'object',
         properties: {
-          item_query: { type: 'string', description: 'Nombre o ID del producto en el carrito al que se le agrega la adición (ej: "Shek XL")' },
-          addon_name: { type: 'string', description: 'Nombre exacto de la adición (ej: "Guacamole", "Tocineta", "Queso Costeño")' },
+          cart_item_id: { type: 'string', description: 'Nombre o ID del producto en el carrito al que se le agrega la adición (ej: "Shek XL")' },
+          addon_id: { type: 'string', description: 'Nombre o ID exacto de la adición (ej: "Guacamole", "Tocineta", "Queso Costeño")' },
         },
-        required: ['addon_name'],
+        required: ['addon_id'],
       },
     },
   },
@@ -133,14 +159,14 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_quantity',
-      description: 'Actualiza o consolida la cantidad de un producto existente en el carrito (Regla 5).',
+      description: 'Actualiza o consolida la cantidad de un producto existente en el carrito (Regla 5 y 10).',
       parameters: {
         type: 'object',
         properties: {
-          item_query: { type: 'string', description: 'Nombre o ID del producto en el carrito' },
-          quantity: { type: 'number', description: 'Nueva cantidad total deseada' },
+          cart_item_id: { type: 'string', description: 'Nombre o ID del producto en el carrito' },
+          qty: { type: 'number', description: 'Nueva cantidad total deseada' },
         },
-        required: ['quantity'],
+        required: ['qty'],
       },
     },
   },
@@ -163,6 +189,20 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'remove_item',
+      description: 'Elimina un producto del carrito (Regla 10).',
+      parameters: {
+        type: 'object',
+        properties: {
+          cart_item_id: { type: 'string', description: 'Nombre o ID del producto a eliminar del carrito' },
+        },
+        required: ['cart_item_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'remove_cart_item',
       description: 'Elimina completamente un producto del carrito.',
       parameters: {
@@ -178,7 +218,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'clear_cart',
-      description: 'Vacía por completo el carrito de compras (Regla 8).',
+      description: 'Vacía por completo el carrito de compras (Regla 8 y 10).',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -303,6 +343,20 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   },
 
   // ── Human Handoff ──
+  {
+    type: 'function',
+    function: {
+      name: 'escalate_to_human',
+      description: 'Transfiere la conversación a un asesor humano cuando una función falla, no se puede resolver la intención tras aclarar, o el cliente solicita asistencia humana (Reglas 10, 11, 14).',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: { type: 'string', description: 'Motivo del escalamiento a humano' },
+        },
+        required: ['reason'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {

@@ -239,9 +239,14 @@ export class ToolExecutor {
         }
 
         case 'get_payment_instructions': {
-          memory.payment_method = args.method.toLowerCase().includes('transfer') ? 'transfer' : 'cash';
+          const isTransfer = (args.method || '').toLowerCase().includes('transfer') || (args.method || '').toLowerCase().includes('nequi');
+          memory.payment_method = isTransfer ? 'transfer' : 'cash';
+          if (memory.payment_method === 'transfer') {
+            memory.cash_amount = undefined;
+            memory.change_amount = undefined;
+          }
           StateService.transition(memory, 'PAYMENT_PENDING');
-          const instructions = await PaymentService.getPaymentInstructions(tenantId, args.method);
+          const instructions = await PaymentService.getPaymentInstructions(tenantId, args.method || 'transfer');
           return { success: true, data: instructions };
         }
 

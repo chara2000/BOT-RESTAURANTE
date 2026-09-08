@@ -11,7 +11,8 @@ export class AIGuard {
     tenantId: string,
     memory: StructuredMemory,
     toolName: string,
-    args: Record<string, any>
+    args: Record<string, any>,
+    userText?: string
   ): Promise<GuardValidationResult> {
     switch (toolName) {
       case 'add_item':
@@ -34,6 +35,49 @@ export class AIGuard {
           return { passed: false, reason: 'Cantidad inválida. Debe ser entre 1 y 50.' };
         }
 
+        // Rule 24: Validate that the product was actually mentioned in userText, and quantity is not hallucinated
+        let verifiedQuantity = quantity;
+        if (userText) {
+          const normText = CatalogService.normalize(userText);
+          const words = normText.split(/\s+/).filter(w => w.length > 2);
+
+          // Ambiguous single word check (e.g. "aguila", "cerveza", "queso", "salchipapa")
+          const isSingleAmbiguousWord = words.length <= 1 && ['aguila', 'cerveza', 'queso', 'papas', 'carne', 'pollo', 'salsa', 'tocineta'].includes(words[0]);
+          if (isSingleAmbiguousWord) {
+            return {
+              passed: false,
+              reason: `AMBIGUOUS_PRODUCT_MENTION: El cliente escribió únicamente "${userText.trim()}". Pregunta qué producto y cantidad desea sin agregar nada al carrito.`,
+            };
+          }
+
+          // Quantity validation: if quantity > 1 was specified by the model, verify customer actually said it
+          if (quantity > 1) {
+            const hasExplicitNumber = new RegExp(`\\b(${quantity}|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\\b`, 'i').test(userText);
+            if (!hasExplicitNumber) {
+              // The customer didn't say quantity > 1. Fall back to 1 per Rule 24
+              verifiedQuantity = 1;
+            }
+          }
+
+          // Rule 24: Disallow inventing products that were not mentioned in customer message
+          const prodNorm = CatalogService.normalize(query || '');
+          const prodKeywords = prodNorm.split(/\s+/).filter(w => w.length > 3 && !['para', 'con', 'sin', 'shek', 'combo'].includes(w));
+          if (prodKeywords.length > 0) {
+            const hasMatch = prodKeywords.some(kw => normText.includes(kw)) ||
+                             normText.includes(prodNorm) ||
+                             normText.includes('salchipapa') ||
+                             normText.includes('granizado') ||
+                             normText.includes('hamburguesa') ||
+                             normText.includes('perro');
+            if (!hasMatch) {
+              return {
+                passed: false,
+                reason: `PRODUCT_NOT_MENTIONED: El producto "${query}" no fue mencionado por el cliente en su mensaje ("${userText.trim()}").`,
+              };
+            }
+          }
+        }
+
         // Search product in this specific tenant
         const searchTarget = variant ? `${query} ${variant}` : query;
         const matches = await CatalogService.searchProducts(tenantId, searchTarget);
@@ -50,7 +94,7 @@ export class AIGuard {
         const selected = matches[0];
 
         // Validate stock
-        const stockCheck = await CatalogService.validateStock(tenantId, selected.id, quantity);
+        const stockCheck = await CatalogService.validateStock(tenantId, selected.id, verifiedQuantity);
         if (!stockCheck.available) {
           return {
             passed: false,
@@ -71,7 +115,7 @@ export class AIGuard {
             product_name_or_id: selected.id,
             product_name: selected.name,
             unit_price: Number(selected.price),
-            quantity,
+            quantity: verifiedQuantity,
             notes: verifiedNotes,
             additions: rawAdditions || undefined,
           },
@@ -115,6 +159,13 @@ export class AIGuard {
 
       case 'calculate_change':
       case 'provide_cash_amount': {
+        // Rule 25: Digital payment (Nequi/transfer) never uses cash change logic
+        if (memory.payment_method === 'transfer') {
+          return {
+            passed: false,
+            reason: 'DIGITAL_PAYMENT_NO_CHANGE: Para pagos por transferencia o Nequi se transfiere el monto exacto. No aplica cálculo de devuelta ni monto en efectivo.',
+          };
+        }
         const rawAmount = Number(args.monto_entregado !== undefined ? args.monto_entregado : args.cash_amount);
         if (isNaN(rawAmount) || rawAmount <= 0) {
           return { passed: false, reason: 'El monto en efectivo debe ser un número positivo.' };
@@ -140,6 +191,25 @@ export class AIGuard {
           return {
             passed: false,
             reason: 'El cliente no ha confirmado explícitamente el pedido todavía.',
+          };
+        }
+
+        // Rule 26: Validate line consistency before confirming (detect duplicate lines)
+        const seenItems = new Set<string>();
+        let hasDuplicateLine = false;
+        for (const item of memory.cart) {
+          const key = `${CatalogService.normalize(item.productName)}_${item.unitPrice}`;
+          if (seenItems.has(key)) {
+            hasDuplicateLine = true;
+            break;
+          }
+          seenItems.add(key);
+        }
+
+        if (hasDuplicateLine) {
+          return {
+            passed: false,
+            reason: 'DUPLICATE_LINES_DETECTED: Se detectó una línea de producto duplicada en el carrito antes de confirmar. Debes transferir a un asesor humano con escalate_to_human().',
           };
         }
 

@@ -266,6 +266,19 @@ export class AgentOrchestrator {
       memory.delivery_mode = 'pickup';
     }
 
+    // Rule 25: Auto-detect payment methods directly from text
+    if (/\b(nequi|transferencia|bancolombia|daviplata|transferir|por transferencia|por nequi)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'transfer';
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+    } else if (/\b(efectivo|en efectivo|plata en mano|contraentrega en efectivo)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'cash';
+    } else if (/\b(datafono|datáfono|tarjeta contraentrega|datafono contraentrega)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'card';
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+    }
+
     // 4. Handle location payload directly if attached
     if (extra?.location) {
       memory.location = extra.location;
@@ -325,9 +338,18 @@ export class AgentOrchestrator {
             }
           }
 
-          // Mandatory AI Guard pre-execution gatekeeper
-          const guardResult = await AIGuard.validateToolCall(tenantId, memory, functionName, rawArguments);
+          // Mandatory AI Guard pre-execution gatekeeper (Rules 24, 25 & 26)
+          const guardResult = await AIGuard.validateToolCall(tenantId, memory, functionName, rawArguments, userText);
           if (!guardResult.passed) {
+            // Rule 26: If duplicate lines detected, escalate to human immediately!
+            if (guardResult.reason?.includes('DUPLICATE_LINES_DETECTED')) {
+              await ToolExecutor.execute(tenantId, memory, 'escalate_to_human', {
+                reason: 'Líneas de producto duplicadas detectadas antes de confirmar (Regla 26).'
+              });
+              finalReply = ResponseBuilder.formatFriendlyErrorMessage(guardResult.reason, memory);
+              actionButtons = [{ text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' }];
+              break;
+            }
             finalReply = ResponseBuilder.formatFriendlyErrorMessage(guardResult.reason || '', memory);
             break;
           }
@@ -426,6 +448,12 @@ export class AgentOrchestrator {
                   { text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' },
                 ];
               } else {
+                if (data?.error === 'DUPLICATE_LINES_DETECTED' || toolResult.error === 'DUPLICATE_LINES_DETECTED') {
+                  await ToolExecutor.execute(tenantId, memory, 'escalate_to_human', {
+                    reason: 'Líneas de producto duplicadas detectadas antes de persistir la orden (Regla 26).'
+                  });
+                  actionButtons = [{ text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' }];
+                }
                 finalReply = ResponseBuilder.formatFriendlyErrorMessage(data?.error || toolResult.error || 'Hubo un inconveniente al confirmar tu pedido.', memory);
               }
               break;
@@ -442,12 +470,13 @@ export class AgentOrchestrator {
             }
 
             case 'get_payment_instructions': {
-              finalReply = `📲 *Instrucciones para Transferencia:*\n\nPuedes transferir a nuestras cuentas oficiales:\n• *Nequi:* 312 634 1068\n• *Bancolombia Ahorros:* 123-456789-00\n\nUna vez realices la transferencia, envíanos el comprobante por aquí. 🍟✨`;
+              const exactTotal = memory.total > 0 ? `$${memory.total.toLocaleString('es-CO')}` : 'el valor exacto';
+              finalReply = `📲 *Instrucciones para Transferencia:*\n\nPuedes transferir ${exactTotal} a nuestras cuentas oficiales:\n• *Nequi / Daviplata:* 312 634 1068\n• *Bancolombia Ahorros:* 123-456789-00\n\nPor favor, envíanos el comprobante o número de referencia por aquí para procesar tu pedido. 🍟✨ (Para pagos por transferencia se transfiere el valor exacto, no aplica devuelta).`;
               break;
             }
 
             case 'get_payment_methods': {
-              finalReply = `💳 *Métodos de pago disponibles:* 🍟✨\n\n• 💵 *Efectivo* (contra entrega, calculamos tu cambio)\n• 📲 *Transferencia* (Nequi / Bancolombia)\n\n¿Cuál método de pago prefieres? 😋`;
+              finalReply = `💳 *Métodos de pago disponibles:* 🍟✨\n\n• 💵 *Efectivo* (contra entrega, indícanos con cuánto pagas para llevar tu cambio)\n• 📲 *Transferencia* (Nequi / Bancolombia, valor exacto sin devuelta)\n• 💳 *Datáfono* (tarjeta contra entrega)\n\n¿Cuál método de pago prefieres? 😋`;
               break;
             }
 

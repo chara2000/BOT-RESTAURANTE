@@ -124,6 +124,20 @@ export class ResponseBuilder {
       ? confirmedTotal
       : (memory.total > 0 ? memory.total : (itemsSubtotal + (isDelivery ? deliveryFeeVal : 0)));
 
+    // Rule 25: Explicit payment method line in final confirmation
+    let paymentLine = '💳 Método de pago: Efectivo contra entrega';
+    if (memory.payment_method === 'transfer') {
+      paymentLine = '💳 Método de pago: Transferencia (Nequi / Bancolombia)';
+    } else if (memory.payment_method === 'card') {
+      paymentLine = '💳 Método de pago: Datáfono / Tarjeta contra entrega';
+    } else if (memory.payment_method === 'cash') {
+      if (memory.cash_amount && memory.cash_amount > 0) {
+        paymentLine = `💳 Método de pago: Efectivo (Pagas con: $${memory.cash_amount.toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
+      } else {
+        paymentLine = '💳 Método de pago: Efectivo contra entrega';
+      }
+    }
+
     return [
       `🎉 ¡Pedido Confirmado!`,
       `📋 Código: ${orderCode}`,
@@ -132,6 +146,7 @@ export class ResponseBuilder {
       ...(itemsLines.length > 0 ? itemsLines : ['1. Productos seleccionados']),
       ...(isDelivery ? [`🛵 Domicilio: $${deliveryFeeVal.toLocaleString('es-CO')}`] : []),
       `💰 TOTAL: $${validTotal.toLocaleString('es-CO')}`,
+      paymentLine,
       `⏱️ Tiempo estimado: 50–70 minutos`,
       `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.`,
       `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
@@ -324,6 +339,23 @@ export class ResponseBuilder {
 
     if (upper.includes('FALTA_DIRECCION')) {
       return 'Para enviarte el pedido a domicilio necesitamos tu dirección completa 📍 (barrio y nomenclatura en Puerto Tejada). ¿A qué dirección te lo llevamos? 🛵💨';
+    }
+
+    if (upper.includes('DUPLICATE_LINES_DETECTED')) {
+      return '🙋 Notamos una inconsistencia de líneas repetidas en el pedido. Para garantizar que tu orden sea exacta, te transferí con un asesor humano que te confirmará de inmediato. ¡Muchas gracias! ❤️';
+    }
+
+    if (upper.includes('AMBIGUOUS_PRODUCT_MENTION')) {
+      return '¿Qué producto y cuántas unidades te gustaría pedir? 🍟✨ Escribe *carta* para ver nuestro menú completo o indícanos el plato exacto que deseas. 😋';
+    }
+
+    if (upper.includes('PRODUCT_NOT_MENTIONED')) {
+      return '¿Qué platillo y cuántas unidades te gustaría pedir? 🍟✨ Escribe *carta* para ver nuestro menú completo o indícanos el producto que deseas ordenar. 😋';
+    }
+
+    if (upper.includes('DIGITAL_PAYMENT_NO_CHANGE')) {
+      const exact = memory?.total ? `$${memory.total.toLocaleString('es-CO')}` : 'el valor exacto';
+      return `Para pagos por transferencia o Nequi debes transferir ${exact} y enviarnos el comprobante por aquí 📲✨. No necesitas indicar cambio ni devuelta.`;
     }
 
     // Clean any technical code names like [A-Z_]{3,} or JSON artifacts

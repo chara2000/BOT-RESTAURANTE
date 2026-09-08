@@ -79,6 +79,17 @@ export class OrderService {
       return { success: false, total: 0, error: 'CART_EMPTY' };
     }
 
+    // Rule 26: Validate line consistency before confirming (detect duplicate lines)
+    const seenItems = new Set<string>();
+    for (const item of memory.cart) {
+      const key = `${item.productId}_${item.unitPrice}`;
+      if (seenItems.has(key)) {
+        console.warn(`[OrderService] Duplicate line detected for product ${item.productName} (${key})`);
+        return { success: false, total: memory.total, error: 'DUPLICATE_LINES_DETECTED' };
+      }
+      seenItems.add(key);
+    }
+
     // 2. Perform authoritative total calculation
     await this.calculateOrder(memory);
 

@@ -24,7 +24,7 @@ export type ConversationState =
   | 'ORDER_TRACKING'
   | 'HUMAN_HANDOFF';
 
-export type PaymentMethodType = 'cash' | 'transfer' | 'online' | 'ondelivery';
+export type PaymentMethodType = 'cash' | 'transfer' | 'online' | 'ondelivery' | 'card';
 
 export interface CartAddition {
   id: string;

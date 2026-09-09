@@ -30,13 +30,18 @@ export function useRealtimeOrders() {
           // Si tuviéramos un query para 'active_orders', 'history_orders', los invalidamos
           
           // Emitir eventos personalizados para NotificationManager y el sistema de alarma
+          const orderCreatedAt = (payload.new as any)?.created_at ? new Date((payload.new as any).created_at).getTime() : 0;
+          const isFresh = orderCreatedAt > 0 ? (Date.now() - orderCreatedAt) < 30 * 60 * 1000 : false;
+
           if (payload.eventType === 'INSERT') {
-            window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
+            if (isFresh) {
+              window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
+            }
           } else if (payload.eventType === 'UPDATE') {
             const oldStatus = (payload.old as any)?.status;
             const newStatus = (payload.new as any)?.status;
-            // Si una comanda pasa de borrador/incompleto a 'pending' o 'confirmed', tratarla como nueva orden para cocina
-            if ((oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed')) {
+            // Si una comanda pasa de borrador/incompleto a 'pending' o 'confirmed', tratarla como nueva orden para cocina solo si es reciente
+            if (isFresh && (oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed')) {
               window.dispatchEvent(new CustomEvent('new_order', { detail: payload.new }));
             } else {
               window.dispatchEvent(new CustomEvent('order_updated', { detail: payload.new }));

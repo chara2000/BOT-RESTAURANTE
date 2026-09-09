@@ -22,6 +22,14 @@ export function NotificationManager() {
     const handleNewOrder = (e: Event) => {
       const customEvent = e as CustomEvent;
       const order = customEvent.detail;
+      const orderCreatedAt = order?.created_at ? new Date(order.created_at).getTime() : 0;
+      const isFresh = orderCreatedAt > 0 ? (Date.now() - orderCreatedAt) < 30 * 60 * 1000 : false;
+
+      // Silenciar alarma si es un pedido antiguo (>30 min) sincronizado
+      if (!isFresh) {
+        return;
+      }
+
       const orderNum = order?.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || `#${order?.id?.slice(0, 6)?.toUpperCase() || 'NUEVO'}`;
       const customerName = order?.customer?.name || order?.customer_name || 'Cliente';
       const orderTypeLabel = order?.type === 'delivery' ? '🛵 Domicilio' : order?.type === 'pickup' ? '🛍️ Para Llevar' : '🍽️ Mesa';

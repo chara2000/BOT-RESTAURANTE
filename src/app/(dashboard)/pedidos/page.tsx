@@ -463,18 +463,23 @@ export default function PedidosPage() {
   // Órdenes filtradas por turno de caja / día, tipo, categoría y búsqueda
   const baseFilteredOrders = orders.filter(o => {
     const orderDateStr = getLocalDayString(o.created_at);
+    const isActiveStatus = ['pending', 'confirmed', 'preparing', 'ready', 'shipping'].includes(o.status);
 
-    if (dayScope === 'shift') {
-      if (sessionOpenedTime > 0) {
-        const orderTime = new Date(o.created_at).getTime();
-        if (orderTime < sessionOpenedTime) return false;
-        if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+    // Los pedidos activos siempre deben verse en el Kanban para no dejar comandas perdidas;
+    // solo los pedidos terminados (entregados o cancelados) se filtran por turno / fecha.
+    if (!isActiveStatus) {
+      if (dayScope === 'shift') {
+        if (sessionOpenedTime > 0) {
+          const orderTime = new Date(o.created_at).getTime();
+          if (orderTime < sessionOpenedTime) return false;
+          if (sessionClosedTime > 0 && orderTime > sessionClosedTime) return false;
+        } else {
+          if (orderDateStr !== todayStr) return false;
+        }
       } else {
+        // 'today'
         if (orderDateStr !== todayStr) return false;
       }
-    } else {
-      // 'today'
-      if (orderDateStr !== todayStr) return false;
     }
 
     if (filterType !== 'all' && o.type !== filterType) return false;

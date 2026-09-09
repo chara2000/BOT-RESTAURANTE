@@ -310,7 +310,9 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
           for (const o of data.orders) {
             const prevStatus = knownOrderMapRef.current.get(o.id);
             const isFresh = !prevStatus;
-            const isNowActiveKitchenOrder = (prevStatus === 'draft' || isFresh) &&
+            const orderCreatedAt = o.created_at ? new Date(o.created_at).getTime() : 0;
+            const isRecent = orderCreatedAt > 0 ? (Date.now() - orderCreatedAt) < 30 * 60 * 1000 : false;
+            const isNowActiveKitchenOrder = isRecent && (prevStatus === 'draft' || isFresh) &&
               (o.status === 'pending' || o.status === 'confirmed');
 
             if (isNowActiveKitchenOrder) {
@@ -835,21 +837,40 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
       });
     }
 
-    // 2. Cierre de Venta / Jornada en memoria:
-    // Todos los pedidos activos pasan a finalizados ('delivered') para que el tablero Kanban quede en 0
+    // 2. Persistir cierre de pedidos activos en Supabase para que no queden como pedidos pendientes huérfanos
+    if (dataSource === 'supabase' && activeTenantId) {
+      try {
+        const supabase = createClient();
+        if (supabase) {
+          await supabase
+            .from('orders')
+            .update({
+              status: 'cancelled',
+              notes: '[CIERRE_JORNADA: Cancelado/archivado en cierre de caja diario]',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('tenant_id', activeTenantId)
+            .in('status', ['pending', 'confirmed', 'preparing', 'ready', 'shipping']);
+        }
+      } catch (err) {
+        console.error('[closeCashRegister] Error actualizando pedidos en Supabase:', err);
+      }
+    }
+
+    // 3. Cierre de Venta / Jornada en memoria:
     setOrders((prev) =>
       prev.map((o) =>
         ['pending', 'confirmed', 'preparing', 'ready', 'shipping'].includes(o.status)
           ? {
               ...o,
-              status: 'delivered',
-              notes: (o.notes || '') + '\n[CIERRE_JORNADA: Finalizado en cierre de venta diario]',
+              status: 'cancelled',
+              notes: (o.notes || '') + '\n[CIERRE_JORNADA: Cancelado/archivado en cierre de caja diario]',
             }
           : o
       )
     );
 
-    // 3. Los domicilios activos pasan a completados
+    // 4. Los domicilios activos pasan a completados
     setDeliveries((prev) =>
       prev.map((d) =>
         d.status !== 'delivered'
@@ -1080,7 +1101,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
             const isInsert = payload.eventType === 'INSERT';
             const oldStatus = (payload.old as any)?.status;
             const newStatus = (payload.new as any)?.status;
-            const isNewKitchenOrder = isInsert || ((oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed'));
+            const orderCreatedAt = (payload.new as any)?.created_at ? new Date((payload.new as any).created_at).getTime() : 0;
+            const isFresh = orderCreatedAt > 0 ? (Date.now() - orderCreatedAt) < 30 * 60 * 1000 : false;
+
+            const isNewKitchenOrder = isFresh && (isInsert || ((oldStatus === 'draft' || !oldStatus) && (newStatus === 'pending' || newStatus === 'confirmed')));
 
             if (isNewKitchenOrder) {
               playAlarmSound();

@@ -107,7 +107,7 @@ export class OpenAIService {
       try {
         console.log('[OpenAIService] Attempting Groq failover...');
         const response = await groq.chat.completions.create({
-          model: 'openai/gpt-oss-120b',
+          model: 'llama-3.3-70b-versatile',
           messages,
           tools: tools && tools.length > 0 ? tools : undefined,
           tool_choice: tools && tools.length > 0 ? 'auto' : undefined,

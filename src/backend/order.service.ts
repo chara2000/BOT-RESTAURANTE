@@ -155,7 +155,10 @@ export class OrderService {
         : 'Sin devuelta';
       notes += ` | [EFECTIVO] Pagó con: $${(memory.cash_amount || memory.total).toLocaleString('es-CO')} (${changeText})`;
     } else if (memory.payment_method === 'transfer') {
-      notes += ` | [TRANSFERENCIA] Pendiente comprobante`;
+      const receiptStatus = memory.payment_receipt_received
+        ? `Comprobante recibido${memory.payment_receipt_url ? ` [URL: ${memory.payment_receipt_url}]` : ''}`
+        : 'Pendiente comprobante';
+      notes += ` | [TRANSFERENCIA] ${receiptStatus}`;
     }
 
     const orderType = memory.delivery_mode === 'pickup' ? 'pickup' : 'delivery';

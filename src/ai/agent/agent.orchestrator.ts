@@ -23,6 +23,8 @@ export class AgentOrchestrator {
     customerName?: string,
     extra?: {
       location?: { latitude: number; longitude: number };
+      isPhoto?: boolean;
+      photoId?: string;
     }
   ): Promise<BotActionResponse> {
     const memory = await ConversationService.getConversation(tenantId, phone, customerName);
@@ -302,7 +304,13 @@ export class AgentOrchestrator {
       memory.change_amount = undefined;
     }
 
-    // Rule 31: Detect digital receipt / voucher mentions
+    // Rule 31: Detect digital receipt / voucher mentions & attached photos
+    if (extra?.isPhoto || extra?.photoId) {
+      memory.payment_receipt_received = true;
+      if (extra.photoId) {
+        memory.payment_receipt_url = extra.photoId;
+      }
+    }
     if (/\b(comprobante|referencia|ya transferi|ya envie|ya mande|aqui esta el comprobante|foto del pago|captura|adjunto el comprobante)\b/i.test(cleanNormalized)) {
       memory.payment_receipt_received = true;
     }
@@ -329,6 +337,9 @@ export class AgentOrchestrator {
       memory.location = extra.location;
       memory.delivery_mode = 'delivery';
       userText = userText || `Mi ubicación GPS (${extra.location.latitude}, ${extra.location.longitude})`;
+      if (!memory.address || memory.address === 'Recoge en tienda') {
+        memory.address = `Ubicación GPS (${extra.location.latitude.toFixed(5)}, ${extra.location.longitude.toFixed(5)})`;
+      }
     }
 
     // 5. Append user message to memory

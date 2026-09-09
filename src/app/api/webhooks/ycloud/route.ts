@@ -5,6 +5,9 @@ import { MessageRouter } from '@/whatsapp/message.router';
 
 const DEFAULT_TENANT_ID = 'ecc2c874-ed2d-4991-864f-215e443db324'; // Shek House
 
+// Configure maximum execution duration for Vercel serverless function (prevents 504 timeouts)
+export const maxDuration = 30;
+
 export async function GET(req: NextRequest) {
   // YCloud webhook verification challenge
   const { searchParams } = new URL(req.url);

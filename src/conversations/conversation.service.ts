@@ -25,28 +25,41 @@ export class ConversationService {
     const key = this.getStoreKey(tenantId, phone);
     let memory: StructuredMemory | null = globalMemoryStore[key] || null;
 
-    // 1. If not found in local memory, query Supabase chat_messages
+    // 1. If not found in local memory, query Supabase chat_messages targeted by user phone
     if (!memory) {
       const supabase = this.getSupabase();
       if (supabase) {
         try {
-          const { data } = await supabase
+          const cleanPhone = phone.replace(/^whatsapp:/i, '').replace(/\D/g, '') || phone.trim();
+          const e164 = phone.startsWith('+') ? phone : `+${cleanPhone}`;
+
+          // Primary query: Direct JSONB filter on phone in Postgres
+          let { data } = await supabase
             .from('chat_messages')
             .select('metadata')
             .eq('content', 'AGENT_SESSION_STATE')
             .eq('tenant_id', tenantId)
+            .filter('metadata->>phone', 'eq', e164)
             .order('created_at', { ascending: false })
-            .limit(15);
+            .limit(1)
+            .maybeSingle();
 
-          if (data && data.length > 0) {
-            const cleanPhone = phone.replace(/^whatsapp:/i, '').replace(/\D/g, '') || phone.trim();
-            const match = data.find((row: any) => {
-              const rowPhone = (row.metadata?.phone || '').replace(/\D/g, '');
-              return rowPhone === cleanPhone || row.metadata?.phone === phone;
-            });
-            if (match?.metadata) {
-              memory = match.metadata as StructuredMemory;
-            }
+          // Secondary attempt with clean digits if e164 had no match
+          if (!data?.metadata && cleanPhone !== e164) {
+            const { data: altData } = await supabase
+              .from('chat_messages')
+              .select('metadata')
+              .eq('content', 'AGENT_SESSION_STATE')
+              .eq('tenant_id', tenantId)
+              .filter('metadata->>phone', 'eq', cleanPhone)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (altData?.metadata) data = altData;
+          }
+
+          if (data?.metadata) {
+            memory = data.metadata as StructuredMemory;
           }
         } catch (err) {
           console.warn('[ConversationService] Error loading session from Supabase:', (err as Error).message);

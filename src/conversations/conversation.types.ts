@@ -65,6 +65,9 @@ export interface StructuredMemory {
   subtotal: number;
   total: number;
   payment_method?: PaymentMethodType;
+  payment_method_literal?: string;
+  payment_details_provided?: boolean;
+  payment_receipt_received?: boolean;
   cash_amount?: number;
   change_amount?: number;
   payment_receipt_url?: string;

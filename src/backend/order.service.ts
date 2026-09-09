@@ -32,6 +32,7 @@ export class OrderService {
       MemoryService.recalculateCartTotals(memory);
     } else if (memory.delivery_mode === 'pickup') {
       memory.delivery_fee = 0;
+      memory.address = 'Recoge en tienda';
       MemoryService.recalculateCartTotals(memory);
     }
 
@@ -159,7 +160,25 @@ export class OrderService {
 
     const orderType = memory.delivery_mode === 'pickup' ? 'pickup' : 'delivery';
     const isPickup = orderType === 'pickup';
-    if (isPickup) notes += ` | [RECOGER EN LOCAL]`;
+    if (isPickup) {
+      memory.address = 'Recoge en tienda';
+      memory.delivery_fee = 0;
+      notes += ` | [RECOGER EN LOCAL / RECOGE EN TIENDA]`;
+    }
+
+    // Rule 28: El método de pago confirmado por el cliente es INMUTABLE
+    if (memory.payment_method_literal) {
+      notes += ` | [MÉTODO: ${memory.payment_method_literal}]`;
+    }
+
+    // Map to database enum payment_method ('cash' | 'card' | 'nequi' | 'daviplata' | 'transfer')
+    const rawMethod = (memory.payment_method_literal || memory.payment_method || '').toLowerCase();
+    let dbPaymentMethod: 'cash' | 'card' | 'nequi' | 'daviplata' | 'transfer' = 'cash';
+    if (rawMethod.includes('nequi')) dbPaymentMethod = 'nequi';
+    else if (rawMethod.includes('daviplata')) dbPaymentMethod = 'daviplata';
+    else if (rawMethod.includes('transfer') || rawMethod.includes('banco')) dbPaymentMethod = 'transfer';
+    else if (rawMethod.includes('card') || rawMethod.includes('datafono') || rawMethod.includes('datáfono') || rawMethod.includes('tarjeta')) dbPaymentMethod = 'card';
+    else dbPaymentMethod = 'cash';
 
     // 6. Insert Order
     const { error: orderError } = await supabase.from('orders').insert({
@@ -169,12 +188,12 @@ export class OrderService {
       customer_id: customerId,
       type: orderType,
       status: 'pending',
-      payment_method: memory.payment_method || 'cash',
+      payment_method: dbPaymentMethod,
       subtotal: memory.subtotal,
       delivery_fee: isPickup ? 0 : memory.delivery_fee,
       tips: 0,
       total: memory.total,
-      delivery_address: memory.address || (isPickup ? 'Para Recoger en el local' : null),
+      delivery_address: isPickup ? 'Recoge en tienda' : (memory.address || null),
       notes,
       created_at: new Date().toISOString(),
     });
@@ -221,7 +240,7 @@ export class OrderService {
       timestamp: Date.now(),
     });
 
-    // 10. Update memory with placed order details and reset active session financials
+    // 10. Update memory with placed order details
     memory.last_order_id = orderId;
     memory.last_order_code = orderCode;
     memory.order_id = orderId;
@@ -230,14 +249,11 @@ export class OrderService {
     const confirmedTotal = memory.total;
     const confirmedDeliveryFee = isPickup ? 0 : (memory.delivery_fee || 5000);
 
-    // Wipe cart & financial state so subsequent orders in the same session start completely fresh
+    // Keep confirmed order totals and details in memory for confirmed state
     memory.cart = [];
     memory.subtotal = 0;
-    memory.delivery_fee = 0;
-    memory.total = 0;
-    memory.payment_method = undefined;
-    memory.cash_amount = undefined;
-    memory.change_amount = undefined;
+    memory.delivery_fee = confirmedDeliveryFee;
+    memory.total = confirmedTotal;
     memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
     return {

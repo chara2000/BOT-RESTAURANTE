@@ -259,24 +259,69 @@ export class AgentOrchestrator {
       };
     }
 
-    // Auto-detect Delivery vs Pickup intent directly from text
-    if (/\b(a domicilio|para domicilio|domicilio|a mi casa|para enviar|me lo envian|envio)\b/i.test(cleanNormalized)) {
-      memory.delivery_mode = 'delivery';
-    } else if (/\b(para recoger|recojo en el local|pasar a recoger|paso por el|en el local)\b/i.test(cleanNormalized)) {
+    // Rule 27 & 33: RESPETAR EXPLÍCITAMENTE "RECOGER EN PERSONA" / "SIN DOMICILIO" / "PICKUP"
+    // Frases: "recojo en el punto", "sin domicilio", "voy por él/ella", "yo voy por ella", "ya puedo arrimar", etc.
+    const isPickupIntent = /\b(recojo en el punto|en el punto|yo voy por ella|yo voy por el|voy por ella|voy por el|sin domicilio|recojo en el local|ya puedo arrimar|puedo arrimar|arrimar|recojo en tienda|recoge en tienda|recoger en persona|recojo en persona|para recoger|pasar a recoger|paso por el|paso por ella|en el local|paso a recoger)\b/i.test(cleanNormalized);
+    if (isPickupIntent) {
       memory.delivery_mode = 'pickup';
+      memory.delivery_fee = 0;
+      memory.address = 'Recoge en tienda';
+      MemoryService.recalculateCartTotals(memory);
+    } else if (/\b(a domicilio|para domicilio|domicilio|a mi casa|para enviar|me lo envian|envio)\b/i.test(cleanNormalized)) {
+      memory.delivery_mode = 'delivery';
     }
 
-    // Rule 25: Auto-detect payment methods directly from text
-    if (/\b(nequi|transferencia|bancolombia|daviplata|transferir|por transferencia|por nequi)\b/i.test(cleanNormalized)) {
+    // Rule 28: EL MÉTODO DE PAGO CONFIRMADO POR EL CLIENTE ES INMUTABLE
+    if (/\b(nequi)\b/i.test(cleanNormalized)) {
       memory.payment_method = 'transfer';
+      memory.payment_method_literal = 'Nequi';
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+    } else if (/\b(daviplata)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'transfer';
+      memory.payment_method_literal = 'Daviplata';
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+    } else if (/\b(bancolombia)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'transfer';
+      memory.payment_method_literal = 'Bancolombia';
+      memory.cash_amount = undefined;
+      memory.change_amount = undefined;
+    } else if (/\b(transferencia|transferir|por transferencia)\b/i.test(cleanNormalized)) {
+      memory.payment_method = 'transfer';
+      memory.payment_method_literal = 'Transferencia';
       memory.cash_amount = undefined;
       memory.change_amount = undefined;
     } else if (/\b(efectivo|en efectivo|plata en mano|contraentrega en efectivo)\b/i.test(cleanNormalized)) {
       memory.payment_method = 'cash';
+      memory.payment_method_literal = 'Efectivo';
     } else if (/\b(datafono|datáfono|tarjeta contraentrega|datafono contraentrega)\b/i.test(cleanNormalized)) {
       memory.payment_method = 'card';
+      memory.payment_method_literal = 'Datáfono';
       memory.cash_amount = undefined;
       memory.change_amount = undefined;
+    }
+
+    // Rule 31: Detect digital receipt / voucher mentions
+    if (/\b(comprobante|referencia|ya transferi|ya envie|ya mande|aqui esta el comprobante|foto del pago|captura|adjunto el comprobante)\b/i.test(cleanNormalized)) {
+      memory.payment_receipt_received = true;
+    }
+
+    // Rule 29: AISLAMIENTO ESTRICTO DE CONTEXTO POR CONVERSACIÓN
+    if (memory.last_order_code && memory.current_state === 'ORDER_CONFIRMED') {
+      const isTryingToModifyConfirmedOrder = /\b(agrega(?:le)? al pedido|modifica mi pedido|cambia mi pedido|adicional a mi pedido|adicion a la orden|meterle al pedido|pedido anterior|orden anterior)\b/i.test(cleanNormalized);
+      if (isTryingToModifyConfirmedOrder) {
+        await ToolExecutor.execute(tenantId, memory, 'escalate_to_human', {
+          reason: 'Cliente intentó modificar o fusionar datos con un pedido ya confirmado (Regla 29).'
+        });
+        const reply = 'Tu pedido anterior ya se encuentra confirmado y en cocina. 👨‍🍳 Para evitar confusiones o modificaciones erróneas, he transferido tu consulta a un asesor humano que te atenderá de inmediato. ¡Muchas gracias! ❤️';
+        MemoryService.addMessage(memory, 'assistant', reply);
+        await ConversationService.saveConversation(memory);
+        return {
+          text: reply,
+          buttons: [{ text: '🙋 Asesor Humano', callback_data: 'HUMAN_HANDOFF' }]
+        };
+      }
     }
 
     // 4. Handle location payload directly if attached
@@ -462,16 +507,21 @@ export class AgentOrchestrator {
             case 'calculate_change':
             case 'provide_cash_amount': {
               if (data?.valid) {
-                finalReply = `¡Anotado! 💵 Pagas con *$${(memory.cash_amount || 0).toLocaleString('es-CO')}*.\n🔄 Tu devuelta será de *$${(memory.change_amount || 0).toLocaleString('es-CO')}*.\n\n¿Confirmamos tu pedido? Escribe *Confirmo* o *Sí* para prepararlo de inmediato. 🍟🔥`;
+                finalReply = `¡Anotado! 💵 Pagas con *$${(memory.cash_amount || 0).toLocaleString('es-CO')}*.\n🔄 Tu devuelta será de *$${(memory.change_amount || 0).toLocaleString('es-CO')}*.\n\n👉 *¿Confirmas tu pedido por $${memory.total.toLocaleString('es-CO')}?* Escribe *Sí* o *Confirmo* para prepararlo de inmediato. 🍟🔥`;
               } else {
                 finalReply = ResponseBuilder.formatFriendlyErrorMessage(data?.message || data?.error || 'MONTO_INSUFICIENTE', memory);
               }
               break;
             }
 
-            case 'get_payment_instructions': {
-              const exactTotal = memory.total > 0 ? `$${memory.total.toLocaleString('es-CO')}` : 'el valor exacto';
-              finalReply = `📲 *Instrucciones para Transferencia:*\n\nPuedes transferir ${exactTotal} a nuestras cuentas oficiales:\n• *Nequi / Daviplata:* 312 634 1068\n• *Bancolombia Ahorros:* 123-456789-00\n\nPor favor, envíanos el comprobante o número de referencia por aquí para procesar tu pedido. 🍟✨ (Para pagos por transferencia se transfiere el valor exacto, no aplica devuelta).`;
+            case 'get_payment_instructions':
+            case 'get_payment_details': {
+              if (data?.formattedMessage) {
+                finalReply = data.formattedMessage;
+              } else {
+                const exactTotal = memory.total > 0 ? `$${memory.total.toLocaleString('es-CO')}` : 'el valor exacto';
+                finalReply = `📲 *Datos oficiales para transferencia:* 🍟✨\n\n1️⃣ *Titular del negocio:* Shek Food\n2️⃣ *Nequi / Daviplata:* 312 634 1068\n   *Bancolombia Ahorros:* 123-456789-00\n3️⃣ *Monto exacto a transferir:* ${exactTotal}\n4️⃣ 📸 *Comprobante:* Por favor envía una foto o captura del comprobante (o el número de referencia) por este chat para procesar tu pedido. 🍟✨`;
+              }
               break;
             }
 

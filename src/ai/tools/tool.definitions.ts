@@ -278,6 +278,20 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'get_payment_details',
+      description: 'Obtiene los datos reales y obligatorios de la cuenta para pagos digitales (Nequi, Daviplata, Transferencia, Bancolombia) incluyendo titular, número/alias, banco y monto exacto a transferir (Regla 31). NUNCA inventes una cuenta.',
+      parameters: {
+        type: 'object',
+        properties: {
+          payment_method: { type: 'string', description: 'Método de pago digital elegido (ej: "Nequi", "Transferencia", "Daviplata", "Bancolombia")' },
+        },
+        required: ['payment_method'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'calculate_change',
       description: 'Registra el monto en efectivo con el que pagará el cliente y calcula la devuelta exacta desde backend (Reglas 15 y 19). NUNCA calcules el vuelto tú mismo ni repitas el monto pagado como si fuera la devuelta.',
       parameters: {
@@ -318,7 +332,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'confirm_order',
-      description: 'Crea y confirma definitivamente el pedido en la base de datos tras confirmación explícita del cliente y validación de método de pago (Reglas 15, 16 y 20). Una vez confirmado pasa a enviado_cocina y es inmutable.',
+      description: 'Crea y confirma definitivamente el pedido en la base de datos tras confirmación explícita del cliente y validación estricta de método de pago (Reglas 15, 16, 20, 27, 28 y 31). Una vez confirmado pasa a enviado_cocina y es inmutable.',
       parameters: {
         type: 'object',
         properties: {
@@ -346,7 +360,7 @@ export const AGENT_TOOLS: ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_order_status',
-      description: 'Consulta la fase actual de preparación (preparando, en camino, entregado) y tiempo estimado de un pedido ya confirmado (Reglas 20 y 21). Úsalo para "¿cómo va mi pedido?" o "¿cuál es el estado?".',
+      description: 'Consulta la fase actual de preparación (preparando, en camino, entregado) y tiempo estimado calculado dinámicamente según cantidad de items (Reglas 20, 21 y 30). Úsalo para "¿cómo va mi pedido?" o "¿cuál es el estado?".',
       parameters: {
         type: 'object',
         properties: {

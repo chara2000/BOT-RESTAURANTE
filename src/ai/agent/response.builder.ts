@@ -25,10 +25,10 @@ export class ResponseBuilder {
     // 2. Subtotal
     const subtotalLine = `🛒 *Subtotal:* $${memory.subtotal.toLocaleString('es-CO')}`;
 
-    // 3. Costo de domicilio
+    // 3. Costo de domicilio (Regla 27)
     let feeLine = '';
     if (memory.delivery_mode === 'pickup') {
-      feeLine = '🛵 *Costo de domicilio:* $0 (Para recoger en local Shek Food)';
+      feeLine = '🛵 *Costo de domicilio:* $0 (Recoge en tienda)';
     } else if (memory.delivery_mode === 'delivery') {
       feeLine = memory.delivery_fee > 0
         ? `🛵 *Costo de domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
@@ -36,27 +36,30 @@ export class ResponseBuilder {
     } else {
       feeLine = memory.delivery_fee > 0
         ? `🛵 *Costo de domicilio:* $${memory.delivery_fee.toLocaleString('es-CO')}`
-        : '🛵 *Costo de domicilio:* $5.000 (A domicilio o puedes recoger en local)';
+        : '🛵 *Costo de domicilio:* $5.000 (A domicilio o puedes recoger en tienda)';
     }
 
     // 4. Total
     const totalLine = `💰 *Total:* $${memory.total.toLocaleString('es-CO')}`;
 
-    // 5. Dirección registrada
-    const addressLine = memory.address
-      ? `📍 *Dirección registrada:* ${memory.address}`
-      : '📍 *Dirección registrada:* Por registrar';
+    // 5. Dirección registrada (Regla 27)
+    const addressLine = memory.delivery_mode === 'pickup'
+      ? '📍 *Dirección registrada:* Recoge en tienda'
+      : (memory.address
+        ? `📍 *Dirección registrada:* ${memory.address}`
+        : '📍 *Dirección registrada:* Por registrar');
 
-    // 6. Método de pago
+    // 6. Método de pago (Regla 28)
     let paymentLine = '';
+    const chosenMethod = memory.payment_method_literal || memory.payment_method;
     if (memory.payment_method === 'cash') {
       if (memory.cash_amount) {
         paymentLine = `💳 *Método de pago:* Efectivo (Pagas con: $${memory.cash_amount.toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
       } else {
         paymentLine = `💳 *Método de pago:* Efectivo (Indícanos con cuánto pagas para calcular tu devuelta)`;
       }
-    } else if (memory.payment_method === 'transfer') {
-      paymentLine = '💳 *Método de pago:* Transferencia Bancaria (Nequi / Bancolombia)';
+    } else if (chosenMethod) {
+      paymentLine = `💳 *Método de pago:* ${chosenMethod}`;
     } else {
       paymentLine = '💳 *Método de pago:* Por definir (Efectivo o Transferencia)';
     }
@@ -75,6 +78,21 @@ export class ResponseBuilder {
       ``,
       `¿Deseas agregar algo más o confirmamos tu pedido? 🍟🔥`,
     ].join('\n');
+  }
+
+  /**
+   * Rule 30: TIEMPO ESTIMADO CALCULADO, NO FIJO
+   * tiempo_estimado_minutos = tiempo_base_preparacion (25 min) + (cantidad_total_items × minutos_por_item (5 min))
+   * Muestra siempre como rango (± 10 min) a partir de ese cálculo.
+   */
+  public static calculateEstimatedTimeRange(itemCount: number = 1): string {
+    const tiempoBasePreparacion = 25;
+    const minutosPorItem = 5;
+    const totalItems = Math.max(1, itemCount);
+    const tiempoEstimadoMinutos = tiempoBasePreparacion + (totalItems * minutosPorItem);
+    const minRange = Math.max(15, tiempoEstimadoMinutos - 10);
+    const maxRange = tiempoEstimadoMinutos + 10;
+    return `${minRange}–${maxRange} minutos`;
   }
 
   /**
@@ -109,9 +127,11 @@ export class ResponseBuilder {
       return block;
     });
 
-    const isDelivery = memory.delivery_mode !== 'pickup';
-    const addressLine = confirmedAddress || memory.address || (isDelivery ? 'Carrera 19, El Centro, Puerto Tejada' : 'Recoger en el local (Shek Food)');
-    const deliveryFeeVal = confirmedDeliveryFee !== undefined ? confirmedDeliveryFee : (memory.delivery_fee || 5000);
+    const isPickup = memory.delivery_mode === 'pickup';
+    const isDelivery = !isPickup;
+    // Regla 27: En pickup, NO registrar ni mostrar dirección de entrega — explícitamente "Recoge en tienda"
+    const addressLine = isPickup ? 'Recoge en tienda' : (confirmedAddress || memory.address || 'Carrera 19, El Centro, Puerto Tejada');
+    const deliveryFeeVal = isPickup ? 0 : (confirmedDeliveryFee !== undefined ? confirmedDeliveryFee : (memory.delivery_fee || 5000));
 
     // Calculate items subtotal fallback
     const itemsSubtotal = cartItems.reduce((sum, item) => {
@@ -124,19 +144,26 @@ export class ResponseBuilder {
       ? confirmedTotal
       : (memory.total > 0 ? memory.total : (itemsSubtotal + (isDelivery ? deliveryFeeVal : 0)));
 
-    // Rule 25: Explicit payment method line in final confirmation
-    let paymentLine = '💳 Método de pago: Efectivo contra entrega';
-    if (memory.payment_method === 'transfer') {
-      paymentLine = '💳 Método de pago: Transferencia (Nequi / Bancolombia)';
-    } else if (memory.payment_method === 'card') {
-      paymentLine = '💳 Método de pago: Datáfono / Tarjeta contra entrega';
-    } else if (memory.payment_method === 'cash') {
+    // Rule 28 y 34: El método de pago en la confirmación final DEBE ser una interpolación directa del método elegido
+    let paymentLine = '';
+    const chosenMethod = memory.payment_method_literal || (
+      memory.payment_method === 'transfer' ? 'Transferencia' :
+      memory.payment_method === 'card' ? 'Datáfono' :
+      memory.payment_method || 'Efectivo'
+    );
+    if (memory.payment_method === 'cash') {
       if (memory.cash_amount && memory.cash_amount > 0) {
         paymentLine = `💳 Método de pago: Efectivo (Pagas con: $${memory.cash_amount.toLocaleString('es-CO')} | Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})`;
       } else {
-        paymentLine = '💳 Método de pago: Efectivo contra entrega';
+        paymentLine = `💳 Método de pago: ${chosenMethod}`;
       }
+    } else {
+      paymentLine = `💳 Método de pago: ${chosenMethod}`;
     }
+
+    // Rule 30: TIEMPO ESTIMADO CALCULADO, NO FIJO
+    const totalItemUnits = cartItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    const calculatedEstimatedTime = ResponseBuilder.calculateEstimatedTimeRange(totalItemUnits);
 
     return [
       `🎉 ¡Pedido Confirmado!`,
@@ -147,7 +174,7 @@ export class ResponseBuilder {
       ...(isDelivery ? [`🛵 Domicilio: $${deliveryFeeVal.toLocaleString('es-CO')}`] : []),
       `💰 TOTAL: $${validTotal.toLocaleString('es-CO')}`,
       paymentLine,
-      `⏱️ Tiempo estimado: 50–70 minutos`,
+      `⏱️ Tiempo estimado: ${calculatedEstimatedTime}`,
       `📡 Puedes rastrear tu pedido en tiempo real con el botón de abajo.`,
       `¡Gracias! Lo estamos preparando con mucho cariño 🍔❤️`,
       ``,
@@ -180,7 +207,7 @@ export class ResponseBuilder {
     shortCode: string,
     status: string,
     total?: number,
-    estimatedTime = '40–50 minutos',
+    estimatedTime = '20–40 minutos',
     address?: string
   ): string {
     const statusMap: Record<string, { label: string; icon: string; desc: string }> = {

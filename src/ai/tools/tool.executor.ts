@@ -239,21 +239,41 @@ export class ToolExecutor {
         }
 
         case 'get_payment_instructions': {
-          const isTransfer = (args.method || '').toLowerCase().includes('transfer') || (args.method || '').toLowerCase().includes('nequi');
+          const method = args.method || 'transfer';
+          const isTransfer = method.toLowerCase().includes('transfer') || method.toLowerCase().includes('nequi') || method.toLowerCase().includes('daviplata') || method.toLowerCase().includes('banco');
           memory.payment_method = isTransfer ? 'transfer' : 'cash';
+          memory.payment_method_literal = method;
+          memory.payment_details_provided = true;
           if (memory.payment_method === 'transfer') {
             memory.cash_amount = undefined;
             memory.change_amount = undefined;
           }
           StateService.transition(memory, 'PAYMENT_PENDING');
-          const instructions = await PaymentService.getPaymentInstructions(tenantId, args.method || 'transfer');
+          const instructions = await PaymentService.getPaymentInstructions(tenantId, method);
           return { success: true, data: instructions };
+        }
+
+        case 'get_payment_details': {
+          const method = args.payment_method || args.method || 'transfer';
+          const isTransfer = method.toLowerCase().includes('transfer') || method.toLowerCase().includes('nequi') || method.toLowerCase().includes('daviplata') || method.toLowerCase().includes('banco');
+          memory.payment_method = isTransfer ? 'transfer' : 'cash';
+          memory.payment_method_literal = method;
+          memory.payment_details_provided = true;
+          if (memory.payment_method === 'transfer') {
+            memory.cash_amount = undefined;
+            memory.change_amount = undefined;
+          }
+          StateService.transition(memory, 'PAYMENT_PENDING');
+          await OrderService.calculateOrder(memory);
+          const details = await PaymentService.getPaymentDetails(tenantId, method, memory.total);
+          return { success: details.available, data: details };
         }
 
         case 'calculate_change':
         case 'provide_cash_amount': {
           const rawAmount = Number(args.monto_entregado !== undefined ? args.monto_entregado : args.cash_amount);
           memory.payment_method = 'cash';
+          memory.payment_method_literal = 'Efectivo';
           memory.cash_amount = rawAmount;
           await OrderService.calculateOrder(memory);
           const changeResult = PaymentService.calculateCashChange(memory.total, rawAmount);
@@ -299,6 +319,15 @@ export class ToolExecutor {
           if (!order) return { success: false, error: 'ORDER_NOT_FOUND' };
 
           const shortCode = order.notes?.match(/\[ID:\s*(T-[A-Z0-9]+)\]/i)?.[1] || order.order_code || `T-${order.id?.slice(0, 4)?.toUpperCase()}`;
+          const itemsCount = (order.order_items && Array.isArray(order.order_items))
+            ? order.order_items.reduce((s: number, i: any) => s + (i.quantity || 1), 0)
+            : (memory.cart.length > 0 ? memory.cart.reduce((s, i) => s + i.quantity, 0) : 1);
+          // Rule 30: tiempo estimado calculado dinámicamente
+          const basePrep = 25;
+          const minsPerItem = 5;
+          const calcMin = basePrep + (itemsCount * minsPerItem);
+          const dynamicTime = `${Math.max(15, calcMin - 10)}–${calcMin + 10} minutos`;
+
           return {
             success: true,
             data: {
@@ -306,7 +335,7 @@ export class ToolExecutor {
               order_code: shortCode,
               order_id: order.id,
               status: order.status || 'preparing',
-              estimated_time: '40–50 minutos',
+              estimated_time: dynamicTime,
               total: order.total,
               address: order.delivery_address,
             },

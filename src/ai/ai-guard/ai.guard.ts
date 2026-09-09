@@ -183,14 +183,83 @@ export class AIGuard {
           };
         }
 
+        // Rule 36 Step 1: Carrito con al menos un producto
         if (memory.cart.length === 0) {
-          return { passed: false, reason: 'CART_EMPTY: No se puede confirmar un pedido con el carrito vacío.' };
+          return { passed: false, reason: 'CART_EMPTY: No se puede confirmar un pedido con el carrito vacío (Regla 36, Paso 1).' };
+        }
+
+        // Rule 36 Step 2: delivery_type definido (domicilio con dirección, o pickup)
+        if (!memory.delivery_mode) {
+          return {
+            passed: false,
+            reason: 'FALTA_MODALIDAD_ENTREGA: Debes definir si el pedido es a domicilio o para recoger en tienda (Regla 36, Paso 2).',
+          };
+        }
+        if (memory.delivery_mode === 'delivery' && (!memory.address || memory.address.length < 5)) {
+          return {
+            passed: false,
+            reason: 'FALTA_DIRECCION: Falta la dirección de entrega para confirmar el pedido a domicilio (Regla 36, Paso 2).',
+          };
+        }
+
+        // Rule 36 Step 3: payment_method definido explícitamente por el cliente
+        if (!memory.payment_method) {
+          return {
+            passed: false,
+            reason: 'FALTA_METODO_PAGO: El pedido no tiene método de pago registrado (Regla 36, Paso 3). Debes indicar si pagas en Efectivo o Transferencia/Nequi.',
+          };
+        }
+
+        // Rule 35 & Rule 36 Step 4: Si es pago digital, datos de cuenta ya enviados
+        if (memory.payment_method === 'transfer' && !memory.payment_details_provided) {
+          return {
+            passed: false,
+            reason: 'FALTAN_DATOS_CUENTA: Antes de confirmar un pago digital, DEBES enviar primero los datos de la cuenta usando get_payment_details() (Reglas 31, 35 y 36 Paso 4).',
+          };
+        }
+
+        // Rule 36 Step 5: Monto de pago confirmado por el cliente (si es efectivo)
+        if (memory.payment_method === 'cash') {
+          if (!memory.cash_amount || memory.cash_amount <= 0) {
+            return {
+              passed: false,
+              reason: 'FALTA_MONTO_EFECTIVO: El cliente pagará en efectivo pero no ha indicado con cuánto dinero pagará (Regla 36, Paso 5).',
+            };
+          }
+          if (memory.total > 0 && memory.cash_amount < memory.total) {
+            return {
+              passed: false,
+              reason: `MONTO_INSUFICIENTE: El monto en efectivo ($${memory.cash_amount.toLocaleString('es-CO')}) no alcanza para cubrir el total ($${memory.total.toLocaleString('es-CO')}).`,
+            };
+          }
+        }
+
+        // Rule 32 & Rule 36 Step 6: Paso de confirmación final OBLIGATORIO Y SEPARADO de cualquier otro dato
+        if (userText) {
+          const norm = CatalogService.normalize(userText);
+          const isJustCashAmount = /^(pago con|con)\s*\d+/i.test(norm) || /^\$?\d{4,6}$/.test(norm.replace(/\D/g, ''));
+          const isJustAddress = /\b(calle|cra|carrera|diagonal|transversal|avenida|barrio|#)\b/i.test(norm) && !/\b(confirmo|confirmar|si|dale)\b/i.test(norm);
+          const isAffirmative = /\b(si|confirmo|confirmar|dale|de acuerdo|listo|proceder|ok|afirmativo|confirmado|hacer pedido)\b/i.test(norm);
+
+          if ((isJustCashAmount || isJustAddress) && !isAffirmative) {
+            return {
+              passed: false,
+              reason: 'PASO_CONFIRMACION_SEPARADO: NUNCA ejecutes confirm_order() como reacción a que el cliente te dé un monto o dirección (Regla 32). Primero responde con el cambio/resumen y formula la pregunta explícita "¿Confirmas tu pedido por $X? Escribe Sí o Confirmo".',
+            };
+          }
+
+          if (!isAffirmative && !args.confirmation_explicit) {
+            return {
+              passed: false,
+              reason: 'REQUIERE_RESPUESTA_AFIRMATIVA: El cliente no ha respondido afirmativamente a la pregunta de confirmación (Reglas 32 y 36, Paso 6).',
+            };
+          }
         }
 
         if (!args.confirmation_explicit) {
           return {
             passed: false,
-            reason: 'El cliente no ha confirmado explícitamente el pedido todavía.',
+            reason: 'El cliente no ha confirmado explícitamente el pedido todavía (Regla 36, Paso 6).',
           };
         }
 
@@ -213,38 +282,6 @@ export class AIGuard {
           };
         }
 
-        // Rule 11: Ensure delivery address is provided if mode is delivery (esperando_direccion)
-        if (memory.delivery_mode === 'delivery' && (!memory.address || memory.address.length < 5)) {
-          return {
-            passed: false,
-            reason: 'FALTA_DIRECCION: Falta la dirección de entrega para confirmar el pedido a domicilio.',
-          };
-        }
-
-        // Rule 15: Payment method is mandatory before confirming order
-        if (!memory.payment_method) {
-          return {
-            passed: false,
-            reason: 'FALTA_METODO_PAGO: El pedido no tiene método de pago registrado. Debes indicar si pagas en Efectivo o Transferencia.',
-          };
-        }
-
-        // Rule 15 & 19: If cash, cash_amount is mandatory before confirming order
-        if (memory.payment_method === 'cash') {
-          if (!memory.cash_amount || memory.cash_amount <= 0) {
-            return {
-              passed: false,
-              reason: 'FALTA_MONTO_EFECTIVO: El cliente pagará en efectivo pero no ha indicado con cuánto dinero pagará.',
-            };
-          }
-          if (memory.total > 0 && memory.cash_amount < memory.total) {
-            return {
-              passed: false,
-              reason: `MONTO_INSUFICIENTE: El monto en efectivo ($${memory.cash_amount.toLocaleString('es-CO')}) no alcanza para cubrir el total ($${memory.total.toLocaleString('es-CO')}).`,
-            };
-          }
-        }
-
         return { passed: true, sanitizedArguments: args };
       }
 
@@ -257,6 +294,7 @@ export class AIGuard {
       case 'get_delivery_fee':
       case 'get_payment_methods':
       case 'get_payment_instructions':
+      case 'get_payment_details':
       case 'clear_cart':
       case 'get_order_status':
       case 'get_order_details':

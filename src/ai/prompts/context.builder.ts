@@ -50,6 +50,14 @@ export class ContextBuilder {
       explicitState = 'armando_carrito';
     }
 
+    // Rule 36: Secuencia obligatoria antes de confirm_order
+    const step1Cart = memory.cart.length > 0;
+    const step2Delivery = memory.delivery_mode === 'pickup' || (memory.delivery_mode === 'delivery' && Boolean(memory.address && memory.address.length >= 5));
+    const step3Payment = Boolean(memory.payment_method);
+    const step4Digital = memory.payment_method !== 'transfer' || Boolean(memory.payment_details_provided);
+    const step5Amount = memory.payment_method !== 'cash' || Boolean(memory.cash_amount && memory.cash_amount >= memory.total);
+    const readyForConfirmQuestion = step1Cart && step2Delivery && step3Payment && step4Digital && step5Amount;
+
     const stateContext = `
 [ESTADO ACTUAL DEL SISTEMA]
 - Restaurante: ${restaurantName}
@@ -57,12 +65,21 @@ export class ContextBuilder {
 - Estado interno: ${memory.current_state}
 - Carrito activo: ${cartItemsStr}
 - Subtotal: $${(memory.subtotal || 0).toLocaleString('es-CO')} | Domicilio: $${(memory.delivery_fee || 0).toLocaleString('es-CO')} | Total: $${(memory.total || 0).toLocaleString('es-CO')}
-- Modalidad: ${memory.delivery_mode || 'No definida'}
-- Dirección registrada: ${memory.address || 'No registrada'}
-- Método de pago: ${memory.payment_method || 'No definido'}
+- Modalidad: ${memory.delivery_mode === 'pickup' ? 'pickup (Recoge en tienda - Domicilio $0)' : (memory.delivery_mode || 'No definida')}
+- Dirección registrada: ${memory.delivery_mode === 'pickup' ? 'Recoge en tienda' : (memory.address || 'No registrada')}
+- Método de pago confirmado (Regla 28 y 34): ${memory.payment_method_literal || memory.payment_method || 'No definido'}
 - Pago en efectivo: ${memory.cash_amount ? `$${memory.cash_amount.toLocaleString('es-CO')} (Devuelta: $${(memory.change_amount || 0).toLocaleString('es-CO')})` : 'N/A'}
 - Último producto / variante conversado: ${memory.last_product || 'Ninguno'} ${memory.last_variant ? `(${memory.last_variant})` : ''}
-${memory.order_code ? `- Pedido creado: ${memory.order_code}` : ''}
+${memory.order_code ? `- Pedido creado activo: ${memory.order_code}` : ''}
+${memory.last_order_code && memory.last_order_code !== memory.order_code ? `\n⚠️ [REGLA 29 - AISLAMIENTO]: Existe un pedido previo confirmado (${memory.last_order_code}). PROHIBIDO mezclar productos, datos o especificaciones de ese pedido con el pedido nuevo actual.` : ''}
+
+[SECUENCIA OBLIGATORIA REGLA 36]
+1. Carrito con productos: ${step1Cart ? '✅' : '❌ Falta agregar producto'}
+2. Modalidad y dirección: ${step2Delivery ? '✅' : '❌ Falta definir entrega o dirección'}
+3. Método de pago: ${step3Payment ? `✅ (${memory.payment_method_literal || memory.payment_method})` : '❌ Falta definir método de pago'}
+4. Datos de cuenta digital: ${memory.payment_method === 'transfer' ? (step4Digital ? '✅ Enviados' : '❌ OBLIGATORIO: llamar get_payment_details() (Regla 35)') : 'N/A'}
+5. Monto en efectivo confirmado: ${memory.payment_method === 'cash' ? (step5Amount ? '✅' : '❌ Preguntar con cuánto paga para calcular vuelto') : 'N/A'}
+6. Pregunta de confirmación puntual (Regla 32): ${readyForConfirmQuestion ? '👉 Formula: "¿Confirmas tu pedido por $X? Escribe Sí o Confirmo". NO confirmes hasta que responda Sí.' : '⏳ Completa los datos anteriores primero.'}
 ${closedNotice}
 ${memory.summary ? `\n[RESUMEN DE CONVERSACIÓN PREVIA]:\n${memory.summary}` : ''}
 `.trim();

@@ -23,6 +23,7 @@ import { PaymentService } from '../src/backend/payment.service';
 import { OrderService } from '../src/backend/order.service';
 import { AIGuard } from '../src/ai/ai-guard/ai.guard';
 import { AgentOrchestrator } from '../src/ai/agent/agent.orchestrator';
+import { ResponseBuilder } from '../src/ai/agent/response.builder';
 import { ConversationService } from '../src/conversations/conversation.service';
 import { MemoryService } from '../src/conversations/memory.service';
 import { StructuredMemory } from '../src/conversations/conversation.types';
@@ -33,8 +34,8 @@ const OTHER_TENANT_ID = 'a0000000-0000-4000-8000-000000000001';
 let passed = 0;
 let failed = 0;
 
-function assert(condition: boolean, testName: string) {
-  if (condition) {
+function assert(condition: unknown, testName: string) {
+  if (Boolean(condition)) {
     console.log(`  ✅ PASS: ${testName}`);
     passed++;
   } else {
@@ -175,6 +176,170 @@ async function runTests() {
   assert(finalMemory.total === 49000, 'El total final debe ser exactamente $49.000');
   assert(finalMemory.change_amount === 51000, 'El cambio calculado debe ser exactamente $51.000');
   assert(finalMemory.order_id !== undefined, 'La orden debe haber sido creada en la base de datos');
+
+  // ── TEST 10: Regla 27 - Respetar "Recoger en persona" / "Sin domicilio" ──
+  console.log('\n📋 10. TEST REGLA 27: RECOGER EN PERSONA / SIN DOMICILIO');
+  const r27Phone = '+573199990027';
+  await ConversationService.resetConversation(SHEK_TENANT_ID, r27Phone);
+  const mem27 = await ConversationService.getConversation(SHEK_TENANT_ID, r27Phone);
+  await CartService.addItem(mem27, 'Shek M', 1);
+  mem27.address = 'Dirección Antigua 123';
+  mem27.delivery_fee = 5000;
+  mem27.delivery_mode = 'delivery';
+  await ConversationService.saveConversation(mem27);
+
+  await AgentOrchestrator.processMessage(SHEK_TENANT_ID, r27Phone, 'yo voy por ella, sin domicilio, ya puedo arrimar');
+  const updatedMem27 = await ConversationService.getConversation(SHEK_TENANT_ID, r27Phone);
+  assert(updatedMem27.delivery_mode === 'pickup', 'delivery_mode debe cambiar a "pickup" de inmediato');
+  assert(updatedMem27.delivery_fee === 0, 'domicilio debe ser $0 sin excepción');
+  assert(updatedMem27.address === 'Recoge en tienda', 'La dirección debe quedar explícitamente "Recoge en tienda"');
+
+  // ── TEST 11: Regla 28 - Inmutabilidad del Método de Pago Confirmado ───
+  console.log('\n📋 11. TEST REGLA 28: INMUTABILIDAD DEL MÉTODO DE PAGO');
+  const r28Phone = '+573199990028';
+  await ConversationService.resetConversation(SHEK_TENANT_ID, r28Phone);
+  await AgentOrchestrator.processMessage(SHEK_TENANT_ID, r28Phone, 'Pago por Nequi');
+  const mem28 = await ConversationService.getConversation(SHEK_TENANT_ID, r28Phone);
+  assert(mem28.payment_method_literal === 'Nequi', 'Método de pago se guarda literal como "Nequi"');
+  await CartService.addItem(mem28, 'Shek L', 1);
+  const receipt = ResponseBuilder.buildOrderConfirmed(mem28, 'T-TEST');
+  assert(receipt.includes('Nequi'), 'Confirmación final debe mostrar "Nequi"');
+  assert(!receipt.includes('Efectivo contra entrega'), 'Prohibido sustituir o normalizar Nequi a "Efectivo contra entrega"');
+
+  // ── TEST 12: Regla 29 - Aislamiento de Contexto de Pedidos Anteriores ──
+  console.log('\n📋 12. TEST REGLA 29: AISLAMIENTO ESTRICTO DE CONTEXTO');
+  const r29Phone = '+573199990029';
+  await ConversationService.resetConversation(SHEK_TENANT_ID, r29Phone);
+  const mem29 = await ConversationService.getConversation(SHEK_TENANT_ID, r29Phone);
+  mem29.order_code = 'T-PREV';
+  mem29.last_order_code = 'T-PREV';
+  mem29.current_state = 'ORDER_CONFIRMED';
+  await ConversationService.saveConversation(mem29);
+
+  const leakAttempt = await AgentOrchestrator.processMessage(SHEK_TENANT_ID, r29Phone, 'Modifica mi pedido anterior T-PREV agregando papas');
+  const mem29After = await ConversationService.getConversation(SHEK_TENANT_ID, r29Phone);
+  assert(mem29After.handoff_status === true || leakAttempt.text.includes('asesor'), 'Debe escalar a humano si se intenta modificar un pedido ya confirmado');
+
+  // ── TEST 13: Regla 30 - Tiempo Estimado Calculado, NO Fijo ───────────
+  console.log('\n📋 13. TEST REGLA 30: TIEMPO ESTIMADO CALCULADO (±10 MIN)');
+  const time1Item = ResponseBuilder.calculateEstimatedTimeRange(1);
+  assert(time1Item === '20–40 minutos', '1 ítem debe calcular 20–40 minutos (base 25 + 1x5 = 30 ± 10)');
+  const time3Items = ResponseBuilder.calculateEstimatedTimeRange(3);
+  assert(time3Items === '30–50 minutos', '3 ítems deben calcular 30–50 minutos (base 25 + 3x5 = 40 ± 10)');
+  const time5Items = ResponseBuilder.calculateEstimatedTimeRange(5);
+  assert(time5Items === '40–60 minutos', '5 ítems deben calcular 40–60 minutos (base 25 + 5x5 = 50 ± 10)');
+
+  // ── TEST 14: Regla 31 - Datos de Cuenta Obligatorios para Pago Digital ──
+  console.log('\n📋 14. TEST REGLA 31: DATOS DE CUENTA OBLIGATORIOS PARA PAGO DIGITAL');
+  const paymentDetails = await PaymentService.getPaymentDetails(SHEK_TENANT_ID, 'Nequi', 49000);
+  assert(paymentDetails.available === true, 'get_payment_details debe responder disponible para Nequi');
+  assert(paymentDetails.formattedMessage.includes('Titular del negocio'), 'Mensaje incluye titular del negocio');
+  assert(paymentDetails.formattedMessage.includes('Nequi'), 'Mensaje incluye número de Nequi');
+  assert(paymentDetails.formattedMessage.includes('$49.000'), 'Mensaje incluye monto exacto a transferir');
+  assert(paymentDetails.formattedMessage.includes('Comprobante'), 'Mensaje solicita explícitamente comprobante');
+
+  // AI Guard bloquea si no se entregaron datos de cuenta
+  const digitalMem: StructuredMemory = MemoryService.createDefault(SHEK_TENANT_ID, '+573199990031');
+  await CartService.addItem(digitalMem, 'Shek S', 1);
+  digitalMem.delivery_mode = 'pickup';
+  digitalMem.address = 'Recoge en tienda';
+  digitalMem.payment_method = 'transfer';
+  digitalMem.payment_details_provided = false;
+  const guardDigital = await AIGuard.validateToolCall(SHEK_TENANT_ID, digitalMem, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!guardDigital.passed && guardDigital.reason?.includes('FALTAN_DATOS_CUENTA'), 'AI Guard bloquea confirm_order si no se entregaron datos de cuenta previos');
+
+  // ── TEST 15: Regla 32 - Paso de Confirmación Final Obligatorio y Separado ──
+  console.log('\n📋 15. TEST REGLA 32: CONFIRMACIÓN SEPARADA DE MONTO / DIRECCIÓN');
+  const mem32: StructuredMemory = MemoryService.createDefault(SHEK_TENANT_ID, '+573199990032');
+  await CartService.addItem(mem32, 'Shek M', 1);
+  mem32.delivery_mode = 'pickup';
+  mem32.address = 'Recoge en tienda';
+  mem32.payment_method = 'cash';
+  mem32.cash_amount = 50000;
+  // Intento de confirmar inmediatamente con mensaje "Pago con 50000"
+  const guard32 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem32, 'confirm_order', { confirmation_explicit: true }, 'Pago con 50000');
+  assert(!guard32.passed && guard32.reason?.includes('PASO_CONFIRMACION_SEPARADO'), 'AI Guard debe bloquear confirm_order si el cliente solo indicó el monto a pagar');
+
+  // Cuando el cliente responde afirmativamente ("Sí" o "Confirmo")
+  const guard32Confirm = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem32, 'confirm_order', { confirmation_explicit: true }, 'Sí, confirmo');
+  assert(guard32Confirm.passed, 'AI Guard permite confirm_order cuando el cliente responde afirmativamente a la pregunta puntual');
+
+  // ── TEST 16: Regla 33 - Tipo de Entrega (Pickup) Controla el Cálculo ──
+  console.log('\n📋 16. TEST REGLA 33: PICKUP CONTROLA CÁLCULO Y RESUMEN');
+  const r33Phone = '+573199990033';
+  await ConversationService.resetConversation(SHEK_TENANT_ID, r33Phone);
+  const mem33 = await ConversationService.getConversation(SHEK_TENANT_ID, r33Phone);
+  await CartService.addItem(mem33, 'Shek L', 1);
+  mem33.address = 'Calle Falsa 123';
+  mem33.delivery_fee = 5000;
+  mem33.delivery_mode = 'delivery';
+  await ConversationService.saveConversation(mem33);
+
+  await AgentOrchestrator.processMessage(SHEK_TENANT_ID, r33Phone, 'recojo en el punto, sin domicilio, voy por él');
+  const mem33After = await ConversationService.getConversation(SHEK_TENANT_ID, r33Phone);
+  assert(mem33After.delivery_mode === 'pickup', 'order.delivery_type / mode se actualiza a "pickup"');
+  assert(mem33After.delivery_fee === 0, 'domicilio se recalcula a $0 en get_cart_summary()');
+  assert(mem33After.address === 'Recoge en tienda', 'Dirección queda explícitamente "Recoge en tienda"');
+
+  const review33 = ResponseBuilder.buildOrderReview(mem33After);
+  assert(review33.includes('Recoge en tienda'), 'Resumen muestra "Recoge en tienda"');
+  assert(review33.includes('$0'), 'Resumen muestra domicilio $0');
+
+  // ── TEST 17: Regla 34 - Método de Pago Exactamente el Elegido ────────
+  console.log('\n📋 17. TEST REGLA 34: MÉTODO DE PAGO EXACTO EN CONFIRMACIÓN');
+  const mem34: StructuredMemory = MemoryService.createDefault(SHEK_TENANT_ID, '+573199990034');
+  await CartService.addItem(mem34, 'Shek XL', 1);
+  mem34.delivery_mode = 'pickup';
+  mem34.payment_method = 'transfer';
+  mem34.payment_method_literal = 'Daviplata';
+  const confirmed34 = ResponseBuilder.buildOrderConfirmed(mem34, 'T-DVPL');
+  assert(confirmed34.includes('Daviplata'), 'Confirmación final interpola directamente "Daviplata"');
+  assert(!confirmed34.includes('Efectivo contra entrega'), 'Prohibido sustituir por default "Efectivo contra entrega"');
+
+  // ── TEST 18: Regla 35 - Datos de Pago Digital Obligatorios Bloqueantes ──
+  console.log('\n📋 18. TEST REGLA 35: DATOS DE CUENTA OBLIGATORIOS ANTES DE CONFIRMAR');
+  const mem35: StructuredMemory = MemoryService.createDefault(SHEK_TENANT_ID, '+573199990035');
+  await CartService.addItem(mem35, 'Shek S', 1);
+  mem35.delivery_mode = 'pickup';
+  mem35.address = 'Recoge en tienda';
+  mem35.payment_method = 'transfer';
+  mem35.payment_method_literal = 'Nequi';
+  mem35.payment_details_provided = false;
+  const guard35 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem35, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!guard35.passed && guard35.reason?.includes('FALTAN_DATOS_CUENTA'), 'Bloquea confirm_order si AÚN no se han enviado datos de cuenta con get_payment_details()');
+
+  // ── TEST 19: Regla 36 - Secuencia Obligatoria de 6 Pasos ─────────────
+  console.log('\n📋 19. TEST REGLA 36: SECUENCIA OBLIGATORIA COMPLETA ANTES DE CONFIRMAR');
+  const mem36: StructuredMemory = MemoryService.createDefault(SHEK_TENANT_ID, '+573199990036');
+
+  // Paso 1: Carrito vacío -> bloquea
+  const g1 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem36, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!g1.passed && g1.reason?.includes('CART_EMPTY'), 'Paso 1: Bloquea si carrito está vacío');
+
+  // Paso 2: Sin modalidad de entrega -> bloquea
+  await CartService.addItem(mem36, 'Shek M', 1);
+  mem36.delivery_mode = undefined;
+  const g2 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem36, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!g2.passed && g2.reason?.includes('FALTA_MODALIDAD_ENTREGA'), 'Paso 2: Bloquea si falta definir modalidad');
+
+  // Paso 3: Sin método de pago -> bloquea
+  mem36.delivery_mode = 'pickup';
+  mem36.address = 'Recoge en tienda';
+  mem36.payment_method = undefined;
+  const g3 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem36, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!g3.passed && g3.reason?.includes('FALTA_METODO_PAGO'), 'Paso 3: Bloquea si falta método de pago');
+
+  // Paso 5: En efectivo sin monto informado -> bloquea
+  mem36.payment_method = 'cash';
+  mem36.cash_amount = undefined;
+  const g5 = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem36, 'confirm_order', { confirmation_explicit: true }, 'Confirmo');
+  assert(!g5.passed && g5.reason?.includes('FALTA_MONTO_EFECTIVO'), 'Paso 5: Bloquea si es efectivo y no indicó monto');
+
+  // Todos los 6 pasos cumplidos -> éxito
+  mem36.cash_amount = 50000;
+  await OrderService.calculateOrder(mem36);
+  const gSuccess = await AIGuard.validateToolCall(SHEK_TENANT_ID, mem36, 'confirm_order', { confirmation_explicit: true }, 'Sí, confirmo pedido');
+  assert(gSuccess.passed, 'Paso 6: Permite confirm_order cuando todos los 6 pasos obligatorios se cumplen');
 
   console.log('\n================================================================');
   console.log(`🏁 RESULTADOS: ${passed} PASADOS | ${failed} FALLADOS`);

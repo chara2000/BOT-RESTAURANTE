@@ -60,10 +60,36 @@ export class MessageRouter {
         processedText = inbound.text || 'Comprobante de pago adjunto';
         break;
 
-      case 'audio':
-        // Audio processing placeholder or transcription
-        processedText = inbound.text || 'Mensaje de voz recibido';
+      case 'audio': {
+        const audioUrl = inbound.mediaUrl || (inbound.mediaId ? `https://api.ycloud.com/v2/whatsapp/media/${inbound.mediaId}` : null);
+        if (audioUrl) {
+          try {
+            console.log('[MessageRouter] Downloading audio note from YCloud for Whisper transcription...');
+            const audioRes = await fetch(audioUrl, {
+              headers: creds.apiKey ? { 'X-API-Key': creds.apiKey } : undefined,
+            });
+            if (audioRes.ok) {
+              const arrayBuf = await audioRes.arrayBuffer();
+              const { OpenAIService } = await import('@/ai/openai/openai.service');
+              const transcribed = await OpenAIService.transcribeAudio(Buffer.from(arrayBuf));
+              if (transcribed) {
+                console.log(`[MessageRouter] Audio transcribed successfully: "${transcribed}"`);
+                processedText = transcribed;
+              } else {
+                processedText = inbound.text || 'Mensaje de voz recibido';
+              }
+            } else {
+              processedText = inbound.text || 'Mensaje de voz recibido';
+            }
+          } catch (audioErr) {
+            console.warn('[MessageRouter] Audio download/transcribe error:', audioErr);
+            processedText = inbound.text || 'Mensaje de voz recibido';
+          }
+        } else {
+          processedText = inbound.text || 'Mensaje de voz recibido';
+        }
         break;
+      }
 
       case 'text':
       default:

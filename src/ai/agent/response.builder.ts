@@ -185,8 +185,34 @@ export class ResponseBuilder {
 
   /**
    * Generates a warm, appetizing Colombian welcome greeting with 3 options (Rule 1)
+   * Supports personalized greetings for returning customers with address recall
    */
-  public static buildWelcomeGreeting(restaurantName = 'Shek Food'): string {
+  public static buildWelcomeGreeting(
+    restaurantName = 'Shek Food',
+    customerInfo?: { customerName?: string; savedAddress?: string; orderCount?: number }
+  ): string {
+    const name = customerInfo?.customerName;
+    const address = customerInfo?.savedAddress;
+    const isReturning = Boolean(name || (customerInfo?.orderCount && customerInfo.orderCount > 0));
+
+    if (isReturning && name && name !== 'Cliente WhatsApp') {
+      const addressPrompt = address && address !== 'Recoge en tienda' && address.length >= 5
+        ? `\n📍 ¿Te enviamos tu pedido a tu dirección habitual (*${address}*) o prefieres registrar una nueva? 🛵`
+        : '';
+
+      return [
+        `¡Hola de nuevo, *${name}*! 👋 Qué alegría tenerte de vuelta en *${restaurantName}* 🍟❤️`,
+        `📄 Aquí tienes nuestra carta oficial en PDF con todos nuestros platillos y promociones. ✨${addressPrompt}`,
+        ``,
+        `¿Qué delicia se te antoja ordenar hoy?`,
+        `1️⃣ *Ver la carta* 📄`,
+        `2️⃣ *Armar tu pedido* 🍟 (Salchipapas Shek, Hamburguesas, Granizados)`,
+        `3️⃣ *Consultar domicilio* 🛵`,
+        ``,
+        `Dime qué deseas pedir y con muchísimo gusto te atendemos. 😋✨`,
+      ].join('\n');
+    }
+
     return [
       `¡Hola! 👋 Te damos una cálida bienvenida a *${restaurantName}* 🍟🍔🥤`,
       `📄 Aquí tienes adjunta nuestra carta oficial completa en PDF con fotos, platillos y precios. ✨`,

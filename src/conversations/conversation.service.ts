@@ -131,8 +131,8 @@ export class ConversationService {
   }
 
   /**
-   * Scans active conversations and sends abandonment reminders for carts left pending (30 - 55 min)
-   * Max abandonment window: 1 hour
+   * Scans active conversations and sends abandonment reminders for carts left pending (15 - 45 min)
+   * Max abandonment window: 45 min (optimal for restaurant operations)
    */
   public static async processAbandonmentReminders(): Promise<{ checked: number; sent: number }> {
     const now = Date.now();
@@ -144,12 +144,43 @@ export class ConversationService {
     const { CartService } = await import('@/backend/cart.service');
     const { ResponseBuilder } = await import('@/ai/agent/response.builder');
 
-    for (const [key, memory] of Object.entries(globalMemoryStore)) {
+    // Collect memories from local store + recent DB sessions
+    const candidates: Record<string, StructuredMemory> = { ...globalMemoryStore };
+
+    const supabase = this.getSupabase();
+    if (supabase) {
+      try {
+        const fortyFiveMinAgo = new Date(now - 45 * 60 * 1000).toISOString();
+        const { data: recentStates } = await supabase
+          .from('chat_messages')
+          .select('metadata')
+          .eq('content', 'AGENT_SESSION_STATE')
+          .gte('created_at', fortyFiveMinAgo)
+          .order('created_at', { ascending: false })
+          .limit(40);
+
+        if (recentStates) {
+          for (const row of recentStates) {
+            const mem = row.metadata as StructuredMemory;
+            if (mem?.phone && mem.tenant_id) {
+              const k = this.getStoreKey(mem.tenant_id, mem.phone);
+              if (!candidates[k]) {
+                candidates[k] = mem;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ConversationService] Error fetching DB abandonment candidates:', err);
+      }
+    }
+
+    for (const [key, memory] of Object.entries(candidates)) {
       checked++;
       if (memory.cart && memory.cart.length > 0 && memory.current_state !== 'ORDER_CONFIRMED' && !memory.reminder_sent) {
         const elapsed = now - (memory.last_activity || now);
-        // Window: between 30 min and 58 min
-        if (elapsed >= 30 * 60 * 1000 && elapsed <= 58 * 60 * 1000) {
+        // Window: between 15 min and 45 min
+        if (elapsed >= 15 * 60 * 1000 && elapsed <= 45 * 60 * 1000) {
           const creds = await getTenantCreds(memory.tenant_id);
           if (creds?.apiKey) {
             const summary = CartService.formatCartSummary(memory);
@@ -159,6 +190,10 @@ export class ConversationService {
               to: memory.phone,
               text: reminderText,
               from: creds.phone || undefined,
+              buttons: [
+                { text: '🛒 Continuar Pedido', callback_data: 'dame el resumen del pedido' },
+                { text: '🗑️ Vaciar Carrito', callback_data: 'vaciar carrito' }
+              ],
             });
             if (ok) {
               sent++;

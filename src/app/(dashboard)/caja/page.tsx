@@ -30,6 +30,27 @@ export default function CajaPage() {
   const [txType, setTxType] = useState<'income' | 'expense'>('income');
   const [openBalance, setOpenBalance] = useState('150000');
   const [closeCash, setCloseCash] = useState('');
+  const [showDenomCalculator, setShowDenomCalculator] = useState(false);
+  const [denominations, setDenominations] = useState<{ [key: number]: number }>({
+    100000: 0,
+    50000: 0,
+    20000: 0,
+    10000: 0,
+    5000: 0,
+    2000: 0,
+    1000: 0,
+    500: 0,
+    200: 0,
+    100: 0,
+  });
+
+  const totalFromDenominations = useMemo(() => {
+    return Object.entries(denominations).reduce(
+      (acc, [val, count]) => acc + Number(val) * Number(count || 0),
+      0
+    );
+  }, [denominations]);
+
   const [message, setMessage] = useState<string | null>(null);
 
   // CRUD states for past cash sessions
@@ -571,8 +592,78 @@ export default function CajaPage() {
                         </div>
 
                         <div className="space-y-3">
-                          <input value={closeCash} onChange={(e) => setCloseCash(e.target.value)} type="number" placeholder="Efectivo físico real en caja *" required
-                            className="w-full text-xs font-semibold px-4 py-3 rounded-xl border border-rose-500/30 focus:outline-none focus:ring-2 focus:ring-rose-400 bg-[var(--bg-input)]" style={{ color: 'var(--text-primary)' }} />
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-black uppercase text-[var(--text-muted)]">
+                              Efectivo físico real en caja *
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setShowDenomCalculator(!showDenomCalculator)}
+                              className="text-[10px] font-extrabold text-[var(--orange)] hover:underline flex items-center gap-1 cursor-pointer"
+                            >
+                              <Calculator className="w-3 h-3" />
+                              {showDenomCalculator ? 'Ocultar Desglose' : '📐 Desglose por Billetes/Monedas (Arqueo Ciego)'}
+                            </button>
+                          </div>
+
+                          {showDenomCalculator && (
+                            <div className="p-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border)] space-y-2.5 animate-fade-in shadow-inner">
+                              <p className="text-[10px] font-extrabold text-[var(--text-primary)]">
+                                Conteo físico ciego (ingresa cantidades de billetes y monedas):
+                              </p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {[
+                                  { val: 100000, label: '$100.000' },
+                                  { val: 50000, label: '$50.000' },
+                                  { val: 20000, label: '$20.000' },
+                                  { val: 10000, label: '$10.000' },
+                                  { val: 5000, label: '$5.000' },
+                                  { val: 2000, label: '$2.000' },
+                                  { val: 1000, label: '$1.000' },
+                                  { val: 500, label: '$500' },
+                                  { val: 200, label: '$200' },
+                                ].map(({ val, label }) => (
+                                  <div key={val} className="flex items-center justify-between gap-1.5 p-1.5 rounded-xl bg-[var(--bg-input)] border border-[var(--border)]">
+                                    <span className="text-[10px] font-black text-[var(--text-muted)]">{label}</span>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      placeholder="0"
+                                      value={denominations[val] || ''}
+                                      onChange={(e) => {
+                                        const count = parseInt(e.target.value, 10) || 0;
+                                        setDenominations(prev => {
+                                          const next = { ...prev, [val]: count };
+                                          const nextTotal = Object.entries(next).reduce(
+                                            (acc, [k, v]) => acc + Number(k) * Number(v || 0),
+                                            0
+                                          );
+                                          setCloseCash(String(nextTotal));
+                                          return next;
+                                        });
+                                      }}
+                                      className="w-12 text-right text-xs font-bold px-1.5 py-0.5 rounded-lg border bg-[var(--bg-card)] text-[var(--text-primary)] outline-none"
+                                      style={{ borderColor: 'var(--border)' }}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex items-center justify-between pt-2 border-t border-[var(--border)] text-xs">
+                                <span className="font-bold text-[var(--text-muted)]">Total Físico Contado:</span>
+                                <span className="font-black text-emerald-500 text-sm">{formatCurrency(totalFromDenominations)}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <input 
+                            value={closeCash} 
+                            onChange={(e) => setCloseCash(e.target.value)} 
+                            type="number" 
+                            placeholder="Monto total contado en efectivo *" 
+                            required
+                            className="w-full text-xs font-semibold px-4 py-3 rounded-xl border border-rose-500/30 focus:outline-none focus:ring-2 focus:ring-rose-400 bg-[var(--bg-input)]" 
+                            style={{ color: 'var(--text-primary)' }} 
+                          />
                           
                           <button type="submit" className="w-full text-xs font-black py-3.5 rounded-xl text-white bg-rose-500 hover:bg-rose-600 shadow-md transition-all active:scale-95 cursor-pointer">
                             Procesar Cierre de Venta y Jornada

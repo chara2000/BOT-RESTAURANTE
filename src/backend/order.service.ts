@@ -231,6 +231,33 @@ export class OrderService {
       });
     }
 
+    // 8.1 Automatic Inventory/Stock Decrement
+    try {
+      for (const item of memory.cart) {
+        if (!item.productId) continue;
+        const { data: prod } = await supabase
+          .from('products')
+          .select('id, stock')
+          .eq('tenant_id', memory.tenant_id)
+          .eq('id', item.productId)
+          .maybeSingle();
+
+        if (prod && typeof prod.stock === 'number') {
+          const newStock = Math.max(0, prod.stock - item.quantity);
+          await supabase
+            .from('products')
+            .update({
+              stock: newStock,
+              is_available: newStock > 0,
+            })
+            .eq('id', prod.id);
+          console.log(`[OrderService] Stock updated for ${prod.id}: ${prod.stock} -> ${newStock}`);
+        }
+      }
+    } catch (stockErr) {
+      console.warn('[OrderService] Non-fatal error updating product stock:', stockErr);
+    }
+
     // 9. Snapshot ordered items before clearing cart
     const orderedItems = memory.cart.map(i => ({ ...i }));
 

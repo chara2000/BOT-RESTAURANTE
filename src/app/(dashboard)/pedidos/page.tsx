@@ -236,10 +236,41 @@ function OrderCard({
       <div className="flex items-center justify-between pt-3 border-t border-[var(--border)] mt-1">
         <span className="text-sm font-black text-[var(--text-primary)]">{formatCurrency(order.total)}</span>
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold flex items-center gap-1.5 px-2 py-1 bg-[var(--bg-input)] rounded-md" style={{ color: 'var(--text-muted)' }}>
-            <Clock className="h-3.5 w-3.5" />
-            {new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
-          </span>
+          {(() => {
+            const elapsedMinutes = Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000);
+            const isActiveKitchen = ['pending', 'confirmed', 'preparing'].includes(order.status);
+
+            let timeBadgeStyle = 'bg-[var(--bg-input)] text-[var(--text-muted)]';
+            let timeAlertDot = null;
+            if (isActiveKitchen) {
+              if (elapsedMinutes >= 25) {
+                timeBadgeStyle = 'bg-rose-500/15 text-rose-500 border border-rose-500/30 animate-pulse font-black';
+                timeAlertDot = <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />;
+              } else if (elapsedMinutes >= 15) {
+                timeBadgeStyle = 'bg-amber-500/15 text-amber-500 border border-amber-500/30 font-bold';
+                timeAlertDot = <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />;
+              } else {
+                timeBadgeStyle = 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-bold';
+                timeAlertDot = <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />;
+              }
+            }
+
+            return (
+              <span 
+                className={`text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-md transition-colors ${timeBadgeStyle}`}
+                title={`Creado a las ${new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`}
+              >
+                {timeAlertDot}
+                <Clock className="h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {isActiveKitchen
+                    ? (elapsedMinutes < 60 ? `${elapsedMinutes}m` : `${Math.floor(elapsedMinutes / 60)}h ${elapsedMinutes % 60}m`)
+                    : new Date(order.created_at).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })
+                  }
+                </span>
+              </span>
+            );
+          })()}
           {onToggleSelect && (
             <div 
               onClick={(e) => {

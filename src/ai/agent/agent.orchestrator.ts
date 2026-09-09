@@ -75,7 +75,12 @@ export class AgentOrchestrator {
       memory.current_state = 'WELCOME';
       memory.cart_id = `cart_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const pdfUrl = menuPdfUrl || (await CatalogService.getMenuPdf(tenantId));
-      const reply = ResponseBuilder.buildWelcomeGreeting('Shek Food');
+      const knownName = customerName || memory.customer_name;
+      const knownAddress = memory.address;
+      const reply = ResponseBuilder.buildWelcomeGreeting('Shek Food', {
+        customerName: knownName,
+        savedAddress: knownAddress,
+      });
       MemoryService.addMessage(memory, 'assistant', reply);
       await ConversationService.saveConversation(memory);
       return {

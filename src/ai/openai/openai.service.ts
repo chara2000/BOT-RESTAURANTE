@@ -131,4 +131,31 @@ export class OpenAIService {
 
     throw new Error('No AI provider available (OpenAI and Groq failed or unconfigured).');
   }
+
+  /**
+   * Transcribes WhatsApp voice notes / audio messages using OpenAI Whisper
+   */
+  public static async transcribeAudio(audioBuffer: Buffer | ArrayBuffer, filename = 'voice_note.ogg'): Promise<string> {
+    const openai = this.getOpenAIClient();
+    if (!openai) {
+      console.warn('[OpenAIService] OpenAI client not configured for audio transcription.');
+      return '';
+    }
+
+    try {
+      const { toFile } = await import('openai');
+      const file = await toFile(audioBuffer, filename);
+      const transcription = await openai.audio.transcriptions.create({
+        file,
+        model: 'whisper-1',
+        language: 'es',
+        prompt: 'Pedido de comida rápida en Shek Food: Salchipapas Shek (S, M, L, XL, XXL), hamburguesas, granizados, gaseosa, adiciones, direcciones en Puerto Tejada.',
+      });
+
+      return transcription.text?.trim() || '';
+    } catch (err: any) {
+      console.error('[OpenAIService] Whisper transcription error:', err?.message || err);
+      return '';
+    }
+  }
 }
